@@ -17,6 +17,22 @@ body {
   color: #e0e0e0;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   min-height: 100vh;
+  /* Evitar scroll horizontal no mobile */
+  overflow-x: hidden;
+}
+
+/* Evitar zoom ao focar em inputs no iPhone (precisa ser >= 16px) */
+input, select, textarea {
+  font-size: 16px !important;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Impedir resize e zoom no iOS Safari */
+@supports (-webkit-touch-callout: none) {
+  body {
+    /* Prevenir bounce scroll no iOS */
+    overscroll-behavior: none;
+  }
 }
 
 ::-webkit-scrollbar {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useDashboard } from './store/useDashboard';
 import { SummaryCard } from './components/SummaryCard';
 import { BillRow } from './components/BillRow';
@@ -9,6 +9,26 @@ import { type Bill, formatCurrency, BILL_CATEGORY_LABELS } from './types';
 
 type Tab = 'dashboard' | 'cartao' | 'chat';
 type AddSection = 'fixed' | 'variable' | null;
+
+// Detectar se o teclado virtual está aberto no mobile
+function useKeyboardOpen() {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const check = () => {
+      // Se o viewport visível é muito menor que a tela, o teclado está aberto
+      setOpen(vv.height < window.innerHeight * 0.75);
+    };
+    vv.addEventListener('resize', check);
+    vv.addEventListener('scroll', check);
+    return () => {
+      vv.removeEventListener('resize', check);
+      vv.removeEventListener('scroll', check);
+    };
+  }, []);
+  return open;
+}
 
 function ProgressBar({ value, max }: { value: number; max: number }) {
   const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
@@ -84,6 +104,7 @@ export default function App() {
   const [incomeEditing, setIncomeEditing] = useState(false);
   const [incomeInput, setIncomeInput] = useState('');
   const [importMsg, setImportMsg] = useState<string | null>(null);
+  const keyboardOpen = useKeyboardOpen();
 
   const paidCount = db.selectedMonth.bills.filter((b) => b.isPaid).length;
   const totalCount = db.selectedMonth.bills.length;
@@ -123,7 +144,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
         </div>
       </header>
 
-      {/* Bottom tab bar — fixo na parte de baixo (estilo app nativo) */}
+      {/* Bottom tab bar — esconde quando teclado abre */}
       <nav style={{
         position: 'fixed',
         bottom: 0,
@@ -132,7 +153,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
         height: 64,
         background: '#111',
         borderTop: '1px solid #1e1e1e',
-        display: 'flex',
+        display: keyboardOpen ? 'none' : 'flex',
         alignItems: 'center',
         justifyContent: 'space-around',
         zIndex: 100,
@@ -216,9 +237,10 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                   <div style={{ display: 'flex', gap: 8 }}>
                     <input
                       autoFocus
-                      type="number"
+                      inputMode="decimal"
+                      pattern="[0-9.,]*"
                       value={incomeInput}
-                      onChange={(e) => setIncomeInput(e.target.value)}
+                      onChange={(e) => setIncomeInput(e.target.value.replace(/[^0-9.,]/g, ''))}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') { db.updateIncome(parseFloat(incomeInput) || 0); setIncomeEditing(false); }
                         if (e.key === 'Escape') setIncomeEditing(false);

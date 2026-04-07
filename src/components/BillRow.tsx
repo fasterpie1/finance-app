@@ -198,11 +198,10 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete 
           {editField === 'dueDay' ? (
             <input
               ref={inputRef}
-              type="number"
-              min={1}
-              max={31}
+              inputMode="numeric"
+              pattern="[0-9]*"
               value={editStr}
-              onChange={(e) => setEditStr(e.target.value)}
+              onChange={(e) => setEditStr(e.target.value.replace(/[^0-9]/g, ''))}
               onBlur={commit}
               onKeyDown={onKeyDown}
               style={{ ...editInputStyle, width: 48, fontSize: 11 }}
@@ -257,11 +256,10 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete 
           <span style={{ fontSize: 11, color: '#6b7280' }}>R$</span>
           <input
             ref={inputRef}
-            type="number"
-            step="0.01"
-            min="0"
+            inputMode="decimal"
+            pattern="[0-9.,]*"
             value={editStr}
-            onChange={(e) => setEditStr(e.target.value)}
+            onChange={(e) => setEditStr(e.target.value.replace(/[^0-9.,]/g, ''))}
             onBlur={commit}
             onKeyDown={onKeyDown}
             style={{ ...editInputStyle, width: 90, fontWeight: 700, fontSize: 15 }}

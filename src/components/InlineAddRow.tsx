@@ -105,12 +105,11 @@ export const InlineAddRow: React.FC<Props> = ({ monthName, onSave, onCancel, def
         <span style={{ fontSize: 12, color: '#555' }}>R$</span>
         <input
           className="inline-add-input"
-          type="number"
-          step="0.01"
-          min="0"
+          inputMode="decimal"
+          pattern="[0-9.,]*"
           placeholder="0,00"
           value={amount}
-          onChange={(e) => setAmount(e.target.value)}
+          onChange={(e) => setAmount(e.target.value.replace(/[^0-9.,]/g, ''))}
           onKeyDown={onKeyDown}
           style={{ ...fieldStyle, width: 90 }}
         />
@@ -121,11 +120,10 @@ export const InlineAddRow: React.FC<Props> = ({ monthName, onSave, onCancel, def
         <span style={{ fontSize: 12, color: '#555' }}>Dia</span>
         <input
           className="inline-add-input"
-          type="number"
-          min={1}
-          max={31}
+          inputMode="numeric"
+          pattern="[0-9]*"
           value={dueDay}
-          onChange={(e) => setDueDay(e.target.value)}
+          onChange={(e) => setDueDay(e.target.value.replace(/[^0-9]/g, ''))}
           onKeyDown={onKeyDown}
           style={{ ...fieldStyle, width: 48 }}
         />

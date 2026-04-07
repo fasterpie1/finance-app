@@ -168,12 +168,11 @@ export const CreditCardView: React.FC<Props> = ({
                 <label style={labelStyle}>Valor da parcela (R$)</label>
                 <input
                   style={fieldStyle}
-                  type="number"
-                  step="0.01"
-                  min="0"
+                  inputMode="decimal"
+                  pattern="[0-9.,]*"
                   placeholder="211,00"
                   value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
+                  onChange={(e) => setAmount(e.target.value.replace(/[^0-9.,]/g, ''))}
                   onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
                 />
               </div>
@@ -181,20 +180,20 @@ export const CreditCardView: React.FC<Props> = ({
                 <label style={labelStyle}>Parcela atual</label>
                 <input
                   style={fieldStyle}
-                  type="number"
-                  min="1"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   value={curInstallment}
-                  onChange={(e) => setCurInstallment(e.target.value)}
+                  onChange={(e) => setCurInstallment(e.target.value.replace(/[^0-9]/g, ''))}
                 />
               </div>
               <div>
                 <label style={labelStyle}>Total de parcelas</label>
                 <input
                   style={fieldStyle}
-                  type="number"
-                  min="1"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   value={totalInstallment}
-                  onChange={(e) => setTotalInstallment(e.target.value)}
+                  onChange={(e) => setTotalInstallment(e.target.value.replace(/[^0-9]/g, ''))}
                 />
               </div>
             </div>
@@ -203,11 +202,10 @@ export const CreditCardView: React.FC<Props> = ({
               <label style={labelStyle}>Dia do vencimento</label>
               <input
                 style={fieldStyle}
-                type="number"
-                min="1"
-                max="31"
+                inputMode="numeric"
+                pattern="[0-9]*"
                 value={dueDay}
-                onChange={(e) => setDueDay(e.target.value)}
+                onChange={(e) => setDueDay(e.target.value.replace(/[^0-9]/g, ''))}
               />
             </div>
 
