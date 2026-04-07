@@ -113,44 +113,60 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
 
   return (
     <div style={{ minHeight: '100vh', background: '#0d0d0d', color: '#e0e0e0', fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif" }}>
-      {/* Top bar */}
-      <header style={{ borderBottom: '1px solid #1a1a1a', padding: '0 24px', height: 54, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, background: '#0d0d0d', zIndex: 50 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 19 }}>💸</span>
+      {/* Top bar — simples, sem tabs */}
+      <header style={{ borderBottom: '1px solid #1a1a1a', padding: '0 16px', height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'sticky', top: 0, background: '#0d0d0d', zIndex: 50 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 17 }}>💸</span>
           <span style={{ fontSize: 15, fontWeight: 700, color: '#f0f0f0', letterSpacing: '-0.01em' }}>Finança</span>
-          <span style={{ fontSize: 11, color: '#3b82f6', background: '#1e3a5f', border: '1px solid #2563eb33', borderRadius: 6, padding: '2px 7px', fontWeight: 600 }}>PESSOAL</span>
-        </div>
-
-        {/* Tabs */}
-        <div style={{ display: 'flex', gap: 4, background: '#141414', border: '1px solid #222', borderRadius: 10, padding: 4 }}>
-          {([
-            { key: 'dashboard', label: '📊 Dashboard' },
-            { key: 'cartao', label: '💳 Cartão' },
-            { key: 'chat', label: '🤖 IA' },
-          ] as { key: Tab; label: string }[]).map(({ key, label }) => (
-            <button
-              key={key}
-              onClick={() => setTab(key)}
-              style={{
-                background: tab === key ? '#1e1e1e' : 'transparent',
-                border: `1px solid ${tab === key ? '#2d2d2d' : 'transparent'}`,
-                borderRadius: 7,
-                color: tab === key ? '#e0e0e0' : '#6b7280',
-                cursor: 'pointer',
-                padding: '5px 14px',
-                fontSize: 13,
-                fontWeight: tab === key ? 600 : 400,
-                transition: 'all 0.15s',
-              }}
-            >
-              {label}
-            </button>
-          ))}
+          <span style={{ fontSize: 10, color: '#3b82f6', background: '#1e3a5f', border: '1px solid #2563eb33', borderRadius: 5, padding: '1px 6px', fontWeight: 600 }}>PESSOAL</span>
         </div>
       </header>
 
+      {/* Bottom tab bar — fixo na parte de baixo (estilo app nativo) */}
+      <nav style={{
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        height: 64,
+        background: '#111',
+        borderTop: '1px solid #1e1e1e',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-around',
+        zIndex: 100,
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+      }}>
+        {([
+          { key: 'dashboard' as Tab, icon: '📊', label: 'Dashboard' },
+          { key: 'cartao' as Tab, icon: '💳', label: 'Cartão' },
+          { key: 'chat' as Tab, icon: '🤖', label: 'IA' },
+        ]).map(({ key, icon, label }) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 2,
+              padding: '6px 16px',
+              minWidth: 70,
+              transition: 'all 0.15s',
+            }}
+          >
+            <span style={{ fontSize: 22, filter: tab === key ? 'none' : 'grayscale(0.6)', opacity: tab === key ? 1 : 0.5 }}>{icon}</span>
+            <span style={{ fontSize: 10, fontWeight: tab === key ? 700 : 400, color: tab === key ? '#e0e0e0' : '#555', letterSpacing: '0.02em' }}>{label}</span>
+            {tab === key && <div style={{ width: 20, height: 2, borderRadius: 1, background: '#3b82f6', marginTop: 1 }} />}
+          </button>
+        ))}
+      </nav>
+
       {/* Main */}
-      <div style={{ maxWidth: 900, margin: '0 auto', padding: '26px 24px', display: 'flex', flexDirection: 'column', gap: 26 }}>
+      <div style={{ maxWidth: 900, margin: '0 auto', padding: '20px 16px 90px', display: 'flex', flexDirection: 'column', gap: 22 }}>
 
         {/* Month selector (shared) */}
         <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
