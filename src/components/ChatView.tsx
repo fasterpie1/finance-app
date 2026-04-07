@@ -1,13 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react';
 
 interface Message {
-  role: 'user' | 'assistant' | 'error';
+  role: 'user' | 'model' | 'error';
   content: string;
 }
 
 interface Props {
   financialContext: string;
 }
+
+const STORAGE_KEY_GEMINI = 'gemini_api_key';
+const STORAGE_KEY_CHAT = 'finance_chat_history';
 
 const SUGGESTIONS = [
   '📊 Como estou indo financeiramente este mês?',
@@ -18,13 +21,21 @@ const SUGGESTIONS = [
   '📉 Meus gastos estão altos? O que cortar?',
 ];
 
+function loadChat(): Message[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_CHAT);
+    if (raw) return JSON.parse(raw) as Message[];
+  } catch { /* ignore */ }
+  return [];
+}
+
 export const ChatView: React.FC<Props> = ({ financialContext }) => {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>(loadChat);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem('openai_api_key') || '');
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem(STORAGE_KEY_GEMINI) || '');
   const [apiKeyInput, setApiKeyInput] = useState('');
-  const [showKeySetup, setShowKeySetup] = useState(() => !localStorage.getItem('openai_api_key'));
+  const [showKeySetup, setShowKeySetup] = useState(() => !localStorage.getItem(STORAGE_KEY_GEMINI));
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -32,20 +43,29 @@ export const ChatView: React.FC<Props> = ({ financialContext }) => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
+  // Salvar histórico do chat
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_CHAT, JSON.stringify(messages.slice(-50)));
+  }, [messages]);
+
   const saveKey = () => {
     const k = apiKeyInput.trim();
-    if (!k.startsWith('sk-')) return;
-    localStorage.setItem('openai_api_key', k);
+    if (!k.startsWith('AIza')) return;
+    localStorage.setItem(STORAGE_KEY_GEMINI, k);
     setApiKey(k);
     setShowKeySetup(false);
     setApiKeyInput('');
   };
 
   const removeKey = () => {
-    localStorage.removeItem('openai_api_key');
+    localStorage.removeItem(STORAGE_KEY_GEMINI);
     setApiKey('');
     setShowKeySetup(true);
+  };
+
+  const clearChat = () => {
     setMessages([]);
+    localStorage.removeItem(STORAGE_KEY_CHAT);
   };
 
   const sendMessage = async (text?: string) => {
@@ -59,22 +79,29 @@ export const ChatView: React.FC<Props> = ({ financialContext }) => {
     setLoading(true);
 
     try {
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [
-            { role: 'system', content: financialContext },
-            ...history.map((m) => ({ role: m.role, content: m.content })),
-          ],
-          max_tokens: 700,
-          temperature: 0.7,
-        }),
-      });
+      // Montar histórico no formato Gemini
+      const geminiContents = history.map((m) => ({
+        role: m.role === 'user' ? 'user' : 'model',
+        parts: [{ text: m.content }],
+      }));
+
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            systemInstruction: {
+              parts: [{ text: financialContext }],
+            },
+            contents: geminiContents,
+            generationConfig: {
+              maxOutputTokens: 800,
+              temperature: 0.7,
+            },
+          }),
+        }
+      );
 
       if (!res.ok) {
         const err = await res.json();
@@ -82,8 +109,8 @@ export const ChatView: React.FC<Props> = ({ financialContext }) => {
       }
 
       const data = await res.json();
-      const reply = data.choices?.[0]?.message?.content ?? 'Sem resposta.';
-      setMessages((prev) => [...prev, { role: 'assistant', content: reply }]);
+      const reply = data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Sem resposta.';
+      setMessages((prev) => [...prev, { role: 'model', content: reply }]);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Erro desconhecido';
       setMessages((prev) => [...prev, { role: 'error', content: `⚠️ ${msg}` }]);
@@ -102,39 +129,50 @@ export const ChatView: React.FC<Props> = ({ financialContext }) => {
 
   if (showKeySetup) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 400, gap: 24, padding: '0 16px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 400, gap: 24, padding: '0 4px' }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 48, marginBottom: 12 }}>🤖</div>
           <h2 style={{ margin: '0 0 8px', fontSize: 20, fontWeight: 700, color: '#f0f0f0' }}>Assistente Financeiro IA</h2>
           <p style={{ margin: 0, fontSize: 14, color: '#6b7280', maxWidth: 380 }}>
-            Use o ChatGPT para analisar seus gastos, receber dicas personalizadas e tirar dúvidas sobre finanças — tudo com base nos seus dados reais.
+            Use a IA do Google Gemini <strong style={{ color: '#4ade80' }}>100% grátis</strong> para analisar seus gastos e receber dicas personalizadas.
           </p>
         </div>
 
-        <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 16, padding: 24, width: '100%', maxWidth: 420, display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 16, padding: 20, width: '100%', maxWidth: 420, display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
             <label style={{ fontSize: 12, color: '#6b7280', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 6 }}>
-              Chave da API OpenAI
+              Chave da API Google Gemini (grátis)
             </label>
             <input
               autoFocus
               type="password"
-              placeholder="sk-..."
+              placeholder="AIza..."
               value={apiKeyInput}
               onChange={(e) => setApiKeyInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && saveKey()}
               style={{ width: '100%', background: '#111', border: '1px solid #2d2d2d', borderRadius: 8, color: '#e0e0e0', padding: '10px 14px', fontSize: 14, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
             />
           </div>
-          <p style={{ margin: 0, fontSize: 12, color: '#555' }}>
-            Acesse <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer" style={{ color: '#3b82f6' }}>platform.openai.com/api-keys</a> para gerar sua chave. O modelo usado é o <strong style={{ color: '#9ca3af' }}>gpt-4o-mini</strong> (muito barato — menos de $0,01 por conversa).
-          </p>
+
+          <div style={{ background: '#0f1f0f', border: '1px solid #1a3a1a', borderRadius: 10, padding: '12px 14px' }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#4ade80', marginBottom: 8 }}>📋 Como pegar a chave (1 minuto):</div>
+            <ol style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: '#9ca3af', lineHeight: 1.8 }}>
+              <li>Acesse <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" style={{ color: '#60a5fa' }}>aistudio.google.com/apikey</a></li>
+              <li>Faça login com sua conta Google</li>
+              <li>Clique em <strong style={{ color: '#e0e0e0' }}>"Create API Key"</strong></li>
+              <li>Copie a chave e cole aqui</li>
+            </ol>
+            <div style={{ fontSize: 11, color: '#555', marginTop: 8 }}>
+              ✅ Totalmente grátis · Sem cartão de crédito · Modelo: Gemini 2.0 Flash
+            </div>
+          </div>
+
           <button
             onClick={saveKey}
-            disabled={!apiKeyInput.startsWith('sk-')}
-            style={{ background: apiKeyInput.startsWith('sk-') ? '#3b82f6' : '#1a2a3a', border: 'none', borderRadius: 8, color: apiKeyInput.startsWith('sk-') ? '#fff' : '#4b6a8a', cursor: apiKeyInput.startsWith('sk-') ? 'pointer' : 'not-allowed', padding: '10px', fontSize: 14, fontWeight: 600 }}
+            disabled={!apiKeyInput.startsWith('AIza')}
+            style={{ background: apiKeyInput.startsWith('AIza') ? '#3b82f6' : '#1a2a3a', border: 'none', borderRadius: 8, color: apiKeyInput.startsWith('AIza') ? '#fff' : '#4b6a8a', cursor: apiKeyInput.startsWith('AIza') ? 'pointer' : 'not-allowed', padding: '10px', fontSize: 14, fontWeight: 600 }}
           >
-            Salvar e começar
+            Salvar e começar ✨
           </button>
         </div>
       </div>
@@ -142,33 +180,44 @@ export const ChatView: React.FC<Props> = ({ financialContext }) => {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 160px)', minHeight: 500, gap: 0 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 180px)', minHeight: 400, gap: 0 }}>
       {/* Header com info */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 18 }}>🤖</span>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 16 }}>🤖</span>
           <div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: '#e0e0e0' }}>Assistente Financeiro</div>
-            <div style={{ fontSize: 11, color: '#555' }}>Com acesso aos seus dados do mês atual</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0' }}>Assistente Financeiro</div>
+            <div style={{ fontSize: 10, color: '#555' }}>Gemini · Grátis · Dados do mês atual</div>
           </div>
         </div>
-        <button
-          onClick={removeKey}
-          style={{ background: 'transparent', border: '1px solid #2d2d2d', borderRadius: 7, color: '#555', cursor: 'pointer', fontSize: 11, padding: '4px 10px' }}
-          title="Remover chave de API"
-        >
-          🔑 Trocar chave
-        </button>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {messages.length > 0 && (
+            <button
+              onClick={clearChat}
+              style={{ background: 'transparent', border: '1px solid #2d2d2d', borderRadius: 7, color: '#555', cursor: 'pointer', fontSize: 11, padding: '4px 8px' }}
+              title="Limpar conversa"
+            >
+              🗑
+            </button>
+          )}
+          <button
+            onClick={removeKey}
+            style={{ background: 'transparent', border: '1px solid #2d2d2d', borderRadius: 7, color: '#555', cursor: 'pointer', fontSize: 11, padding: '4px 8px' }}
+            title="Trocar chave"
+          >
+            🔑
+          </button>
+        </div>
       </div>
 
       {/* Área de mensagens */}
-      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12, paddingRight: 4, paddingBottom: 8 }}>
+      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingRight: 4, paddingBottom: 8 }}>
         {messages.length === 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20, paddingTop: 20 }}>
-            <div style={{ textAlign: 'center', color: '#444', fontSize: 14 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 16 }}>
+            <div style={{ textAlign: 'center', color: '#444', fontSize: 13 }}>
               Olá! Pergunte sobre seus gastos, peça dicas ou análises. 👋
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center' }}>
               {SUGGESTIONS.map((s) => (
                 <button
                   key={s}
@@ -176,16 +225,14 @@ export const ChatView: React.FC<Props> = ({ financialContext }) => {
                   style={{
                     background: '#141414',
                     border: '1px solid #2a2a2a',
-                    borderRadius: 20,
+                    borderRadius: 18,
                     color: '#9ca3af',
                     cursor: 'pointer',
-                    padding: '8px 14px',
-                    fontSize: 13,
+                    padding: '7px 12px',
+                    fontSize: 12,
                     transition: 'all 0.15s',
                     textAlign: 'left',
                   }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = '#3b82f644'; (e.currentTarget as HTMLButtonElement).style.color = '#e0e0e0'; }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = '#2a2a2a'; (e.currentTarget as HTMLButtonElement).style.color = '#9ca3af'; }}
                 >
                   {s}
                 </button>
@@ -201,22 +248,22 @@ export const ChatView: React.FC<Props> = ({ financialContext }) => {
               display: 'flex',
               justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start',
               alignItems: 'flex-end',
-              gap: 8,
+              gap: 6,
             }}
           >
             {m.role !== 'user' && (
-              <div style={{ width: 28, height: 28, borderRadius: '50%', background: m.role === 'error' ? '#2d1a1a' : '#1a2a3a', border: `1px solid ${m.role === 'error' ? '#ef444433' : '#3b82f633'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0, marginBottom: 2 }}>
+              <div style={{ width: 24, height: 24, borderRadius: '50%', background: m.role === 'error' ? '#2d1a1a' : '#1a2a3a', border: `1px solid ${m.role === 'error' ? '#ef444433' : '#3b82f633'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, flexShrink: 0, marginBottom: 2 }}>
                 {m.role === 'error' ? '⚠' : '🤖'}
               </div>
             )}
             <div
               style={{
-                maxWidth: '80%',
+                maxWidth: '85%',
                 background: m.role === 'user' ? '#2563eb' : m.role === 'error' ? '#2d1a1a' : '#1e1e1e',
                 border: `1px solid ${m.role === 'user' ? '#3b82f6' : m.role === 'error' ? '#ef444433' : '#2a2a2a'}`,
-                borderRadius: m.role === 'user' ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-                padding: '10px 14px',
-                fontSize: 14,
+                borderRadius: m.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
+                padding: '9px 13px',
+                fontSize: 13,
                 color: m.role === 'error' ? '#ef4444' : '#e0e0e0',
                 lineHeight: 1.6,
                 whiteSpace: 'pre-wrap',
@@ -229,16 +276,16 @@ export const ChatView: React.FC<Props> = ({ financialContext }) => {
         ))}
 
         {loading && (
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
-            <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#1a2a3a', border: '1px solid #3b82f633', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>🤖</div>
-            <div style={{ background: '#1e1e1e', border: '1px solid #2a2a2a', borderRadius: '18px 18px 18px 4px', padding: '12px 16px' }}>
-              <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6 }}>
+            <div style={{ width: 24, height: 24, borderRadius: '50%', background: '#1a2a3a', border: '1px solid #3b82f633', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}>🤖</div>
+            <div style={{ background: '#1e1e1e', border: '1px solid #2a2a2a', borderRadius: '16px 16px 16px 4px', padding: '10px 14px' }}>
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                 {[0, 1, 2].map((d) => (
                   <div
                     key={d}
                     style={{
-                      width: 7,
-                      height: 7,
+                      width: 6,
+                      height: 6,
                       borderRadius: '50%',
                       background: '#3b82f6',
                       animation: `bounce 1.2s ${d * 0.2}s infinite ease-in-out`,
@@ -255,19 +302,19 @@ export const ChatView: React.FC<Props> = ({ financialContext }) => {
 
       {/* Sugestões rápidas (aparecem quando tem mensagens) */}
       {messages.length > 0 && !loading && (
-        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', padding: '8px 0', borderTop: '1px solid #1a1a1a' }}>
-          {SUGGESTIONS.slice(0, 4).map((s) => (
+        <div style={{ display: 'flex', gap: 5, overflowX: 'auto', padding: '6px 0', borderTop: '1px solid #1a1a1a' }}>
+          {SUGGESTIONS.slice(0, 3).map((s) => (
             <button
               key={s}
               onClick={() => sendMessage(s)}
               style={{
                 background: '#141414',
                 border: '1px solid #222',
-                borderRadius: 20,
+                borderRadius: 16,
                 color: '#6b7280',
                 cursor: 'pointer',
-                padding: '5px 12px',
-                fontSize: 12,
+                padding: '4px 10px',
+                fontSize: 11,
                 whiteSpace: 'nowrap',
                 flexShrink: 0,
               }}
@@ -279,10 +326,10 @@ export const ChatView: React.FC<Props> = ({ financialContext }) => {
       )}
 
       {/* Input */}
-      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', paddingTop: 10, borderTop: '1px solid #1a1a1a' }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', paddingTop: 8, borderTop: '1px solid #1a1a1a' }}>
         <textarea
           ref={inputRef}
-          placeholder="Pergunte sobre seus gastos, peça dicas... (Enter para enviar)"
+          placeholder="Pergunte sobre seus gastos..."
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={onKeyDown}
@@ -293,7 +340,7 @@ export const ChatView: React.FC<Props> = ({ financialContext }) => {
             border: '1px solid #2d2d2d',
             borderRadius: 12,
             color: '#e0e0e0',
-            padding: '10px 14px',
+            padding: '9px 12px',
             fontSize: 14,
             outline: 'none',
             fontFamily: 'inherit',
@@ -313,7 +360,7 @@ export const ChatView: React.FC<Props> = ({ financialContext }) => {
             borderRadius: 12,
             color: input.trim() && !loading ? '#fff' : '#4b6a8a',
             cursor: input.trim() && !loading ? 'pointer' : 'not-allowed',
-            padding: '10px 18px',
+            padding: '9px 16px',
             fontSize: 18,
             transition: 'all 0.15s',
             alignSelf: 'stretch',
