@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 
 interface Message {
-  role: 'user' | 'model' | 'error';
+  role: 'user' | 'assistant' | 'error';
   content: string;
 }
 
@@ -9,7 +9,7 @@ interface Props {
   financialContext: string;
 }
 
-const STORAGE_KEY_GEMINI = 'gemini_api_key';
+const STORAGE_KEY_API = 'groq_api_key';
 const STORAGE_KEY_CHAT = 'finance_chat_history';
 
 const SUGGESTIONS = [
@@ -33,9 +33,9 @@ export const ChatView: React.FC<Props> = ({ financialContext }) => {
   const [messages, setMessages] = useState<Message[]>(loadChat);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem(STORAGE_KEY_GEMINI) || '');
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem(STORAGE_KEY_API) || '');
   const [apiKeyInput, setApiKeyInput] = useState('');
-  const [showKeySetup, setShowKeySetup] = useState(() => !localStorage.getItem(STORAGE_KEY_GEMINI));
+  const [showKeySetup, setShowKeySetup] = useState(() => !localStorage.getItem(STORAGE_KEY_API));
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -50,15 +50,15 @@ export const ChatView: React.FC<Props> = ({ financialContext }) => {
 
   const saveKey = () => {
     const k = apiKeyInput.trim();
-    if (!k.startsWith('AIza')) return;
-    localStorage.setItem(STORAGE_KEY_GEMINI, k);
+    if (!k.startsWith('gsk_')) return;
+    localStorage.setItem(STORAGE_KEY_API, k);
     setApiKey(k);
     setShowKeySetup(false);
     setApiKeyInput('');
   };
 
   const removeKey = () => {
-    localStorage.removeItem(STORAGE_KEY_GEMINI);
+    localStorage.removeItem(STORAGE_KEY_API);
     setApiKey('');
     setShowKeySetup(true);
   };
@@ -79,29 +79,22 @@ export const ChatView: React.FC<Props> = ({ financialContext }) => {
     setLoading(true);
 
     try {
-      // Montar histórico no formato Gemini
-      const geminiContents = history.map((m) => ({
-        role: m.role === 'user' ? 'user' : 'model',
-        parts: [{ text: m.content }],
-      }));
-
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            systemInstruction: {
-              parts: [{ text: financialContext }],
-            },
-            contents: geminiContents,
-            generationConfig: {
-              maxOutputTokens: 800,
-              temperature: 0.7,
-            },
-          }),
-        }
-      );
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          messages: [
+            { role: 'system', content: financialContext },
+            ...history.map((m) => ({ role: m.role === 'error' ? 'user' : m.role, content: m.content })),
+          ],
+          max_tokens: 800,
+          temperature: 0.7,
+        }),
+      });
 
       if (!res.ok) {
         const err = await res.json();
@@ -109,11 +102,11 @@ export const ChatView: React.FC<Props> = ({ financialContext }) => {
       }
 
       const data = await res.json();
-      const reply = data.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Sem resposta.';
-      setMessages((prev) => [...prev, { role: 'model', content: reply }]);
+      const reply = data.choices?.[0]?.message?.content ?? 'Sem resposta.';
+      setMessages((prev) => [...prev, { role: 'assistant', content: reply }]);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Erro desconhecido';
-      setMessages((prev) => [...prev, { role: 'error', content: `⚠️ ${msg}` }]);
+      const errMsg = err instanceof Error ? err.message : 'Erro desconhecido';
+      setMessages((prev) => [...prev, { role: 'error', content: `⚠️ ${errMsg}` }]);
     } finally {
       setLoading(false);
       setTimeout(() => inputRef.current?.focus(), 100);
@@ -134,19 +127,19 @@ export const ChatView: React.FC<Props> = ({ financialContext }) => {
           <div style={{ fontSize: 48, marginBottom: 12 }}>🤖</div>
           <h2 style={{ margin: '0 0 8px', fontSize: 20, fontWeight: 700, color: '#f0f0f0' }}>Assistente Financeiro IA</h2>
           <p style={{ margin: 0, fontSize: 14, color: '#6b7280', maxWidth: 380 }}>
-            Use a IA do Google Gemini <strong style={{ color: '#4ade80' }}>100% grátis</strong> para analisar seus gastos e receber dicas personalizadas.
+            Use a IA <strong style={{ color: '#4ade80' }}>100% grátis</strong> para analisar seus gastos e receber dicas personalizadas.
           </p>
         </div>
 
         <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 16, padding: 20, width: '100%', maxWidth: 420, display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
             <label style={{ fontSize: 12, color: '#6b7280', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 6 }}>
-              Chave da API Google Gemini (grátis)
+              Chave da API Groq (grátis)
             </label>
             <input
               autoFocus
               type="password"
-              placeholder="AIza..."
+              placeholder="gsk_..."
               value={apiKeyInput}
               onChange={(e) => setApiKeyInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && saveKey()}
@@ -157,20 +150,20 @@ export const ChatView: React.FC<Props> = ({ financialContext }) => {
           <div style={{ background: '#0f1f0f', border: '1px solid #1a3a1a', borderRadius: 10, padding: '12px 14px' }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: '#4ade80', marginBottom: 8 }}>📋 Como pegar a chave (1 minuto):</div>
             <ol style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: '#9ca3af', lineHeight: 1.8 }}>
-              <li>Acesse <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" style={{ color: '#60a5fa' }}>aistudio.google.com/apikey</a></li>
-              <li>Faça login com sua conta Google</li>
+              <li>Acesse <a href="https://console.groq.com/keys" target="_blank" rel="noreferrer" style={{ color: '#60a5fa' }}>console.groq.com/keys</a></li>
+              <li>Crie conta com Google (1 clique)</li>
               <li>Clique em <strong style={{ color: '#e0e0e0' }}>"Create API Key"</strong></li>
-              <li>Copie a chave e cole aqui</li>
+              <li>Copie a chave (começa com <code style={{ color: '#f59e0b', background: '#1a1a0a', padding: '1px 4px', borderRadius: 3 }}>gsk_</code>) e cole aqui</li>
             </ol>
             <div style={{ fontSize: 11, color: '#555', marginTop: 8 }}>
-              ✅ Totalmente grátis · Sem cartão de crédito · Modelo: Gemini 2.0 Flash
+              ✅ Grátis · Sem cartão · Rápido · Modelo: Llama 3.3 70B
             </div>
           </div>
 
           <button
             onClick={saveKey}
-            disabled={!apiKeyInput.startsWith('AIza')}
-            style={{ background: apiKeyInput.startsWith('AIza') ? '#3b82f6' : '#1a2a3a', border: 'none', borderRadius: 8, color: apiKeyInput.startsWith('AIza') ? '#fff' : '#4b6a8a', cursor: apiKeyInput.startsWith('AIza') ? 'pointer' : 'not-allowed', padding: '10px', fontSize: 14, fontWeight: 600 }}
+            disabled={!apiKeyInput.startsWith('gsk_')}
+            style={{ background: apiKeyInput.startsWith('gsk_') ? '#3b82f6' : '#1a2a3a', border: 'none', borderRadius: 8, color: apiKeyInput.startsWith('gsk_') ? '#fff' : '#4b6a8a', cursor: apiKeyInput.startsWith('gsk_') ? 'pointer' : 'not-allowed', padding: '10px', fontSize: 14, fontWeight: 600 }}
           >
             Salvar e começar ✨
           </button>
@@ -187,7 +180,7 @@ export const ChatView: React.FC<Props> = ({ financialContext }) => {
           <span style={{ fontSize: 16 }}>🤖</span>
           <div>
             <div style={{ fontSize: 13, fontWeight: 600, color: '#e0e0e0' }}>Assistente Financeiro</div>
-            <div style={{ fontSize: 10, color: '#555' }}>Gemini · Grátis · Dados do mês atual</div>
+            <div style={{ fontSize: 10, color: '#555' }}>Groq · Grátis · Dados do mês atual</div>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
@@ -300,7 +293,7 @@ export const ChatView: React.FC<Props> = ({ financialContext }) => {
         <div ref={bottomRef} />
       </div>
 
-      {/* Sugestões rápidas (aparecem quando tem mensagens) */}
+      {/* Sugestões rápidas */}
       {messages.length > 0 && !loading && (
         <div style={{ display: 'flex', gap: 5, overflowX: 'auto', padding: '6px 0', borderTop: '1px solid #1a1a1a' }}>
           {SUGGESTIONS.slice(0, 3).map((s) => (
@@ -372,7 +365,6 @@ export const ChatView: React.FC<Props> = ({ financialContext }) => {
         </button>
       </div>
 
-      {/* CSS para animação dos dots */}
       <style>{`
         @keyframes bounce {
           0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }

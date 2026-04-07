@@ -212,7 +212,7 @@ export function useDashboard() {
       months,
       selectedMonthId,
       chatHistory: localStorage.getItem('finance_chat_history') || '[]',
-      geminiKey: localStorage.getItem('gemini_api_key') || '',
+      groqKey: localStorage.getItem('groq_api_key') || '',
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -238,7 +238,7 @@ export function useDashboard() {
           setMonths(data.months);
           if (data.selectedMonthId) setSelectedMonthId(data.selectedMonthId);
           if (data.chatHistory) localStorage.setItem('finance_chat_history', data.chatHistory);
-          if (data.geminiKey) localStorage.setItem('gemini_api_key', data.geminiKey);
+          if (data.groqKey) localStorage.setItem('groq_api_key', data.groqKey);
           resolve(true);
         } catch {
           resolve(false);
