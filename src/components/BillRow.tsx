@@ -7,6 +7,7 @@ import {
   BILL_CATEGORY_ICONS,
   BILL_TYPE_LABELS,
   formatCurrency,
+  parseBRL,
 } from '../types';
 
 interface Props {
@@ -53,7 +54,7 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete 
     if (!editField) return;
     let updated = { ...bill };
     if (editField === 'name') updated = { ...updated, name: editStr.trim() || bill.name };
-    else if (editField === 'amount') updated = { ...updated, amount: parseFloat(editStr) || 0 };
+    else if (editField === 'amount') updated = { ...updated, amount: parseBRL(editStr) };
     else if (editField === 'dueDay') updated = { ...updated, dueDay: Math.max(1, Math.min(31, parseInt(editStr) || 1)) };
     onSave(updated);
     setEditField(null);

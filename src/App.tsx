@@ -5,7 +5,7 @@ import { BillRow } from './components/BillRow';
 import { InlineAddRow } from './components/InlineAddRow';
 import { CreditCardView } from './components/CreditCardView';
 import { ChatView } from './components/ChatView';
-import { type Bill, formatCurrency, BILL_CATEGORY_LABELS } from './types';
+import { type Bill, formatCurrency, parseBRL, BILL_CATEGORY_LABELS } from './types';
 
 type Tab = 'dashboard' | 'cartao' | 'chat';
 type AddSection = 'fixed' | 'variable' | null;
@@ -242,12 +242,12 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                       value={incomeInput}
                       onChange={(e) => setIncomeInput(e.target.value.replace(/[^0-9.,]/g, ''))}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') { db.updateIncome(parseFloat(incomeInput) || 0); setIncomeEditing(false); }
+                        if (e.key === 'Enter') { db.updateIncome(parseBRL(incomeInput)); setIncomeEditing(false); }
                         if (e.key === 'Escape') setIncomeEditing(false);
                       }}
                       style={{ background: '#111', border: '1px solid #333', borderRadius: 7, color: '#e0e0e0', padding: '6px 10px', fontSize: 16, fontWeight: 700, width: '100%', outline: 'none', fontFamily: 'inherit' }}
                     />
-                    <button onClick={() => { db.updateIncome(parseFloat(incomeInput) || 0); setIncomeEditing(false); }} style={{ background: '#10b981', border: 'none', borderRadius: 7, color: '#fff', cursor: 'pointer', padding: '6px 12px', fontSize: 13, fontWeight: 600 }}>✓</button>
+                    <button onClick={() => { db.updateIncome(parseBRL(incomeInput)); setIncomeEditing(false); }} style={{ background: '#10b981', border: 'none', borderRadius: 7, color: '#fff', cursor: 'pointer', padding: '6px 12px', fontSize: 13, fontWeight: 600 }}>✓</button>
                   </div>
                 </div>
               ) : (

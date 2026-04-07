@@ -6,6 +6,7 @@ import {
   BILL_CATEGORY_LABELS,
   BILL_CATEGORY_ICONS,
   BILL_TYPE_LABELS,
+  parseBRL,
 } from '../types';
 
 interface Props {
@@ -54,12 +55,11 @@ export const InlineAddRow: React.FC<Props> = ({ monthName, onSave, onCancel, def
   const handleSave = () => {
     const trimmed = name.trim();
     if (!trimmed) { nameRef.current?.focus(); return; }
-    const parsed = parseFloat(amount);
     onSave({
       id: uuid(),
       name: trimmed,
       category,
-      amount: isNaN(parsed) ? 0 : parsed,
+      amount: parseBRL(amount),
       dueDay: Math.max(1, Math.min(31, parseInt(dueDay) || 1)),
       type,
       isPaid: false,

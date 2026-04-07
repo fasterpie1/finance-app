@@ -4,6 +4,7 @@ import {
   BILL_CATEGORY_LABELS,
   BILL_CATEGORY_ICONS,
   formatCurrency,
+  parseBRL,
 } from '../types';
 import { type CreditCardPurchase } from '../store/useDashboard';
 import { BillRow } from './BillRow';
@@ -81,7 +82,7 @@ export const CreditCardView: React.FC<Props> = ({
     const t = Math.max(c, total);
     onAddPurchase({
       name: trimmed,
-      amount: parseFloat(amount) || 0,
+      amount: parseBRL(amount),
       dueDay: Math.max(1, Math.min(31, parseInt(dueDay) || 10)),
       category,
       installmentCurrent: c,
@@ -235,7 +236,7 @@ export const CreditCardView: React.FC<Props> = ({
                   ))}
                 </div>
                 <div style={{ fontSize: 11, color: '#555', marginTop: 8 }}>
-                  Total comprometido: <strong style={{ color: '#9ca3af' }}>{formatCurrency((parseFloat(amount) || 0) * affected.length)}</strong>
+                  Total comprometido: <strong style={{ color: '#9ca3af' }}>{formatCurrency(parseBRL(amount) * affected.length)}</strong>
                 </div>
               </div>
             )}

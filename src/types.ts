@@ -69,3 +69,10 @@ export interface BudgetMonth {
 export function formatCurrency(value: number): string {
   return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
+
+/** Converte string com vírgula brasileira para número (ex: "137,50" → 137.5) */
+export function parseBRL(value: string): number {
+  const cleaned = value.replace(/\./g, '').replace(',', '.');
+  const num = parseFloat(cleaned);
+  return isNaN(num) ? 0 : num;
+}
