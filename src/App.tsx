@@ -83,6 +83,7 @@ export default function App() {
   const [addSection, setAddSection] = useState<AddSection>(null);
   const [incomeEditing, setIncomeEditing] = useState(false);
   const [incomeInput, setIncomeInput] = useState('');
+  const [importMsg, setImportMsg] = useState<string | null>(null);
 
   const paidCount = db.selectedMonth.bills.filter((b) => b.isPaid).length;
   const totalCount = db.selectedMonth.bills.length;
@@ -331,6 +332,90 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
         </div>
       </section>
             )}
+
+            {/* Backup / Restaurar */}
+            <div style={{ background: '#141414', border: '1px solid #1e1e1e', borderRadius: 14, padding: '16px 18px' }}>
+              <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 12 }}>
+                📦 Backup dos dados
+              </div>
+
+              {importMsg && (
+                <div style={{
+                  background: importMsg.includes('✅') ? '#0f1f0f' : '#2d1a1a',
+                  border: `1px solid ${importMsg.includes('✅') ? '#1a3a1a' : '#ef444433'}`,
+                  borderRadius: 8,
+                  padding: '8px 12px',
+                  fontSize: 12,
+                  color: importMsg.includes('✅') ? '#4ade80' : '#ef4444',
+                  marginBottom: 10,
+                }}>
+                  {importMsg}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button
+                  onClick={db.exportData}
+                  style={{
+                    flex: 1,
+                    minWidth: 130,
+                    background: '#1a2a3a',
+                    border: '1px solid #2563eb33',
+                    borderRadius: 8,
+                    color: '#60a5fa',
+                    cursor: 'pointer',
+                    padding: '10px 14px',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                  }}
+                >
+                  📤 Exportar backup
+                </button>
+
+                <label
+                  style={{
+                    flex: 1,
+                    minWidth: 130,
+                    background: '#1a1f2a',
+                    border: '1px solid #2d2d2d',
+                    borderRadius: 8,
+                    color: '#9ca3af',
+                    cursor: 'pointer',
+                    padding: '10px 14px',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                    textAlign: 'center',
+                  }}
+                >
+                  📥 Importar backup
+                  <input
+                    type="file"
+                    accept=".json"
+                    style={{ display: 'none' }}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const ok = await db.importData(file);
+                      setImportMsg(ok ? '✅ Dados restaurados com sucesso!' : '❌ Arquivo inválido. Use um backup exportado pelo app.');
+                      setTimeout(() => setImportMsg(null), 4000);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
+
+              <p style={{ margin: '10px 0 0', fontSize: 11, color: '#444', lineHeight: 1.5 }}>
+                💡 <strong>Dica:</strong> Exporte um backup antes de trocar de celular ou limpar o navegador. Assim você nunca perde seus dados!
+              </p>
+            </div>
 
             {/* Footer */}
             <footer style={{ textAlign: 'center', fontSize: 12, color: '#2a2a2a', paddingTop: 10, borderTop: '1px solid #1a1a1a', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>

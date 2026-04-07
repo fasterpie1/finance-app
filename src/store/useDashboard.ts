@@ -204,6 +204,51 @@ export function useDashboard() {
     setSelectedMonthId(sampleMonths[0].id);
   }, []);
 
+  // Exportar todos os dados como JSON
+  const exportData = useCallback(() => {
+    const data = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      months,
+      selectedMonthId,
+      chatHistory: localStorage.getItem('finance_chat_history') || '[]',
+      geminiKey: localStorage.getItem('gemini_api_key') || '',
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `financa-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [months, selectedMonthId]);
+
+  // Importar dados de um arquivo JSON
+  const importData = useCallback((file: File): Promise<boolean> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const raw = e.target?.result;
+          if (typeof raw !== 'string') { resolve(false); return; }
+          const data = JSON.parse(raw);
+          if (!data.months || !Array.isArray(data.months)) { resolve(false); return; }
+          setMonths(data.months);
+          if (data.selectedMonthId) setSelectedMonthId(data.selectedMonthId);
+          if (data.chatHistory) localStorage.setItem('finance_chat_history', data.chatHistory);
+          if (data.geminiKey) localStorage.setItem('gemini_api_key', data.geminiKey);
+          resolve(true);
+        } catch {
+          resolve(false);
+        }
+      };
+      reader.onerror = () => resolve(false);
+      reader.readAsText(file);
+    });
+  }, []);
+
   return {
     months,
     selectedMonth,
@@ -224,6 +269,8 @@ export function useDashboard() {
     addCreditCardPurchase,
     getAffectedMonths,
     resetData,
+    exportData,
+    importData,
     formatCurrency,
   };
 }
