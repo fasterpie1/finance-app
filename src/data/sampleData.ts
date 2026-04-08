@@ -4,6 +4,7 @@ export const sampleMonths: BudgetMonth[] = [
   {
     id: '1',
     name: 'Abril',
+    year: 2026,
     income: 8000,
     bills: [
       { id: 'a1', name: 'Luz', category: 'luz', amount: 200, dueDay: 7, type: 'mensal', isPaid: true, month: 'Abril', note: '' },
@@ -18,6 +19,7 @@ export const sampleMonths: BudgetMonth[] = [
   {
     id: '2',
     name: 'Maio',
+    year: 2026,
     income: 8000,
     bills: [
       { id: 'b1', name: 'Luz', category: 'luz', amount: 210, dueDay: 7, type: 'mensal', isPaid: false, month: 'Maio', note: '' },
@@ -31,6 +33,7 @@ export const sampleMonths: BudgetMonth[] = [
   {
     id: '3',
     name: 'Junho',
+    year: 2026,
     income: 8000,
     bills: [],
   },

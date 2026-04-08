@@ -4,21 +4,23 @@ import {
   BILL_CATEGORY_LABELS,
   BILL_CATEGORY_ICONS,
   formatCurrency,
+  formatMonthShort,
   parseBRL,
 } from '../types';
-import { type CreditCardPurchase } from '../store/useDashboard';
+import { type CreditCardPurchase, type MonthInfo } from '../store/useDashboard';
 import { BillRow } from './BillRow';
 import { type Bill } from '../types';
 
 interface Props {
   selectedMonthName: string;
+  selectedMonthYear: number;
   creditCardBills: Bill[];
-  allMonths: { id: string; name: string; bills: Bill[] }[];
+  allMonths: { id: string; name: string; year: number; bills: Bill[] }[];
   onTogglePaid: (id: string) => void;
   onSaveBill: (bill: Bill) => void;
   onDeleteBill: (id: string) => void;
   onAddPurchase: (p: CreditCardPurchase) => void;
-  getAffectedMonths: (cur: number, total: number) => string[];
+  getAffectedMonths: (cur: number, total: number) => MonthInfo[];
 }
 
 const fieldStyle: React.CSSProperties = {
@@ -46,6 +48,7 @@ const labelStyle: React.CSSProperties = {
 
 export const CreditCardView: React.FC<Props> = ({
   selectedMonthName,
+  selectedMonthYear,
   creditCardBills,
   allMonths,
   onTogglePaid,
@@ -57,7 +60,7 @@ export const CreditCardView: React.FC<Props> = ({
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');
   const [dueDay, setDueDay] = useState('10');
-  const [category, setCategory] = useState<BillCategory>('financiamento');
+  const [category, setCategory] = useState<BillCategory>('compras');
   const [curInstallment, setCurInstallment] = useState('1');
   const [totalInstallment, setTotalInstallment] = useState('12');
   const [formOpen, setFormOpen] = useState(() => {
@@ -239,9 +242,9 @@ export const CreditCardView: React.FC<Props> = ({
                   ✓ Será lançado automaticamente em {affected.length} {affected.length === 1 ? 'mês' : 'meses'}:
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {affected.map((m, i) => (
+                  {affected.map((mi, i) => (
                     <span
-                      key={m + i}
+                      key={`${mi.name}-${mi.year}-${i}`}
                       style={{
                         background: i === 0 ? '#16a34a22' : '#1a1a1a',
                         border: `1px solid ${i === 0 ? '#16a34a44' : '#2a2a2a'}`,
@@ -252,7 +255,7 @@ export const CreditCardView: React.FC<Props> = ({
                         fontWeight: i === 0 ? 600 : 400,
                       }}
                     >
-                      {m}
+                      {formatMonthShort(mi.name, mi.year)}
                       {i === 0 && <span style={{ fontSize: 10, marginLeft: 4 }}>← atual</span>}
                     </span>
                   ))}
@@ -324,10 +327,10 @@ export const CreditCardView: React.FC<Props> = ({
           {allMonths
             .filter((m) => m.bills.some((b) => b.type === 'parcela' && b.category !== 'financiamento'))
             .map((m) => {
-              const total = m.bills.filter((b) => b.type === 'parcela' && b.category !== 'financiamento').reduce((s, b) => s + b.amount, 0);
+              const totalAmt = m.bills.filter((b) => b.type === 'parcela' && b.category !== 'financiamento').reduce((s, b) => s + b.amount, 0);
               const paid = m.bills.filter((b) => b.type === 'parcela' && b.category !== 'financiamento' && b.isPaid).reduce((s, b) => s + b.amount, 0);
-              const pct = total > 0 ? (paid / total) * 100 : 0;
-              const isSelected = m.name.toLowerCase() === selectedMonthName.toLowerCase();
+              const pct = totalAmt > 0 ? (paid / totalAmt) * 100 : 0;
+              const isSelected = m.name.toLowerCase() === selectedMonthName.toLowerCase() && m.year === selectedMonthYear;
               return (
                 <div
                   key={m.id}
@@ -341,11 +344,11 @@ export const CreditCardView: React.FC<Props> = ({
                     padding: '10px 14px',
                   }}
                 >
-                  <div style={{ fontSize: 13, fontWeight: 600, color: isSelected ? '#60a5fa' : '#9ca3af', minWidth: 80 }}>{m.name}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: isSelected ? '#60a5fa' : '#9ca3af', minWidth: 60 }}>{formatMonthShort(m.name, m.year)}</div>
                   <div style={{ flex: 1, background: '#222', borderRadius: 4, height: 5, overflow: 'hidden' }}>
                     <div style={{ width: `${pct}%`, height: '100%', background: '#10b981', borderRadius: 4, transition: 'width 0.3s' }} />
                   </div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#e0e0e0', minWidth: 90, textAlign: 'right' }}>{formatCurrency(total)}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#e0e0e0', minWidth: 90, textAlign: 'right' }}>{formatCurrency(totalAmt)}</div>
                 </div>
               );
             })}
