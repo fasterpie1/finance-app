@@ -1,61 +1,57 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-
-*, *::before, *::after {
-  box-sizing: border-box;
+* {
   margin: 0;
   padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
 }
 
-html {
-  font-size: 16px;
+body {
+  background: #0a0a0a;
+  color: #e0e0e0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-body {
-  background: #0d0d0d;
-  color: #e0e0e0;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  min-height: 100vh;
-  /* Evitar scroll horizontal no mobile */
-  overflow-x: hidden;
+input, select, textarea, button {
+  font-family: inherit;
 }
 
-/* Evitar zoom ao focar em inputs no iPhone (precisa ser >= 16px) */
-input, select, textarea {
-  font-size: 16px !important;
-  -webkit-text-size-adjust: 100%;
-}
-
-/* Impedir resize e zoom no iOS Safari */
-@supports (-webkit-touch-callout: none) {
-  body {
-    /* Prevenir bounce scroll no iOS */
-    overscroll-behavior: none;
-  }
+/* Evitar zoom no iOS */
+input[type="text"],
+input[type="password"],
+input[type="number"],
+textarea,
+select {
+  font-size: 16px;
 }
 
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 3px;
+  height: 3px;
 }
 ::-webkit-scrollbar-track {
-  background: #111;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #2d2d2d;
+  background: #1a1a1a;
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3d3d3d;
+  background: #252525;
 }
 
-select option {
-  background: #1a1a1a;
+::selection {
+  background-color: #3b82f620;
   color: #e0e0e0;
 }
 
-input[type='number']::-webkit-inner-spin-button,
-input[type='number']::-webkit-outer-spin-button {
-  opacity: 0.3;
+/* PWA safe areas */
+@supports (padding: max(0px)) {
+  body {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
 }

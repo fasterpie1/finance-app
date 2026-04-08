@@ -3,10 +3,10 @@ import React from 'react';
 interface Props {
   title: string;
   value: string;
-  icon: string;
   accent?: 'green' | 'blue' | 'red' | 'yellow' | 'default';
   subtitle?: string;
   valueColor?: string;
+  hidden?: boolean;
 }
 
 const accentColors: Record<string, string> = {
@@ -14,33 +14,62 @@ const accentColors: Record<string, string> = {
   blue: '#3b82f6',
   red: '#ef4444',
   yellow: '#f59e0b',
-  default: '#6b7280',
+  default: '#333',
 };
 
-export const SummaryCard: React.FC<Props> = ({ title, value, icon, accent = 'default', subtitle, valueColor }) => {
+export const SummaryCard: React.FC<Props> = ({ title, value, accent = 'default', subtitle, valueColor, hidden }) => {
   const color = accentColors[accent];
   return (
     <div
       style={{
         flex: 1,
-        background: '#1a1a1a',
-        border: `1px solid #2a2a2a`,
-        borderRadius: 14,
-        padding: '18px 20px',
+        background: '#131313',
+        border: '1px solid #1e1e1e',
+        borderRadius: 12,
+        padding: '16px 18px',
         display: 'flex',
         flexDirection: 'column',
-        gap: 8,
+        gap: 6,
         position: 'relative',
         overflow: 'hidden',
       }}
     >
-      <div style={{ position: 'absolute', top: 0, left: 0, width: 3, height: '100%', background: color, borderRadius: '14px 0 0 14px' }} />
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>{title}</span>
-        <span style={{ fontSize: 18 }}>{icon}</span>
+      <div
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: 3,
+          height: '100%',
+          background: color,
+          borderRadius: '12px 0 0 12px',
+        }}
+      />
+      <span
+        style={{
+          fontSize: 10,
+          color: '#555',
+          textTransform: 'uppercase',
+          letterSpacing: '0.08em',
+          fontWeight: 600,
+        }}
+      >
+        {title}
+      </span>
+      <div
+        style={{
+          fontSize: 20,
+          fontWeight: 700,
+          color: hidden ? '#1a1a1a' : (valueColor || '#e8e8e8'),
+          letterSpacing: '-0.02em',
+          transition: 'color 0.2s',
+        }}
+      >
+        {hidden ? 'R$ ••••' : value}
       </div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: valueColor || '#f0f0f0', letterSpacing: '-0.02em' }}>{value}</div>
-      {subtitle && <div style={{ fontSize: 11, color: '#6b7280' }}>{subtitle}</div>}
+      {subtitle && (
+        <div style={{ fontSize: 11, color: '#444' }}>{subtitle}</div>
+      )}
     </div>
   );
 };

@@ -43,28 +43,6 @@ export const BILL_CATEGORY_LABELS: Record<BillCategory, string> = {
   outros: 'Outros',
 };
 
-export const BILL_CATEGORY_ICONS: Record<BillCategory, string> = {
-  luz: '⚡',
-  agua: '💧',
-  internet: '🌐',
-  gas: '🔥',
-  financiamento: '🏦',
-  aluguel: '🏠',
-  condominio: '🏢',
-  limpeza: '🧹',
-  salario: '💼',
-  alimentacao: '🍔',
-  transporte: '🚗',
-  saude: '💊',
-  lazer: '🎮',
-  assinatura: '📺',
-  educacao: '📚',
-  compras: '🛍️',
-  seguro: '🛡️',
-  pet: '🐾',
-  outros: '📌',
-};
-
 export const BILL_CATEGORY_COLORS: Record<BillCategory, string> = {
   luz: '#f59e0b',
   agua: '#3b82f6',
@@ -149,4 +127,9 @@ export function parseBRL(value: string): number {
   const cleaned = value.replace(/\./g, '').replace(',', '.');
   const num = parseFloat(cleaned);
   return isNaN(num) ? 0 : num;
+}
+
+/** Mascara valor para exibição privada */
+export function maskCurrency(): string {
+  return 'R$ ••••';
 }

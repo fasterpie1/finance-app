@@ -4,7 +4,7 @@ import {
   type BillCategory,
   type BillType,
   BILL_CATEGORY_LABELS,
-  BILL_CATEGORY_ICONS,
+  BILL_CATEGORY_COLORS,
   BILL_TYPE_LABELS,
   parseBRL,
 } from '../types';
@@ -21,20 +21,15 @@ function uuid(): string {
 }
 
 const fieldStyle: React.CSSProperties = {
-  background: '#111',
-  border: '1px solid #2d2d2d',
-  borderRadius: 7,
+  background: '#0e0e0e',
+  border: '1px solid #222',
+  borderRadius: 6,
   color: '#e0e0e0',
   padding: '6px 10px',
   fontSize: 13,
   outline: 'none',
   fontFamily: 'inherit',
 };
-
-const focusStyle = `
-  .inline-add-input:focus { border-color: #3b82f6 !important; }
-  .inline-add-select:focus { border-color: #3b82f6 !important; }
-`;
 
 export const InlineAddRow: React.FC<Props> = ({ monthName, onSave, onCancel, defaultType = 'mensal' }) => {
   const [name, setName] = useState('');
@@ -44,13 +39,7 @@ export const InlineAddRow: React.FC<Props> = ({ monthName, onSave, onCancel, def
   const [type, setType] = useState<BillType>(defaultType);
   const nameRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    nameRef.current?.focus();
-    const styleEl = document.createElement('style');
-    styleEl.textContent = focusStyle;
-    document.head.appendChild(styleEl);
-    return () => { document.head.removeChild(styleEl); };
-  }, []);
+  useEffect(() => { nameRef.current?.focus(); }, []);
 
   const handleSave = () => {
     const trimmed = name.trim();
@@ -73,117 +62,33 @@ export const InlineAddRow: React.FC<Props> = ({ monthName, onSave, onCancel, def
     if (e.key === 'Escape') onCancel();
   };
 
+  const categoryColor = BILL_CATEGORY_COLORS[category];
+
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        background: '#141414',
-        border: '1px dashed #3b82f655',
-        borderRadius: 12,
-        padding: '10px 12px',
-        flexWrap: 'wrap',
-      }}
-    >
-      {/* Ícone dinâmico */}
-      <span style={{ fontSize: 16, flexShrink: 0 }}>{BILL_CATEGORY_ICONS[category]}</span>
-
-      {/* Nome */}
-      <input
-        ref={nameRef}
-        className="inline-add-input"
-        placeholder="Nome da conta..."
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        onKeyDown={onKeyDown}
-        style={{ ...fieldStyle, flex: '1 1 140px', minWidth: 120 }}
-      />
-
-      {/* Valor */}
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#111', border: '1px dashed #2a2a2a', borderRadius: 10, padding: '10px 12px', flexWrap: 'wrap' }}>
+      <div style={{ width: 8, height: 8, borderRadius: '50%', background: categoryColor, flexShrink: 0, opacity: 0.8 }} />
+      <input ref={nameRef} placeholder="Nome da conta..." value={name} onChange={(e) => setName(e.target.value)} onKeyDown={onKeyDown} style={{ ...fieldStyle, flex: '1 1 140px', minWidth: 120 }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-        <span style={{ fontSize: 12, color: '#555' }}>R$</span>
-        <input
-          className="inline-add-input"
-          inputMode="decimal"
-          pattern="[0-9.,]*"
-          placeholder="0,00"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value.replace(/[^0-9.,]/g, ''))}
-          onKeyDown={onKeyDown}
-          style={{ ...fieldStyle, width: 90 }}
-        />
+        <span style={{ fontSize: 11, color: '#444' }}>R$</span>
+        <input inputMode="decimal" pattern="[0-9.,]*" placeholder="0,00" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.,]/g, ''))} onKeyDown={onKeyDown} style={{ ...fieldStyle, width: 90 }} />
       </div>
-
-      {/* Dia */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-        <span style={{ fontSize: 12, color: '#555' }}>Dia</span>
-        <input
-          className="inline-add-input"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          value={dueDay}
-          onChange={(e) => setDueDay(e.target.value.replace(/[^0-9]/g, ''))}
-          onKeyDown={onKeyDown}
-          style={{ ...fieldStyle, width: 48 }}
-        />
+        <span style={{ fontSize: 11, color: '#444' }}>Dia</span>
+        <input inputMode="numeric" pattern="[0-9]*" value={dueDay} onChange={(e) => setDueDay(e.target.value.replace(/[^0-9]/g, ''))} onKeyDown={onKeyDown} style={{ ...fieldStyle, width: 48 }} />
       </div>
-
-      {/* Categoria */}
-      <select
-        className="inline-add-select"
-        value={category}
-        onChange={(e) => setCategory(e.target.value as BillCategory)}
-        style={{ ...fieldStyle, appearance: 'none', paddingRight: 24, backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'6\' fill=\'none\'%3E%3Cpath d=\'M1 1l4 4 4-4\' stroke=\'%23666\' stroke-width=\'1.5\' stroke-linecap=\'round\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center', minWidth: 100 }}
-      >
+      <select value={category} onChange={(e) => setCategory(e.target.value as BillCategory)} style={{ ...fieldStyle, minWidth: 100 }}>
         {(Object.keys(BILL_CATEGORY_LABELS) as BillCategory[]).map((c) => (
           <option key={c} value={c}>{BILL_CATEGORY_LABELS[c]}</option>
         ))}
       </select>
-
-      {/* Tipo */}
-      <select
-        className="inline-add-select"
-        value={type}
-        onChange={(e) => setType(e.target.value as BillType)}
-        style={{ ...fieldStyle, appearance: 'none', paddingRight: 24, backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'6\' fill=\'none\'%3E%3Cpath d=\'M1 1l4 4 4-4\' stroke=\'%23666\' stroke-width=\'1.5\' stroke-linecap=\'round\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center', minWidth: 90 }}
-      >
+      <select value={type} onChange={(e) => setType(e.target.value as BillType)} style={{ ...fieldStyle, minWidth: 90 }}>
         {(Object.keys(BILL_TYPE_LABELS) as BillType[]).map((t) => (
           <option key={t} value={t}>{BILL_TYPE_LABELS[t]}</option>
         ))}
       </select>
-
-      {/* Botões */}
       <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-        <button
-          onClick={handleSave}
-          style={{
-            background: '#3b82f6',
-            border: 'none',
-            borderRadius: 7,
-            color: '#fff',
-            cursor: 'pointer',
-            padding: '6px 14px',
-            fontSize: 13,
-            fontWeight: 600,
-          }}
-        >
-          ✓ Salvar
-        </button>
-        <button
-          onClick={onCancel}
-          style={{
-            background: 'transparent',
-            border: '1px solid #2d2d2d',
-            borderRadius: 7,
-            color: '#6b7280',
-            cursor: 'pointer',
-            padding: '6px 10px',
-            fontSize: 13,
-          }}
-        >
-          ×
-        </button>
+        <button onClick={handleSave} style={{ background: '#3b82f6', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '6px 14px', fontSize: 12, fontWeight: 600 }}>Salvar</button>
+        <button onClick={onCancel} style={{ background: 'transparent', border: '1px solid #222', borderRadius: 6, color: '#555', cursor: 'pointer', padding: '6px 10px', fontSize: 12 }}>×</button>
       </div>
     </div>
   );
