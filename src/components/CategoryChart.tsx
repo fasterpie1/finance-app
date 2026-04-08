@@ -49,8 +49,8 @@ export const CategoryChart: React.FC<Props> = ({ bills }) => {
     .sort((a, b) => b.amount - a.amount);
 
   // SVG Donut
-  const size = 150;
-  const strokeWidth = 22;
+  const size = 140;
+  const strokeWidth = 20;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
 
@@ -64,20 +64,11 @@ export const CategoryChart: React.FC<Props> = ({ bills }) => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Gráfico + Centro */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 24, flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
+      {/* Gráfico centralizado */}
+      <div style={{ display: 'flex', justifyContent: 'center' }}>
+        <div style={{ position: 'relative', width: size, height: size }}>
           <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-            {/* Fundo */}
-            <circle
-              cx={size / 2}
-              cy={size / 2}
-              r={radius}
-              fill="none"
-              stroke="#1e1e1e"
-              strokeWidth={strokeWidth}
-            />
-            {/* Segmentos */}
+            <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#1e1e1e" strokeWidth={strokeWidth} />
             {segments.map((s, i) => (
               <circle
                 key={i}
@@ -94,7 +85,6 @@ export const CategoryChart: React.FC<Props> = ({ bills }) => {
               />
             ))}
           </svg>
-          {/* Texto central */}
           <div
             style={{
               position: 'absolute',
@@ -104,36 +94,43 @@ export const CategoryChart: React.FC<Props> = ({ bills }) => {
               textAlign: 'center',
             }}
           >
-            <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Total</div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#f0f0f0', marginTop: 2 }}>{formatCurrency(total)}</div>
+            <div style={{ fontSize: 9, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Total</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#f0f0f0', marginTop: 1 }}>{formatCurrency(total)}</div>
           </div>
         </div>
+      </div>
 
-        {/* Legenda */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1, minWidth: 140 }}>
-          {data.map((d) => (
-            <div
-              key={d.category}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '4px 0',
-              }}
-            >
-              <div style={{ width: 10, height: 10, borderRadius: 3, background: d.color, flexShrink: 0 }} />
-              <span style={{ fontSize: 12, color: '#9ca3af', flex: 1 }}>
+      {/* Legenda — layout vertical compacto */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {data.map((d) => (
+          <div
+            key={d.category}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '6px 8px',
+              background: '#111',
+              borderRadius: 8,
+            }}
+          >
+            {/* Barra de cor proporcional */}
+            <div style={{ width: 4, height: 28, borderRadius: 2, background: d.color, flexShrink: 0 }} />
+
+            {/* Ícone + Nome */}
+            <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+              <div style={{ fontSize: 12, color: '#e0e0e0', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {d.icon} {d.label}
-              </span>
-              <span style={{ fontSize: 12, fontWeight: 600, color: '#e0e0e0', textAlign: 'right', minWidth: 70 }}>
-                {formatCurrency(d.amount)}
-              </span>
-              <span style={{ fontSize: 10, color: '#555', minWidth: 35, textAlign: 'right' }}>
-                {d.pct.toFixed(0)}%
-              </span>
+              </div>
+              <div style={{ fontSize: 10, color: '#555' }}>{d.pct.toFixed(1)}%</div>
             </div>
-          ))}
-        </div>
+
+            {/* Valor */}
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#e0e0e0', flexShrink: 0 }}>
+              {formatCurrency(d.amount)}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
