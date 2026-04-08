@@ -334,6 +334,9 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
   const handleAddBill = (bill: Bill) => { db.addBill(bill); setAddSection(null); };
   const hasFixedBills = db.fixedBills.length > 0;
   const masked = 'R$ ••••';
+  const linkedFixedBills = db.fixedBills.filter((b) => b.isOnCreditCard);
+  const creditCardTotal = db.creditCardBills.reduce((s, b) => s + b.amount, 0) + linkedFixedBills.reduce((s, b) => s + b.amount, 0);
+  const allCardPaid = db.creditCardBills.length > 0 && db.creditCardBills.every((b) => b.isPaid) && linkedFixedBills.every((b) => b.isPaid);
 
   /* ─── Section renderers ─── */
   const renderSection = (id: SectionId) => {
@@ -397,7 +400,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
             </div>
             {!hasFixedBills && addSection !== 'fixed' && <EmptyState label="Nenhuma conta fixa ainda." action="Copiar do mês anterior" onAction={db.copyFixedBillsFromPrevious} />}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {db.fixedBills.map((bill) => (<BillRow key={bill.id} bill={bill} onTogglePaid={() => db.togglePaid(bill.id)} onSave={db.saveBill} onDelete={() => db.deleteBill(bill.id)} hideValues={hideValues} />))}
+              {db.fixedBills.map((bill) => (<BillRow key={bill.id} bill={bill} onTogglePaid={() => db.togglePaid(bill.id)} onSave={db.saveBill} onDelete={() => db.deleteBill(bill.id)} hideValues={hideValues} showCreditCardToggle />))}
               {addSection === 'fixed' && <InlineAddRow monthName={db.selectedMonth.name} onSave={handleAddBill} onCancel={() => setAddSection(null)} defaultType="mensal" />}
             </div>
             {hasFixedBills && (
@@ -417,21 +420,58 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                   <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Cartão de crédito</h3>
                   <button onClick={() => setTab('cartao')} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#555', cursor: 'pointer', fontSize: 10, padding: '3px 10px' }}>Ver detalhes</button>
                 </div>
-                {db.creditCardBills.length === 0 ? (
+                {db.creditCardBills.length === 0 && linkedFixedBills.length === 0 ? (
                   <div onClick={() => setTab('cartao')} style={{ background: '#111', border: '1px dashed #1e1e1e', borderRadius: 10, padding: '18px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
                     <span style={{ fontSize: 12, color: '#333' }}>Nenhuma parcela em {db.selectedMonth.name}</span>
                     <span style={{ fontSize: 11, color: '#444' }}>Lançar compra →</span>
                   </div>
                 ) : (
-                  <div onClick={() => setTab('cartao')} style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 10, padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', transition: 'border-color 0.15s' }} onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#252525')} onMouseLeave={(e) => (e.currentTarget.style.borderColor = '#1a1a1a')}>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: '#c0c0c0' }}>{db.creditCardBills.length} parcela{db.creditCardBills.length > 1 ? 's' : ''}</div>
-                      <div style={{ fontSize: 10, color: '#3a3a3a', marginTop: 2 }}>{db.creditCardBills.filter((b) => b.isPaid).length} de {db.creditCardBills.length} pagas</div>
+                  <div style={{ background: '#131313', border: `1px solid ${allCardPaid ? '#10b98122' : '#1a1a1a'}`, borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12, opacity: allCardPaid ? 0.55 : 1, transition: 'all 0.15s' }}>
+                    {/* Bolinha de pago — igual às contas */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); allCardPaid ? db.unpayCreditCard() : db.payCreditCard(); }}
+                      style={{
+                        width: 20, height: 20, borderRadius: '50%',
+                        border: `2px solid ${allCardPaid ? '#10b981' : '#2d2d2d'}`,
+                        background: allCardPaid ? '#10b981' : 'transparent',
+                        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        flexShrink: 0, transition: 'all 0.15s', padding: 0,
+                      }}
+                    >
+                      {allCardPaid && (
+                        <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                          <path d="M2 6l3 3 5-5" stroke="#000" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
+                    </button>
+
+                    {/* Color dot */}
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', flexShrink: 0, opacity: 0.8 }} />
+
+                    {/* Info */}
+                    <div onClick={() => setTab('cartao')} style={{ flex: 1, cursor: 'pointer', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: allCardPaid ? '#555' : '#d4d4d4', textDecoration: allCardPaid ? 'line-through' : 'none' }}>Fatura do mês</span>
+                      <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+                        <span style={{ fontSize: 10, color: '#444', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 6px' }}>
+                          {db.creditCardBills.length} parcela{db.creditCardBills.length !== 1 ? 's' : ''}
+                        </span>
+                        {linkedFixedBills.length > 0 && (
+                          <>
+                            <span style={{ fontSize: 10, color: '#2a2a2a' }}>·</span>
+                            <span style={{ fontSize: 10, color: '#60a5fa', background: '#111520', border: '1px solid #1e2a3e', borderRadius: 4, padding: '1px 6px' }}>
+                              {linkedFixedBills.length} fixa{linkedFixedBills.length !== 1 ? 's' : ''}
+                            </span>
+                          </>
+                        )}
+                        <span style={{ fontSize: 10, color: '#2a2a2a' }}>·</span>
+                        <span style={{ fontSize: 10, color: '#444' }}>Detalhes →</span>
+                      </div>
                     </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#ef4444', letterSpacing: '-0.02em', transition: 'color 0.2s' }}>{hideValues ? masked : formatCurrency(db.creditCardBills.reduce((s, b) => s + b.amount, 0))}</div>
-                      <div style={{ fontSize: 10, color: '#333', marginTop: 2 }}>Ver detalhes →</div>
-                    </div>
+
+                    {/* Valor */}
+                    <span style={{ fontSize: 14, fontWeight: 700, color: hideValues ? '#1a1a1a' : (allCardPaid ? '#10b981' : '#d4d4d4'), flexShrink: 0, letterSpacing: '-0.01em', transition: 'color 0.2s' }}>
+                      {hideValues ? masked : formatCurrency(creditCardTotal)}
+                    </span>
                   </div>
                 )}
               </>
@@ -518,7 +558,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
           <button key={key} onClick={() => { setTab(key); setEditMode(false); }} style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '6px 18px', minWidth: 70, transition: 'all 0.15s' }}>
             <Icon active={tab === key} />
             <span style={{ fontSize: 9, fontWeight: tab === key ? 600 : 400, color: tab === key ? '#c0c0c0' : '#3a3a3a', letterSpacing: '0.02em', textTransform: 'uppercase' }}>{label}</span>
-          </button>
+        </button>
         ))}
       </nav>
 
@@ -667,7 +707,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                     </div>
                   )}
                   {section}
-                </div>
+        </div>
               );
             })}
 
@@ -702,9 +742,10 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
         {tab === 'cartao' && (
           <CreditCardView
             selectedMonthName={db.selectedMonth.name} selectedMonthYear={db.selectedMonth.year}
-            creditCardBills={db.creditCardBills} allMonths={db.months}
+            creditCardBills={db.creditCardBills} linkedFixedBills={linkedFixedBills} allMonths={db.months}
             onTogglePaid={db.togglePaid} onSaveBill={db.saveBill} onDeleteBill={db.deleteBill}
             onAddPurchase={db.addCreditCardPurchase} getAffectedMonths={db.getAffectedMonths}
+            onPayCreditCard={db.payCreditCard} onUnpayCreditCard={db.unpayCreditCard}
             hideValues={hideValues}
           />
         )}

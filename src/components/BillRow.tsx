@@ -16,6 +16,10 @@ interface Props {
   onSave: (bill: Bill) => void;
   onDelete: () => void;
   hideValues?: boolean;
+  /** Mostrar o botão de marcar como pago (padrão: true) */
+  showPaidToggle?: boolean;
+  /** Mostrar a opção de vincular ao cartão (para contas fixas) */
+  showCreditCardToggle?: boolean;
 }
 
 type EditField = 'name' | 'amount' | 'dueDay' | 'category' | 'type' | null;
@@ -31,7 +35,7 @@ const editInputStyle: React.CSSProperties = {
   fontFamily: 'inherit',
 };
 
-export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete, hideValues }) => {
+export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete, hideValues, showPaidToggle = true, showCreditCardToggle = false }) => {
   const [editField, setEditField] = useState<EditField>(null);
   const [editStr, setEditStr] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -85,29 +89,41 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete,
       }}
     >
       {/* Toggle pago */}
-      <button
-        onClick={onTogglePaid}
-        style={{
-          width: 20,
-          height: 20,
-          borderRadius: '50%',
-          border: `2px solid ${bill.isPaid ? '#10b981' : '#2d2d2d'}`,
-          background: bill.isPaid ? '#10b981' : 'transparent',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexShrink: 0,
-          transition: 'all 0.15s',
-          padding: 0,
-        }}
-      >
-        {bill.isPaid && (
-          <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
-            <path d="M2 6l3 3 5-5" stroke="#000" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        )}
-      </button>
+      {showPaidToggle ? (
+        <button
+          onClick={onTogglePaid}
+          style={{
+            width: 20,
+            height: 20,
+            borderRadius: '50%',
+            border: `2px solid ${bill.isPaid ? '#10b981' : '#2d2d2d'}`,
+            background: bill.isPaid ? '#10b981' : 'transparent',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            transition: 'all 0.15s',
+            padding: 0,
+          }}
+        >
+          {bill.isPaid && (
+            <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+              <path d="M2 6l3 3 5-5" stroke="#000" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )}
+        </button>
+      ) : (
+        <div style={{ width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          {bill.isPaid ? (
+            <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
+              <path d="M2 6l3 3 5-5" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          ) : (
+            <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#2d2d2d' }} />
+          )}
+        </div>
+      )}
 
       {/* Color dot */}
       <div style={{ width: 8, height: 8, borderRadius: '50%', background: categoryColor, flexShrink: 0, opacity: 0.8 }} />
@@ -164,6 +180,38 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete,
             <span onClick={() => setEditField('type')} style={{ fontSize: 10, color: '#444', cursor: 'pointer' }}>
               {BILL_TYPE_LABELS[bill.type]}
             </span>
+          )}
+
+          {/* Tag Cartão — para contas fixas vinculadas ao cartão */}
+          {showCreditCardToggle && (
+            <>
+              <span style={{ fontSize: 10, color: '#2a2a2a' }}>·</span>
+              <span
+                onClick={() => onSave({ ...bill, isOnCreditCard: !bill.isOnCreditCard })}
+                style={{
+                  fontSize: 9,
+                  fontWeight: 600,
+                  color: bill.isOnCreditCard ? '#60a5fa' : '#333',
+                  background: bill.isOnCreditCard ? '#111520' : '#151515',
+                  border: `1px solid ${bill.isOnCreditCard ? '#1e2a3e' : '#1e1e1e'}`,
+                  borderRadius: 4,
+                  padding: '1px 6px',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s',
+                  userSelect: 'none',
+                }}
+                title={bill.isOnCreditCard ? 'Vinculada ao cartão — clique para desvincular' : 'Clique para vincular ao cartão de crédito'}
+              >
+                {bill.isOnCreditCard ? '💳 Cartão' : 'Cartão?'}
+              </span>
+            </>
+          )}
+          {/* Indicador visual quando está no cartão (fora do modo edit) */}
+          {!showCreditCardToggle && bill.isOnCreditCard && (
+            <>
+              <span style={{ fontSize: 10, color: '#2a2a2a' }}>·</span>
+              <span style={{ fontSize: 9, fontWeight: 600, color: '#60a5fa', background: '#111520', border: '1px solid #1e2a3e', borderRadius: 4, padding: '1px 6px' }}>💳</span>
+            </>
           )}
         </div>
       </div>

@@ -84,6 +84,8 @@ export interface Bill {
   note: string;
   installmentCurrent?: number;
   installmentTotal?: number;
+  /** Indica que essa conta fixa é cobrada no cartão de crédito */
+  isOnCreditCard?: boolean;
 }
 
 export interface BudgetMonth {

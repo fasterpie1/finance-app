@@ -290,6 +290,48 @@ export function useDashboard() {
     [selectedMonth.name, selectedMonth.year]
   );
 
+  // ====== PAGAR CARTÃO DE CRÉDITO (tudo de uma vez) ======
+  const payCreditCard = useCallback(() => {
+    setMonths((prev) =>
+      prev.map((m) => {
+        if (m.id !== selectedMonthId) return m;
+        return {
+          ...m,
+          bills: m.bills.map((b) => {
+            // Marca parcelas do cartão como pagas
+            const isCreditCardBill = b.type === 'parcela' && b.category !== 'financiamento';
+            // Marca contas fixas vinculadas ao cartão como pagas
+            const isLinkedFixed = b.isOnCreditCard === true;
+            if (isCreditCardBill || isLinkedFixed) {
+              return { ...b, isPaid: true };
+            }
+            return b;
+          }),
+        };
+      })
+    );
+  }, [selectedMonthId]);
+
+  // ====== DESFAZER PAGAMENTO DO CARTÃO ======
+  const unpayCreditCard = useCallback(() => {
+    setMonths((prev) =>
+      prev.map((m) => {
+        if (m.id !== selectedMonthId) return m;
+        return {
+          ...m,
+          bills: m.bills.map((b) => {
+            const isCreditCardBill = b.type === 'parcela' && b.category !== 'financiamento';
+            const isLinkedFixed = b.isOnCreditCard === true;
+            if (isCreditCardBill || isLinkedFixed) {
+              return { ...b, isPaid: false };
+            }
+            return b;
+          }),
+        };
+      })
+    );
+  }, [selectedMonthId]);
+
   const resetData = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(SELECTED_KEY);
@@ -364,6 +406,8 @@ export function useDashboard() {
     copyFixedBillsFromPrevious,
     addNextMonth,
     updateSavingsGoal,
+    payCreditCard,
+    unpayCreditCard,
     resetData,
     exportData,
     importData,

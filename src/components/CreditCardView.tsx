@@ -14,12 +14,15 @@ interface Props {
   selectedMonthName: string;
   selectedMonthYear: number;
   creditCardBills: Bill[];
+  linkedFixedBills: Bill[];
   allMonths: { id: string; name: string; year: number; bills: Bill[] }[];
   onTogglePaid: (id: string) => void;
   onSaveBill: (bill: Bill) => void;
   onDeleteBill: (id: string) => void;
   onAddPurchase: (p: CreditCardPurchase) => void;
   getAffectedMonths: (cur: number, total: number) => MonthInfo[];
+  onPayCreditCard: () => void;
+  onUnpayCreditCard: () => void;
   hideValues?: boolean;
 }
 
@@ -31,8 +34,8 @@ const labelStyle: React.CSSProperties = {
 };
 
 export const CreditCardView: React.FC<Props> = ({
-  selectedMonthName, selectedMonthYear, creditCardBills, allMonths,
-  onTogglePaid, onSaveBill, onDeleteBill, onAddPurchase, getAffectedMonths, hideValues,
+  selectedMonthName, selectedMonthYear, creditCardBills, linkedFixedBills, allMonths,
+  onTogglePaid, onSaveBill, onDeleteBill, onAddPurchase, getAffectedMonths, onPayCreditCard, onUnpayCreditCard, hideValues,
 }) => {
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');
@@ -59,6 +62,9 @@ export const CreditCardView: React.FC<Props> = ({
 
   const totalDebt = allMonths.reduce((sum, m) => sum + m.bills.filter((b) => b.type === 'parcela' && b.category !== 'financiamento' && !b.isPaid).reduce((s, b) => s + b.amount, 0), 0);
   const monthlyFromCard = creditCardBills.reduce((s, b) => s + b.amount, 0);
+  const linkedTotal = linkedFixedBills.reduce((s, b) => s + b.amount, 0);
+  const faturaTotal = monthlyFromCard + linkedTotal;
+  const allCardPaid = creditCardBills.length > 0 && creditCardBills.every((b) => b.isPaid) && linkedFixedBills.every((b) => b.isPaid);
 
   const handleAdd = () => {
     const trimmed = name.trim();
@@ -73,11 +79,47 @@ export const CreditCardView: React.FC<Props> = ({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      {/* Fatura do mês — toggle simples */}
+      {(creditCardBills.length > 0 || linkedFixedBills.length > 0) && (
+        <div style={{ background: '#131313', border: `1px solid ${allCardPaid ? '#10b98122' : '#1e1e1e'}`, borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12, opacity: allCardPaid ? 0.55 : 1, transition: 'all 0.15s' }}>
+          {/* Bolinha de pago */}
+          <button
+            onClick={allCardPaid ? onUnpayCreditCard : onPayCreditCard}
+            style={{
+              width: 20, height: 20, borderRadius: '50%',
+              border: `2px solid ${allCardPaid ? '#10b981' : '#2d2d2d'}`,
+              background: allCardPaid ? '#10b981' : 'transparent',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0, transition: 'all 0.15s', padding: 0,
+            }}
+          >
+            {allCardPaid && (
+              <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                <path d="M2 6l3 3 5-5" stroke="#000" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
+          </button>
+          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', flexShrink: 0, opacity: 0.8 }} />
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: allCardPaid ? '#555' : '#d4d4d4', textDecoration: allCardPaid ? 'line-through' : 'none' }}>Fatura do mês</span>
+            <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+              <span style={{ fontSize: 10, color: '#444' }}>
+                {creditCardBills.length} parcela{creditCardBills.length !== 1 ? 's' : ''}
+                {linkedFixedBills.length > 0 && ` + ${linkedFixedBills.length} fixa${linkedFixedBills.length !== 1 ? 's' : ''}`}
+              </span>
+            </div>
+          </div>
+          <span style={{ fontSize: 14, fontWeight: 700, color: hideValues ? '#1a1a1a' : (allCardPaid ? '#10b981' : '#d4d4d4'), flexShrink: 0, letterSpacing: '-0.01em', transition: 'color 0.2s' }}>
+            {hideValues ? masked : formatCurrency(faturaTotal)}
+          </span>
+        </div>
+      )}
+
       {/* Resumo */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
         <div style={{ background: '#131313', border: '1px solid #1e1e1e', borderRadius: 12, padding: '16px 18px', position: 'relative', overflow: 'hidden' }}>
           <div style={{ position: 'absolute', top: 0, left: 0, width: 3, height: '100%', background: '#ef4444', borderRadius: '12px 0 0 12px' }} />
-          <div style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, marginBottom: 6 }}>Este mês</div>
+          <div style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, marginBottom: 6 }}>Parcelas</div>
           <div style={{ fontSize: 20, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#e8e8e8', transition: 'color 0.2s' }}>{hideValues ? masked : formatCurrency(monthlyFromCard)}</div>
           <div style={{ fontSize: 11, color: '#3a3a3a', marginTop: 4 }}>{creditCardBills.length} parcela(s)</div>
         </div>
@@ -142,10 +184,24 @@ export const CreditCardView: React.FC<Props> = ({
           <div style={{ background: '#111', border: '1px dashed #1e1e1e', borderRadius: 10, padding: 24, textAlign: 'center', color: '#333', fontSize: 12 }}>Nenhuma parcela neste mês.</div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {creditCardBills.map((bill) => (<BillRow key={bill.id} bill={bill} onTogglePaid={() => onTogglePaid(bill.id)} onSave={onSaveBill} onDelete={() => onDeleteBill(bill.id)} hideValues={hideValues} />))}
+            {creditCardBills.map((bill) => (<BillRow key={bill.id} bill={bill} onTogglePaid={() => onTogglePaid(bill.id)} onSave={onSaveBill} onDelete={() => onDeleteBill(bill.id)} hideValues={hideValues} showPaidToggle={false} />))}
           </div>
         )}
       </div>
+
+      {/* Contas fixas vinculadas ao cartão */}
+      {linkedFixedBills.length > 0 && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Fixas vinculadas ao cartão</h3>
+            <span style={{ fontSize: 10, color: '#60a5fa', background: '#111520', border: '1px solid #1e2a3e', borderRadius: 4, padding: '1px 7px', fontWeight: 600 }}>{linkedFixedBills.length}</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {linkedFixedBills.map((bill) => (<BillRow key={bill.id} bill={bill} onTogglePaid={() => onTogglePaid(bill.id)} onSave={onSaveBill} onDelete={() => onDeleteBill(bill.id)} hideValues={hideValues} showPaidToggle={false} />))}
+          </div>
+          <div style={{ fontSize: 11, color: '#3a3a3a', marginTop: 8, paddingLeft: 4 }}>Essas contas são pagas junto com a fatura do cartão.</div>
+        </div>
+      )}
 
       {/* Visão geral */}
       <div>
