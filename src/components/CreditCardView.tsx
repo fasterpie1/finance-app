@@ -60,7 +60,29 @@ export const CreditCardView: React.FC<Props> = ({
   const [category, setCategory] = useState<BillCategory>('financiamento');
   const [curInstallment, setCurInstallment] = useState('1');
   const [totalInstallment, setTotalInstallment] = useState('12');
-  const [formOpen, setFormOpen] = useState(true);
+  const [formOpen, setFormOpen] = useState(() => {
+    try {
+      const saved = localStorage.getItem('financa_sections_v1');
+      if (saved) {
+        const sections = JSON.parse(saved);
+        return sections['creditCardForm'] ?? false;
+      }
+    } catch { /* ignore */ }
+    return false;
+  });
+
+  const toggleForm = () => {
+    setFormOpen((prev: boolean) => {
+      const next = !prev;
+      try {
+        const saved = localStorage.getItem('financa_sections_v1');
+        const sections = saved ? JSON.parse(saved) : {};
+        sections['creditCardForm'] = next;
+        localStorage.setItem('financa_sections_v1', JSON.stringify(sections));
+      } catch { /* ignore */ }
+      return next;
+    });
+  };
 
   const cur = parseInt(curInstallment) || 1;
   const total = parseInt(totalInstallment) || 1;
@@ -115,7 +137,7 @@ export const CreditCardView: React.FC<Props> = ({
       {/* Formulário de lançamento */}
       <div style={{ background: '#141414', border: '1px solid #222', borderRadius: 16, overflow: 'hidden' }}>
         <button
-          onClick={() => setFormOpen((p) => !p)}
+          onClick={toggleForm}
           style={{
             width: '100%',
             display: 'flex',

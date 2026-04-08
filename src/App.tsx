@@ -10,6 +10,21 @@ import { type Bill, formatCurrency, parseBRL, BILL_CATEGORY_LABELS } from './typ
 type Tab = 'dashboard' | 'cartao' | 'chat';
 type AddSection = 'fixed' | 'variable' | null;
 
+// Persistir seções colapsadas/expandidas no localStorage
+const SECTIONS_KEY = 'financa_sections_v1';
+
+function loadSections(): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(SECTIONS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch { /* ignore */ }
+  return {};
+}
+
+function saveSections(sections: Record<string, boolean>) {
+  localStorage.setItem(SECTIONS_KEY, JSON.stringify(sections));
+}
+
 // Detectar se o teclado virtual está aberto no mobile
 function useKeyboardOpen() {
   const [open, setOpen] = useState(false);
@@ -50,25 +65,42 @@ function ProgressBar({ value, max }: { value: number; max: number }) {
 function SectionHeader({
   title,
   count,
+  totalAmount,
   onAdd,
   adding,
+  isOpen,
+  onToggle,
 }: {
   title: string;
   count: number;
+  totalAmount?: number;
   onAdd?: () => void;
   adding?: boolean;
+  isOpen?: boolean;
+  onToggle?: () => void;
 }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isOpen !== false ? 10 : 0 }}>
+      <div
+        style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: onToggle ? 'pointer' : 'default', flex: 1 }}
+        onClick={onToggle}
+      >
+        {onToggle && (
+          <span style={{ fontSize: 14, color: '#555', transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s', lineHeight: 1 }}>⌄</span>
+        )}
         <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
           {title}
         </h3>
         <span style={{ fontSize: 11, fontWeight: 700, color: '#555', background: '#1e1e1e', border: '1px solid #2d2d2d', borderRadius: 20, padding: '1px 8px' }}>
           {count}
         </span>
+        {totalAmount !== undefined && !isOpen && (
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#ef4444', marginLeft: 'auto', paddingRight: 8 }}>
+            {formatCurrency(totalAmount)}
+          </span>
+        )}
         </div>
-      {onAdd && (
+      {onAdd && isOpen !== false && (
         <button
           onClick={onAdd}
           style={{
@@ -106,9 +138,25 @@ export default function App() {
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const keyboardOpen = useKeyboardOpen();
 
+  // Seções colapsáveis com memória
+  const [sections, setSections] = useState<Record<string, boolean>>(loadSections);
+  const isSectionOpen = (key: string, defaultOpen = true) => sections[key] ?? defaultOpen;
+  const toggleSection = (key: string) => {
+    setSections((prev) => {
+      const next = { ...prev, [key]: !(prev[key] ?? true) };
+      saveSections(next);
+      return next;
+    });
+  };
+
   const paidCount = db.selectedMonth.bills.filter((b) => b.isPaid).length;
   const totalCount = db.selectedMonth.bills.length;
   const progressPct = totalCount > 0 ? Math.round((paidCount / totalCount) * 100) : 0;
+
+  // Totais por seção
+  const fixedTotal = db.fixedBills.reduce((s, b) => s + b.amount, 0);
+  const fixedPaidTotal = db.fixedBills.filter((b) => b.isPaid).reduce((s, b) => s + b.amount, 0);
+  const pendingAmount = db.totalPlanned - db.totalPaid;
 
   const financialContext = `Você é um assistente financeiro pessoal inteligente e simpático. Responda sempre em português do Brasil, de forma objetiva e prática. Use emojis quando fizer sentido.
 
@@ -256,29 +304,53 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                 </div>
               )}
 
-              <SummaryCard title="Total previsto" value={formatCurrency(db.totalPlanned)} icon="📋" accent="blue" subtitle={`${db.selectedMonth.bills.length} contas no mês`} />
-              <SummaryCard title="Total pago" value={formatCurrency(db.totalPaid)} icon="✅" accent="green" subtitle={`${paidCount} de ${totalCount} pagas`} />
+              <SummaryCard title="Contas a pagar" value={formatCurrency(pendingAmount)} icon="🔴" accent="red" subtitle={`${totalCount - paidCount} pendente${totalCount - paidCount !== 1 ? 's' : ''} de ${totalCount}`} valueColor="#ef4444" />
+              <SummaryCard title="Total pago" value={formatCurrency(db.totalPaid)} icon="✅" accent="green" subtitle={`${paidCount} de ${totalCount} pagas`} valueColor="#10b981" />
               <SummaryCard
                 title={db.remaining >= 0 ? 'Sobra prevista' : 'Déficit previsto'}
                 value={formatCurrency(Math.abs(db.remaining))}
                 icon={db.remaining >= 0 ? '📈' : '📉'}
                 accent={db.remaining >= 0 ? 'yellow' : 'red'}
-                subtitle="Entrada − total previsto"
+                subtitle="Entrada − contas a pagar"
               />
             </div>
 
-            {/* Contas mensais/fixas */}
-            <section>
-              <SectionHeader title="Contas mensais e fixas" count={db.fixedBills.length} onAdd={() => toggleAdd('fixed')} adding={addSection === 'fixed'} />
-              {db.fixedBills.length === 0 && addSection !== 'fixed' && <EmptyState label="Nenhuma conta mensal ou fixa ainda." />}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {db.fixedBills.map((bill) => (
-                  <BillRow key={bill.id} bill={bill} onTogglePaid={() => db.togglePaid(bill.id)} onSave={db.saveBill} onDelete={() => db.deleteBill(bill.id)} />
-                ))}
-                {addSection === 'fixed' && (
-                  <InlineAddRow monthName={db.selectedMonth.name} onSave={handleAddBill} onCancel={() => setAddSection(null)} defaultType="mensal" />
-                )}
-              </div>
+            {/* Contas mensais/fixas — colapsável */}
+            <section style={{ background: '#141414', border: '1px solid #1e1e1e', borderRadius: 14, padding: '14px 18px', transition: 'all 0.2s' }}>
+              <SectionHeader
+                title="Contas mensais e fixas"
+                count={db.fixedBills.length}
+                totalAmount={fixedTotal}
+                onAdd={() => toggleAdd('fixed')}
+                adding={addSection === 'fixed'}
+                isOpen={isSectionOpen('fixed')}
+                onToggle={() => toggleSection('fixed')}
+              />
+              {isSectionOpen('fixed') && (
+                <>
+                  {/* Resumo de valor da seção */}
+                  <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
+                    <div style={{ flex: 1, background: '#111', borderRadius: 8, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: 11, color: '#6b7280' }}>Total mensal</span>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: '#ef4444' }}>{formatCurrency(fixedTotal)}</span>
+                    </div>
+                    <div style={{ flex: 1, background: '#111', borderRadius: 8, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: 11, color: '#6b7280' }}>Pago</span>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: '#10b981' }}>{formatCurrency(fixedPaidTotal)}</span>
+                    </div>
+                  </div>
+
+                  {db.fixedBills.length === 0 && addSection !== 'fixed' && <EmptyState label="Nenhuma conta mensal ou fixa ainda." />}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {db.fixedBills.map((bill) => (
+                      <BillRow key={bill.id} bill={bill} onTogglePaid={() => db.togglePaid(bill.id)} onSave={db.saveBill} onDelete={() => db.deleteBill(bill.id)} />
+                    ))}
+                    {addSection === 'fixed' && (
+                      <InlineAddRow monthName={db.selectedMonth.name} onSave={handleAddBill} onCancel={() => setAddSection(null)} defaultType="mensal" />
+                    )}
+                  </div>
+                </>
+              )}
             </section>
 
             {/* Resumo do Cartão de Crédito */}
@@ -340,19 +412,29 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
               )}
             </section>
 
-            {/* Variáveis */}
+            {/* Variáveis — colapsável */}
             {(db.variableBills.length > 0 || addSection === 'variable') && (
-              <section>
-                <SectionHeader title="Variáveis / Reservas" count={db.variableBills.length} onAdd={() => toggleAdd('variable')} adding={addSection === 'variable'} />
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {db.variableBills.map((bill) => (
-                    <BillRow key={bill.id} bill={bill} onTogglePaid={() => db.togglePaid(bill.id)} onSave={db.saveBill} onDelete={() => db.deleteBill(bill.id)} />
-                  ))}
-                  {addSection === 'variable' && (
-                    <InlineAddRow monthName={db.selectedMonth.name} onSave={handleAddBill} onCancel={() => setAddSection(null)} defaultType="variavel" />
-                  )}
-        </div>
-      </section>
+              <section style={{ background: '#141414', border: '1px solid #1e1e1e', borderRadius: 14, padding: '14px 18px', transition: 'all 0.2s' }}>
+                <SectionHeader
+                  title="Variáveis / Reservas"
+                  count={db.variableBills.length}
+                  totalAmount={db.variableBills.reduce((s, b) => s + b.amount, 0)}
+                  onAdd={() => toggleAdd('variable')}
+                  adding={addSection === 'variable'}
+                  isOpen={isSectionOpen('variable')}
+                  onToggle={() => toggleSection('variable')}
+                />
+                {isSectionOpen('variable') && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {db.variableBills.map((bill) => (
+                      <BillRow key={bill.id} bill={bill} onTogglePaid={() => db.togglePaid(bill.id)} onSave={db.saveBill} onDelete={() => db.deleteBill(bill.id)} />
+                    ))}
+                    {addSection === 'variable' && (
+                      <InlineAddRow monthName={db.selectedMonth.name} onSave={handleAddBill} onCancel={() => setAddSection(null)} defaultType="variavel" />
+                    )}
+                  </div>
+                )}
+              </section>
             )}
 
             {/* Backup / Restaurar */}
@@ -437,7 +519,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
               <p style={{ margin: '10px 0 0', fontSize: 11, color: '#444', lineHeight: 1.5 }}>
                 💡 <strong>Dica:</strong> Exporte um backup antes de trocar de celular ou limpar o navegador. Assim você nunca perde seus dados!
               </p>
-            </div>
+        </div>
 
             {/* Footer */}
             <footer style={{ textAlign: 'center', fontSize: 12, color: '#2a2a2a', paddingTop: 10, borderTop: '1px solid #1a1a1a', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>

@@ -6,6 +6,7 @@ interface Props {
   icon: string;
   accent?: 'green' | 'blue' | 'red' | 'yellow' | 'default';
   subtitle?: string;
+  valueColor?: string;
 }
 
 const accentColors: Record<string, string> = {
@@ -16,7 +17,7 @@ const accentColors: Record<string, string> = {
   default: '#6b7280',
 };
 
-export const SummaryCard: React.FC<Props> = ({ title, value, icon, accent = 'default', subtitle }) => {
+export const SummaryCard: React.FC<Props> = ({ title, value, icon, accent = 'default', subtitle, valueColor }) => {
   const color = accentColors[accent];
   return (
     <div
@@ -38,7 +39,7 @@ export const SummaryCard: React.FC<Props> = ({ title, value, icon, accent = 'def
         <span style={{ fontSize: 11, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>{title}</span>
         <span style={{ fontSize: 18 }}>{icon}</span>
       </div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: '#f0f0f0', letterSpacing: '-0.02em' }}>{value}</div>
+      <div style={{ fontSize: 22, fontWeight: 700, color: valueColor || '#f0f0f0', letterSpacing: '-0.02em' }}>{value}</div>
       {subtitle && <div style={{ fontSize: 11, color: '#6b7280' }}>{subtitle}</div>}
     </div>
   );
