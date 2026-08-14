@@ -233,49 +233,71 @@ export function useDashboard() {
   );
 
   // ====== CARTÃO DE CRÉDITO ======
+  const applyCreditCardPurchase = (
+    updated: BudgetMonth[],
+    purchase: CreditCardPurchase,
+    startName: string,
+    startYear: number,
+  ): BudgetMonth[] => {
+    const count = purchase.installmentTotal - purchase.installmentCurrent + 1;
+    const monthInfos = getMonthsFrom(startName, startYear, count);
+
+    monthInfos.forEach((mi, i) => {
+      const installmentNum = purchase.installmentCurrent + i;
+      const bill: Bill = {
+        id: uuid(),
+        name: purchase.name,
+        category: purchase.category,
+        amount: purchase.amount,
+        dueDay: purchase.dueDay,
+        type: 'parcela',
+        isPaid: false,
+        month: mi.name,
+        note: 'Cartão de crédito',
+        installmentCurrent: installmentNum,
+        installmentTotal: purchase.installmentTotal,
+      };
+      const mIdx = updated.findIndex(
+        (m) => m.name.toLowerCase() === mi.name.toLowerCase() && m.year === mi.year
+      );
+      if (mIdx === -1) {
+        updated = [
+          ...updated,
+          {
+            id: uuid(),
+            name: mi.name,
+            year: mi.year,
+            income: updated[updated.length - 1]?.income ?? 8000,
+            bills: [bill],
+            savingsGoal: 0,
+          },
+        ];
+      } else {
+        updated = updated.map((m, idx) =>
+          idx === mIdx ? { ...m, bills: [...m.bills, bill] } : m
+        );
+      }
+    });
+    return updated;
+  };
+
   const addCreditCardPurchase = useCallback(
     (purchase: CreditCardPurchase) => {
-      const count = purchase.installmentTotal - purchase.installmentCurrent + 1;
-      const monthInfos = getMonthsFrom(selectedMonth.name, selectedMonth.year, count);
+      setMonths((prev) =>
+        sortMonths(applyCreditCardPurchase([...prev], purchase, selectedMonth.name, selectedMonth.year))
+      );
+    },
+    [selectedMonth.name, selectedMonth.year]
+  );
 
+  const addCreditCardPurchasesBatch = useCallback(
+    (purchases: CreditCardPurchase[]) => {
+      if (purchases.length === 0) return;
       setMonths((prev) => {
         let updated = [...prev];
-        monthInfos.forEach((mi, i) => {
-          const installmentNum = purchase.installmentCurrent + i;
-          const bill: Bill = {
-            id: uuid(),
-            name: purchase.name,
-            category: purchase.category,
-            amount: purchase.amount,
-            dueDay: purchase.dueDay,
-            type: 'parcela',
-            isPaid: false,
-            month: mi.name,
-            note: 'Cartão de crédito',
-            installmentCurrent: installmentNum,
-            installmentTotal: purchase.installmentTotal,
-          };
-          const mIdx = updated.findIndex(
-            (m) => m.name.toLowerCase() === mi.name.toLowerCase() && m.year === mi.year
-          );
-          if (mIdx === -1) {
-            updated = [
-              ...updated,
-              {
-                id: uuid(),
-                name: mi.name,
-                year: mi.year,
-                income: updated[updated.length - 1]?.income ?? 8000,
-                bills: [bill],
-                savingsGoal: 0,
-              },
-            ];
-          } else {
-            updated = updated.map((m, idx) =>
-              idx === mIdx ? { ...m, bills: [...m.bills, bill] } : m
-            );
-          }
-        });
+        for (const purchase of purchases) {
+          updated = applyCreditCardPurchase(updated, purchase, selectedMonth.name, selectedMonth.year);
+        }
         return sortMonths(updated);
       });
     },
@@ -402,6 +424,7 @@ export function useDashboard() {
     togglePaid,
     updateIncome,
     addCreditCardPurchase,
+    addCreditCardPurchasesBatch,
     getAffectedMonths,
     copyFixedBillsFromPrevious,
     addNextMonth,

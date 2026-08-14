@@ -744,7 +744,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
             selectedMonthName={db.selectedMonth.name} selectedMonthYear={db.selectedMonth.year}
             creditCardBills={db.creditCardBills} linkedFixedBills={linkedFixedBills} allMonths={db.months}
             onTogglePaid={db.togglePaid} onSaveBill={db.saveBill} onDeleteBill={db.deleteBill}
-            onAddPurchase={db.addCreditCardPurchase} getAffectedMonths={db.getAffectedMonths}
+            onAddPurchase={db.addCreditCardPurchase} onImportBatch={db.addCreditCardPurchasesBatch} getAffectedMonths={db.getAffectedMonths}
             onPayCreditCard={db.payCreditCard} onUnpayCreditCard={db.unpayCreditCard}
             hideValues={hideValues}
           />

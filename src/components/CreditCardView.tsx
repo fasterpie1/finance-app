@@ -8,6 +8,7 @@ import {
 } from '../types';
 import { type CreditCardPurchase, type MonthInfo } from '../store/useDashboard';
 import { BillRow } from './BillRow';
+import { StatementImportPanel } from './StatementImportPanel';
 import { type Bill } from '../types';
 
 interface Props {
@@ -20,6 +21,7 @@ interface Props {
   onSaveBill: (bill: Bill) => void;
   onDeleteBill: (id: string) => void;
   onAddPurchase: (p: CreditCardPurchase) => void;
+  onImportBatch: (purchases: CreditCardPurchase[]) => void;
   getAffectedMonths: (cur: number, total: number) => MonthInfo[];
   onPayCreditCard: () => void;
   onUnpayCreditCard: () => void;
@@ -35,14 +37,14 @@ const labelStyle: React.CSSProperties = {
 
 export const CreditCardView: React.FC<Props> = ({
   selectedMonthName, selectedMonthYear, creditCardBills, linkedFixedBills, allMonths,
-  onTogglePaid, onSaveBill, onDeleteBill, onAddPurchase, getAffectedMonths, onPayCreditCard, onUnpayCreditCard, hideValues,
+  onTogglePaid, onSaveBill, onDeleteBill, onAddPurchase, onImportBatch, getAffectedMonths, onPayCreditCard, onUnpayCreditCard, hideValues,
 }) => {
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');
   const [dueDay, setDueDay] = useState('10');
   const [category, setCategory] = useState<BillCategory>('compras');
   const [curInstallment, setCurInstallment] = useState('1');
-  const [totalInstallment, setTotalInstallment] = useState('12');
+  const [totalInstallment, setTotalInstallment] = useState('1');
   const [formOpen, setFormOpen] = useState(() => {
     try { const saved = localStorage.getItem('financa_sections_v1'); if (saved) { return JSON.parse(saved)['creditCardForm'] ?? false; } } catch { /* ignore */ }
     return false;
@@ -72,7 +74,7 @@ export const CreditCardView: React.FC<Props> = ({
     const c = Math.max(1, Math.min(cur, total));
     const t = Math.max(c, total);
     onAddPurchase({ name: trimmed, amount: parseBRL(amount), dueDay: Math.max(1, Math.min(31, parseInt(dueDay) || 10)), category, installmentCurrent: c, installmentTotal: t });
-    setName(''); setAmount(''); setCurInstallment('1'); setTotalInstallment('12');
+    setName(''); setAmount(''); setCurInstallment('1'); setTotalInstallment('1');
   };
 
   const masked = 'R$ ••••';
@@ -173,6 +175,9 @@ export const CreditCardView: React.FC<Props> = ({
           </div>
         )}
       </div>
+
+      {/* Importar da fatura */}
+      <StatementImportPanel defaultDueDay={dueDay} onImport={onImportBatch} />
 
       {/* Parcelas do mês */}
       <div>
