@@ -118,14 +118,13 @@ export const StatementImportPanel: React.FC<Props> = ({ defaultDueDay, onImport 
           )}
 
           <p style={{ margin: 0, fontSize: 12, color: '#555', lineHeight: 1.5 }}>
-            Tire um print ou foto da fatura do cartão. A IA extrai as compras para você revisar antes de lançar.
+            Selecione uma imagem ou print da fatura do cartão. A IA extrai as compras para você revisar antes de lançar.
           </p>
 
           <input
             ref={fileRef}
             type="file"
             accept="image/*"
-            capture="environment"
             style={{ display: 'none' }}
             onChange={(e) => {
               const file = e.target.files?.[0];
@@ -163,7 +162,7 @@ export const StatementImportPanel: React.FC<Props> = ({ defaultDueDay, onImport 
                   <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" />
                   <circle cx="12" cy="13" r="4" />
                 </svg>
-                Tirar foto ou escolher imagem
+                Selecionar imagem
               </>
             )}
           </button>
