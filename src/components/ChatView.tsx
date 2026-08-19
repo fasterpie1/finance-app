@@ -11,7 +11,7 @@ interface Props {
 
 const STORAGE_KEY_API = 'groq_api_key';
 const STORAGE_KEY_CHAT = 'finance_chat_history';
-const CHAT_MODEL = 'llama-3.1-8b-instant';
+const CHAT_MODEL = 'openai/gpt-oss-20b';
 
 const SUGGESTIONS = [
   'Como estou indo financeiramente este mês?',
@@ -98,7 +98,7 @@ export const ChatView: React.FC<Props> = ({ financialContext }) => {
               <li>Clique em <strong style={{ color: '#c0c0c0' }}>Create API Key</strong></li>
               <li>Cole a chave aqui (começa com <code style={{ color: '#f59e0b', background: '#1a1a0a', padding: '1px 4px', borderRadius: 2 }}>gsk_</code>)</li>
             </ol>
-            <div style={{ fontSize: 10, color: '#3a3a3a', marginTop: 8 }}>Gratuito · Sem cartão · Modelo Llama 3.1 8B</div>
+            <div style={{ fontSize: 10, color: '#3a3a3a', marginTop: 8 }}>Gratuito · Sem cartão · Modelo GPT-OSS 20B</div>
           </div>
           <button onClick={saveKey} disabled={!apiKeyInput.startsWith('gsk_')} style={{ background: apiKeyInput.startsWith('gsk_') ? '#3b82f6' : '#151520', border: 'none', borderRadius: 6, color: apiKeyInput.startsWith('gsk_') ? '#fff' : '#3a4a5a', cursor: apiKeyInput.startsWith('gsk_') ? 'pointer' : 'not-allowed', padding: '10px', fontSize: 13, fontWeight: 600 }}>Salvar e começar</button>
         </div>
@@ -113,7 +113,7 @@ export const ChatView: React.FC<Props> = ({ financialContext }) => {
           <div style={{ width: 28, height: 28, borderRadius: 8, background: '#111520', border: '1px solid #1e2a3e', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#60a5fa' }}><IconAI /></div>
           <div>
             <div style={{ fontSize: 13, fontWeight: 600, color: '#c0c0c0' }}>Assistente Financeiro</div>
-            <div style={{ fontSize: 10, color: '#3a3a3a' }}>Groq · Llama 3.1 8B</div>
+            <div style={{ fontSize: 10, color: '#3a3a3a' }}>Groq · GPT-OSS 20B</div>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
