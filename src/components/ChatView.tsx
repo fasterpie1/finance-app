@@ -11,7 +11,8 @@ interface Props {
 
 const STORAGE_KEY_API = 'groq_api_key';
 const STORAGE_KEY_CHAT = 'finance_chat_history';
-const CHAT_MODEL = 'openai/gpt-oss-20b';
+const CHAT_MODEL = 'groq/compound-mini';
+const MAX_CONTEXT_MESSAGES = 12;
 
 const SUGGESTIONS = [
   'Como estou indo financeiramente este mês?',
@@ -56,18 +57,33 @@ export const ChatView: React.FC<Props> = ({ financialContext }) => {
     if (!msg || !apiKey || loading) return;
     setInput('');
     const userMsg: Message = { role: 'user', content: msg };
-    const history = [...messages.filter((m) => m.role !== 'error'), userMsg];
+    const history = [...messages.filter((m) => m.role !== 'error'), userMsg].slice(-MAX_CONTEXT_MESSAGES);
     setMessages(history);
     setLoading(true);
     try {
       const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model: CHAT_MODEL, messages: [{ role: 'system', content: financialContext }, ...history.map((m) => ({ role: m.role === 'error' ? 'user' : m.role, content: m.content }))], max_tokens: 800, temperature: 0.7 }),
+        body: JSON.stringify({
+          model: CHAT_MODEL,
+          messages: [{ role: 'system', content: financialContext }, ...history.map((m) => ({ role: m.role === 'error' ? 'user' : m.role, content: m.content }))],
+          max_tokens: 1200,
+          temperature: 0.5,
+        }),
       });
-      if (!res.ok) { const err = await res.json(); throw new Error(err.error?.message ?? `Erro ${res.status}`); }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        if (res.status === 429) {
+          const retryAfter = res.headers.get('retry-after');
+          const wait = retryAfter ? ` Aguarde ${retryAfter} segundos.` : ' Aguarde alguns segundos.';
+          throw new Error(`Limite gratuito da Groq atingido.${wait}`);
+        }
+        throw new Error(err.error?.message ?? `Erro ${res.status}`);
+      }
       const data = await res.json();
-      setMessages((prev) => [...prev, { role: 'assistant', content: data.choices?.[0]?.message?.content ?? 'Sem resposta.' }]);
+      const content = data.choices?.[0]?.message?.content?.trim();
+      if (!content) throw new Error('A Groq encerrou a resposta antes de gerar o texto. Tente novamente com uma pergunta mais curta.');
+      setMessages((prev) => [...prev, { role: 'assistant', content }]);
     } catch (err) {
       setMessages((prev) => [...prev, { role: 'error', content: err instanceof Error ? err.message : 'Erro desconhecido' }]);
     } finally { setLoading(false); setTimeout(() => inputRef.current?.focus(), 100); }
@@ -98,7 +114,7 @@ export const ChatView: React.FC<Props> = ({ financialContext }) => {
               <li>Clique em <strong style={{ color: '#c0c0c0' }}>Create API Key</strong></li>
               <li>Cole a chave aqui (começa com <code style={{ color: '#f59e0b', background: '#1a1a0a', padding: '1px 4px', borderRadius: 2 }}>gsk_</code>)</li>
             </ol>
-            <div style={{ fontSize: 10, color: '#3a3a3a', marginTop: 8 }}>Gratuito · Sem cartão · Modelo GPT-OSS 20B</div>
+            <div style={{ fontSize: 10, color: '#3a3a3a', marginTop: 8 }}>Gratuito · Sem cartão · Modelo Compound Mini</div>
           </div>
           <button onClick={saveKey} disabled={!apiKeyInput.startsWith('gsk_')} style={{ background: apiKeyInput.startsWith('gsk_') ? '#3b82f6' : '#151520', border: 'none', borderRadius: 6, color: apiKeyInput.startsWith('gsk_') ? '#fff' : '#3a4a5a', cursor: apiKeyInput.startsWith('gsk_') ? 'pointer' : 'not-allowed', padding: '10px', fontSize: 13, fontWeight: 600 }}>Salvar e começar</button>
         </div>
@@ -113,7 +129,7 @@ export const ChatView: React.FC<Props> = ({ financialContext }) => {
           <div style={{ width: 28, height: 28, borderRadius: 8, background: '#111520', border: '1px solid #1e2a3e', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#60a5fa' }}><IconAI /></div>
           <div>
             <div style={{ fontSize: 13, fontWeight: 600, color: '#c0c0c0' }}>Assistente Financeiro</div>
-            <div style={{ fontSize: 10, color: '#3a3a3a' }}>Groq · GPT-OSS 20B</div>
+            <div style={{ fontSize: 10, color: '#3a3a3a' }}>Groq · Compound Mini</div>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
