@@ -35,7 +35,12 @@ export const AuthPanel: React.FC<Props> = ({ children }) => {
     else if (!data.session) setMessage('Conta criada. Confirme seu e-mail para entrar.');
     setLoading(false);
   };
-  const signOut = () => { void supabase?.auth.signOut(); };
+  const signOut = () => {
+    setEmail('');
+    setPassword('');
+    setMessage('');
+    void supabase?.auth.signOut();
+  };
 
   if (!isSupabaseConfigured) return <>{children(null, signOut)}</>;
   if (loading) return <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', color: '#777', background: '#0a0a0a' }}>Carregando...</div>;
