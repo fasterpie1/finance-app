@@ -76,6 +76,9 @@ export function useDashboard(userId: string | null = null) {
   const [months, setMonths] = useState<BudgetMonth[]>(() => sortMonths(loadMonths()));
   const [selectedMonthId, setSelectedMonthId] = useState<string>(() => loadSelectedId(loadMonths()));
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const remoteLoaded = useRef(!supabase || !userId);
 
   useEffect(() => {
@@ -86,7 +89,7 @@ export function useDashboard(userId: string | null = null) {
     const client = supabase;
     remoteLoaded.current = false;
     const loadRemote = async () => {
-      const { data, error } = await client.from('user_finance_data').select('months, selected_month_id').eq('user_id', userId).maybeSingle();
+      const { data, error } = await client.from('user_finance_data').select('months, selected_month_id, updated_at').eq('user_id', userId).maybeSingle();
       if (error) {
         console.error('Falha ao carregar dados do Supabase:', error);
         setSyncError(`Falha ao carregar dados: ${error.message}`);
@@ -94,6 +97,7 @@ export function useDashboard(userId: string | null = null) {
         const remoteMonths = sortMonths(migrateMonths(data.months as BudgetMonth[]));
         setMonths(remoteMonths);
         setSelectedMonthId(data.selected_month_id && remoteMonths.some((month) => month.id === data.selected_month_id) ? data.selected_month_id : remoteMonths[0].id);
+        setLastSyncedAt(data.updated_at ? new Date(data.updated_at) : new Date());
         setSyncError(null);
       } else {
         const { error: insertError } = await client.from('user_finance_data').upsert({ user_id: userId, months: sampleMonths, selected_month_id: sampleMonths[0].id });
@@ -108,6 +112,25 @@ export function useDashboard(userId: string | null = null) {
     };
     void loadRemote();
   }, [userId]);
+
+  const refreshData = useCallback(async () => {
+    if (!supabase || !userId || isRefreshing) return;
+    setIsRefreshing(true);
+    const { data, error } = await supabase.from('user_finance_data').select('months, selected_month_id, updated_at').eq('user_id', userId).maybeSingle();
+    if (error) {
+      console.error('Falha ao atualizar dados do Supabase:', error);
+      setSyncError(`Falha ao atualizar dados: ${error.message}`);
+    } else if (data?.months && Array.isArray(data.months) && data.months.length > 0) {
+      const remoteMonths = sortMonths(migrateMonths(data.months as BudgetMonth[]));
+      const hasChanges = JSON.stringify(months) !== JSON.stringify(remoteMonths);
+      setMonths(remoteMonths);
+      setSelectedMonthId(data.selected_month_id && remoteMonths.some((month) => month.id === data.selected_month_id) ? data.selected_month_id : remoteMonths[0].id);
+      setLastSyncedAt(data.updated_at ? new Date(data.updated_at) : new Date());
+      setSyncNotice(hasChanges ? 'Alterações de outro dispositivo carregadas' : 'Nenhuma alteração nova');
+      setSyncError(null);
+    }
+    setIsRefreshing(false);
+  }, [isRefreshing, months, userId]);
 
   // Salvar automaticamente sempre que mudar
   useEffect(() => {
@@ -485,6 +508,10 @@ export function useDashboard(userId: string | null = null) {
     exportData,
     importData,
     syncError,
+    isRefreshing,
+    lastSyncedAt,
+    syncNotice,
+    refreshData,
     formatCurrency,
   };
 }

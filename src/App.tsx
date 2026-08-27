@@ -68,6 +68,11 @@ const IconChat = ({ active }: { active: boolean }) => (
     <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
   </svg>
 );
+const IconRefresh = ({ spinning }: { spinning: boolean }) => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: spinning ? 'spin 0.8s linear infinite' : undefined }}>
+    <path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 5v4h4" /><path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 19v-4h-4" />
+  </svg>
+);
 const IconEyeOpen = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
@@ -560,6 +565,14 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
           <span style={{ fontSize: 14, fontWeight: 700, color: '#c0c0c0', letterSpacing: '-0.02em' }}>finança</span>
           <span style={{ fontSize: 9, color: '#3a3a3a', letterSpacing: '0.1em', fontWeight: 500 }}>PESSOAL</span>
         </div>
+        {userId && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {db.syncNotice && <span style={{ fontSize: 10, color: '#4b8f73' }}>{db.syncNotice}</span>}
+            <button onClick={() => void db.refreshData()} disabled={db.isRefreshing} title="Atualizar dados compartilhados" aria-label="Atualizar dados compartilhados" style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: db.isRefreshing ? '#3b82f6' : '#666', cursor: db.isRefreshing ? 'wait' : 'pointer', width: 32, height: 30, display: 'grid', placeItems: 'center' }}>
+              <IconRefresh spinning={db.isRefreshing} />
+            </button>
+          </div>
+        )}
       </header>
 
       {/* ─── Bottom Nav ─── */}
