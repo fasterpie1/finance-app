@@ -23,9 +23,9 @@ interface Props {
 }
 
 const STORAGE_KEY = 'financa_card_chart_categories_v1';
-const CHART_WIDTH = 680;
-const CHART_HEIGHT = 270;
-const PADDING = { top: 22, right: 18, bottom: 58, left: 72 };
+const CHART_WIDTH = 760;
+const CHART_HEIGHT = 300;
+const PADDING = { top: 62, right: 54, bottom: 62, left: 92 };
 
 function loadCategories(available: BillCategory[]): BillCategory[] {
   try {
@@ -113,21 +113,27 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
               return (
                 <g key={value}>
                   <line x1={PADDING.left} x2={CHART_WIDTH - PADDING.right} y1={y} y2={y} stroke="#202020" strokeDasharray="3 5" />
-                  <text x={PADDING.left - 10} y={y + 4} textAnchor="end" fill="#555" fontSize="12">{hideValues ? '•••' : formatCurrency(value).replace('R$', '').trim()}</text>
+                  <text x={PADDING.left - 10} y={y + 5} textAnchor="end" fill="#666" fontSize="14">{hideValues ? '•••' : formatCurrency(value).replace('R$', '').trim()}</text>
                 </g>
               );
             })}
             <line x1={PADDING.left} x2={CHART_WIDTH - PADDING.right} y1={PADDING.top + plotHeight} y2={PADDING.top + plotHeight} stroke="#292929" />
             {chartMonths.map((month, index) => (
               <g key={month.id}>
-                <text x={xFor(index)} y={CHART_HEIGHT - 29} textAnchor="middle" fill="#666" fontSize="12">{formatMonthShort(month.name, month.year)}</text>
-                <text x={xFor(index)} y={CHART_HEIGHT - 11} textAnchor="middle" fill="#999" fontSize="11" fontWeight="600">{hideValues ? '•••' : formatCurrency(selectedCategories.reduce((total, category) => total + cardBills(month).filter((bill) => bill.category === category).reduce((sum, bill) => sum + bill.amount, 0), 0))}</text>
+                <text x={xFor(index)} y={CHART_HEIGHT - 29} textAnchor={index === 0 ? 'start' : index === chartMonths.length - 1 ? 'end' : 'middle'} fill="#777" fontSize="15" fontWeight="600">{formatMonthShort(month.name, month.year)}</text>
               </g>
             ))}
-            {series.map(({ category, points }) => (
+            {series.map(({ category, points }, seriesIndex) => (
               <g key={category}>
                 <polyline points={points.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" stroke={BILL_CATEGORY_COLORS[category]} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                {points.map((point, index) => <circle key={`${category}-${index}`} cx={point.x} cy={point.y} r="4" fill="#111" stroke={BILL_CATEGORY_COLORS[category]} strokeWidth="2" />)}
+                {points.map((point, index) => (
+                  <g key={`${category}-${index}`}>
+                    <text x={point.x} y={Math.max(18, point.y - 16 - seriesIndex * 20)} textAnchor={index === 0 ? 'start' : index === points.length - 1 ? 'end' : 'middle'} fill={BILL_CATEGORY_COLORS[category]} fontSize="14" fontWeight="700">
+                      {hideValues ? '•••' : formatCurrency(point.value)}
+                    </text>
+                    <circle cx={point.x} cy={point.y} r="4.5" fill="#111" stroke={BILL_CATEGORY_COLORS[category]} strokeWidth="2" />
+                  </g>
+                ))}
               </g>
             ))}
           </svg>
