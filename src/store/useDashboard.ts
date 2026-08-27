@@ -1,6 +1,7 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { type Bill, type BudgetMonth, type BillCategory, MONTH_NAMES, getMonthIndex, formatCurrency } from '../types';
 import { sampleMonths } from '../data/sampleData';
+import { supabase } from '../services/supabase';
 
 const STORAGE_KEY = 'financa_months_v1';
 const SELECTED_KEY = 'financa_selected_v1';
@@ -71,16 +72,41 @@ export interface CreditCardPurchase {
   installmentTotal: number;
 }
 
-export function useDashboard() {
+export function useDashboard(userId: string | null = null) {
   const [months, setMonths] = useState<BudgetMonth[]>(() => sortMonths(loadMonths()));
   const [selectedMonthId, setSelectedMonthId] = useState<string>(() => loadSelectedId(loadMonths()));
+  const remoteLoaded = useRef(!supabase || !userId);
+
+  useEffect(() => {
+    if (!supabase || !userId) {
+      remoteLoaded.current = true;
+      return;
+    }
+    const client = supabase;
+    remoteLoaded.current = false;
+    const loadRemote = async () => {
+      const { data, error } = await client.from('user_finance_data').select('months, selected_month_id').eq('user_id', userId).maybeSingle();
+      if (!error && data?.months && Array.isArray(data.months) && data.months.length > 0) {
+        const remoteMonths = sortMonths(migrateMonths(data.months as BudgetMonth[]));
+        setMonths(remoteMonths);
+        setSelectedMonthId(data.selected_month_id && remoteMonths.some((month) => month.id === data.selected_month_id) ? data.selected_month_id : remoteMonths[0].id);
+      } else if (!error) {
+        await client.from('user_finance_data').upsert({ user_id: userId, months: sampleMonths, selected_month_id: sampleMonths[0].id });
+      }
+      remoteLoaded.current = true;
+    };
+    void loadRemote();
+  }, [userId]);
 
   // Salvar automaticamente sempre que mudar
   useEffect(() => {
+    if (!remoteLoaded.current) return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(months));
-  }, [months]);
+    if (supabase && userId) void supabase.from('user_finance_data').upsert({ user_id: userId, months, selected_month_id: selectedMonthId, updated_at: new Date().toISOString() });
+  }, [months, selectedMonthId, userId]);
 
   useEffect(() => {
+    if (!remoteLoaded.current) return;
     localStorage.setItem(SELECTED_KEY, selectedMonthId);
   }, [selectedMonthId]);
 

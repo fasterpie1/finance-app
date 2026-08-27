@@ -7,6 +7,7 @@ import { CreditCardView } from './components/CreditCardView';
 import { ChatView } from './components/ChatView';
 import { CategoryChart } from './components/CategoryChart';
 import { CardSpendingChart } from './components/CardSpendingChart';
+import { AuthPanel } from './components/AuthPanel';
 import { type Bill, formatCurrency, parseBRL, formatMonthShort, BILL_CATEGORY_LABELS, getMonthIndex } from './types';
 
 type Tab = 'dashboard' | 'cartao' | 'chat';
@@ -136,8 +137,8 @@ function EmptyState({ label, action, onAction }: { label: string; action?: strin
 }
 
 /* ─── Main App ─── */
-export default function App() {
-  const db = useDashboard();
+function App({ userId, signOut }: { userId: string | null; signOut: () => void }) {
+  const db = useDashboard(userId);
   const [tab, setTab] = useState<Tab>('dashboard');
   const [addSection, setAddSection] = useState<AddSection>(null);
   const [incomeEditing, setIncomeEditing] = useState(false);
@@ -732,9 +733,10 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
             {/* Footer */}
             <footer style={{ textAlign: 'center', fontSize: 10, color: '#1e1e1e', paddingTop: 10, borderTop: '1px solid #111', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-                <span>Dados salvos automaticamente</span>
+                <span>{userId ? 'Dados sincronizados na nuvem' : 'Dados salvos automaticamente'}</span>
                 <span style={{ color: '#151515' }}>·</span>
                 <button onClick={() => { if (confirm('Limpar todos os dados e começar novamente?')) db.resetData(); }} style={{ background: 'transparent', border: 'none', color: '#1e1e1e', cursor: 'pointer', fontSize: 10, padding: 0, textDecoration: 'underline' }}>Resetar</button>
+                {userId && <><span style={{ color: '#151515' }}>·</span><button onClick={signOut} style={{ background: 'transparent', border: 'none', color: '#1e1e1e', cursor: 'pointer', fontSize: 10, padding: 0, textDecoration: 'underline' }}>Sair</button></>}
               </div>
               <button
                 onClick={() => setEditMode((p) => !p)}
@@ -770,4 +772,8 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
       </div>
     </div>
   );
+}
+
+export default function AppWithAuth() {
+  return <AuthPanel>{(userId, signOut) => <App userId={userId} signOut={signOut} />}</AuthPanel>;
 }
