@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { supabase, isSupabaseConfigured } from '../services/supabase';
 
+const AUTH_REDIRECT_URL = 'https://finance-app-alpha-opal.vercel.app';
+
 interface Props {
   children: (userId: string | null, signOut: () => void) => React.ReactNode;
 }
@@ -30,7 +32,11 @@ export const AuthPanel: React.FC<Props> = ({ children }) => {
   const signUp = async () => {
     if (!supabase || !email.trim() || !password) return;
     setLoading(true); setMessage('');
-    const { data, error } = await supabase.auth.signUp({ email: email.trim(), password });
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: { emailRedirectTo: AUTH_REDIRECT_URL },
+    });
     if (error) setMessage(error.message);
     else if (!data.session) setMessage('Conta criada. Confirme seu e-mail para entrar.');
     setLoading(false);
