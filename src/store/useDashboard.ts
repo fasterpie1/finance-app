@@ -75,6 +75,7 @@ export interface CreditCardPurchase {
 export function useDashboard(userId: string | null = null) {
   const [months, setMonths] = useState<BudgetMonth[]>(() => sortMonths(loadMonths()));
   const [selectedMonthId, setSelectedMonthId] = useState<string>(() => loadSelectedId(loadMonths()));
+  const [syncError, setSyncError] = useState<string | null>(null);
   const remoteLoaded = useRef(!supabase || !userId);
 
   useEffect(() => {
@@ -86,12 +87,22 @@ export function useDashboard(userId: string | null = null) {
     remoteLoaded.current = false;
     const loadRemote = async () => {
       const { data, error } = await client.from('user_finance_data').select('months, selected_month_id').eq('user_id', userId).maybeSingle();
-      if (!error && data?.months && Array.isArray(data.months) && data.months.length > 0) {
+      if (error) {
+        console.error('Falha ao carregar dados do Supabase:', error);
+        setSyncError(`Falha ao carregar dados: ${error.message}`);
+      } else if (data?.months && Array.isArray(data.months) && data.months.length > 0) {
         const remoteMonths = sortMonths(migrateMonths(data.months as BudgetMonth[]));
         setMonths(remoteMonths);
         setSelectedMonthId(data.selected_month_id && remoteMonths.some((month) => month.id === data.selected_month_id) ? data.selected_month_id : remoteMonths[0].id);
-      } else if (!error) {
-        await client.from('user_finance_data').upsert({ user_id: userId, months: sampleMonths, selected_month_id: sampleMonths[0].id });
+        setSyncError(null);
+      } else {
+        const { error: insertError } = await client.from('user_finance_data').upsert({ user_id: userId, months: sampleMonths, selected_month_id: sampleMonths[0].id });
+        if (insertError) {
+          console.error('Falha ao criar dados do usuário no Supabase:', insertError);
+          setSyncError(`Falha ao criar dados: ${insertError.message}`);
+        } else {
+          setSyncError(null);
+        }
       }
       remoteLoaded.current = true;
     };
@@ -102,7 +113,16 @@ export function useDashboard(userId: string | null = null) {
   useEffect(() => {
     if (!remoteLoaded.current) return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(months));
-    if (supabase && userId) void supabase.from('user_finance_data').upsert({ user_id: userId, months, selected_month_id: selectedMonthId, updated_at: new Date().toISOString() });
+    if (supabase && userId) {
+      void supabase.from('user_finance_data').upsert({ user_id: userId, months, selected_month_id: selectedMonthId, updated_at: new Date().toISOString() }).then(({ error }) => {
+        if (error) {
+          console.error('Falha ao salvar dados no Supabase:', error);
+          setSyncError(`Falha ao salvar dados: ${error.message}`);
+        } else {
+          setSyncError(null);
+        }
+      });
+    }
   }, [months, selectedMonthId, userId]);
 
   useEffect(() => {
@@ -464,6 +484,7 @@ export function useDashboard(userId: string | null = null) {
     resetData,
     exportData,
     importData,
+    syncError,
     formatCurrency,
   };
 }

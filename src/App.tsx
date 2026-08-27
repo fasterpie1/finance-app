@@ -733,7 +733,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
             {/* Footer */}
             <footer style={{ textAlign: 'center', fontSize: 10, color: '#1e1e1e', paddingTop: 10, borderTop: '1px solid #111', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-                <span>{userId ? 'Dados sincronizados na nuvem' : 'Dados salvos automaticamente'}</span>
+                <span style={{ color: db.syncError ? '#ef4444' : undefined }}>{db.syncError || (userId ? 'Dados sincronizados na nuvem' : 'Dados salvos automaticamente')}</span>
                 <span style={{ color: '#151515' }}>·</span>
                 <button onClick={() => { if (confirm('Limpar todos os dados e começar novamente?')) db.resetData(); }} style={{ background: 'transparent', border: 'none', color: '#1e1e1e', cursor: 'pointer', fontSize: 10, padding: 0, textDecoration: 'underline' }}>Resetar</button>
                 {userId && <><span style={{ color: '#151515' }}>·</span><button onClick={signOut} style={{ background: 'transparent', border: 'none', color: '#1e1e1e', cursor: 'pointer', fontSize: 10, padding: 0, textDecoration: 'underline' }}>Sair</button></>}
