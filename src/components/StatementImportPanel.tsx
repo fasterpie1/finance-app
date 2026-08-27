@@ -9,7 +9,9 @@ import { type CreditCardPurchase } from '../store/useDashboard';
 import {
   type ExtractedPurchase,
   extractPurchasesFromImage,
+  extractPurchasesFromText,
   fileToBase64,
+  pdfToText,
 } from '../services/statementImport';
 
 interface Props {
@@ -31,6 +33,7 @@ export const StatementImportPanel: React.FC<Props> = ({ defaultDueDay, onImport 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewIsPdf, setPreviewIsPdf] = useState(false);
   const [items, setItems] = useState<ExtractedPurchase[]>([]);
   const [dueDay, setDueDay] = useState(defaultDueDay);
 
@@ -44,15 +47,20 @@ export const StatementImportPanel: React.FC<Props> = ({ defaultDueDay, onImport 
     setItems([]);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(URL.createObjectURL(file));
+    setPreviewIsPdf(file.type === 'application/pdf');
 
     try {
       if (!apiKey) throw new Error('Configure sua chave Groq na aba Assistente antes de importar.');
-      const { base64, mimeType } = await fileToBase64(file);
-      const extracted = await extractPurchasesFromImage(apiKey, base64, mimeType);
-      if (extracted.length === 0) throw new Error('Nenhuma compra encontrada na imagem. Tente outra foto ou verifique se a fatura está legível.');
+      const extracted = file.type === 'application/pdf'
+        ? await extractPurchasesFromText(apiKey, await pdfToText(file))
+        : await (async () => {
+          const { base64, mimeType } = await fileToBase64(file);
+          return extractPurchasesFromImage(apiKey, base64, mimeType);
+        })();
+      if (extracted.length === 0) throw new Error(file.type === 'application/pdf' ? 'Nenhuma compra encontrada no PDF. Se ele for escaneado, envie uma imagem ou um PDF com texto selecionável.' : 'Nenhuma compra encontrada na imagem. Verifique se a fatura está legível e tente novamente.');
       setItems(extracted.map((p) => ({ ...p, id: makeId(), selected: true })));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao processar imagem');
+      setError(err instanceof Error ? err.message : 'Erro ao processar arquivo');
     } finally {
       setLoading(false);
     }
@@ -78,6 +86,7 @@ export const StatementImportPanel: React.FC<Props> = ({ defaultDueDay, onImport 
     setItems([]);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(null);
+    setPreviewIsPdf(false);
     setOpen(false);
   };
 
@@ -88,6 +97,7 @@ export const StatementImportPanel: React.FC<Props> = ({ defaultDueDay, onImport 
         setError('');
         if (previewUrl) URL.revokeObjectURL(previewUrl);
         setPreviewUrl(null);
+        setPreviewIsPdf(false);
       }
       return !prev;
     });
@@ -100,7 +110,7 @@ export const StatementImportPanel: React.FC<Props> = ({ defaultDueDay, onImport 
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="M21 15l-5-5L5 21" />
           </svg>
-          <span style={{ fontSize: 13, fontWeight: 600 }}>Importar da fatura (foto)</span>
+          <span style={{ fontSize: 13, fontWeight: 600 }}>Importar fatura</span>
         </div>
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
           <path d="M2 4l4 4 4-4" stroke="#555" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -118,13 +128,13 @@ export const StatementImportPanel: React.FC<Props> = ({ defaultDueDay, onImport 
           )}
 
           <p style={{ margin: 0, fontSize: 12, color: '#555', lineHeight: 1.5 }}>
-            Selecione uma imagem ou print da fatura do cartão. A IA extrai as compras para você revisar antes de lançar.
+            Selecione uma imagem, print ou arquivo PDF da fatura do cartão. A IA extrai as compras para você revisar antes de lançar.
           </p>
 
           <input
             ref={fileRef}
             type="file"
-            accept="image/*"
+            accept="image/*,.pdf,application/pdf"
             style={{ display: 'none' }}
             onChange={(e) => {
               const file = e.target.files?.[0];
@@ -162,13 +172,16 @@ export const StatementImportPanel: React.FC<Props> = ({ defaultDueDay, onImport 
                   <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" />
                   <circle cx="12" cy="13" r="4" />
                 </svg>
-                Selecionar imagem
+                Selecionar imagem ou PDF
               </>
             )}
           </button>
 
-          {previewUrl && (
+          {previewUrl && !previewIsPdf && (
             <img src={previewUrl} alt="Preview da fatura" style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, border: '1px solid #1e1e1e' }} />
+          )}
+          {previewUrl && previewIsPdf && (
+            <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, padding: '14px', color: '#999', fontSize: 12 }}>PDF selecionado. O texto da fatura será analisado.</div>
           )}
 
           {error && (

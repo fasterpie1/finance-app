@@ -18,7 +18,11 @@ function migrateMonths(months: BudgetMonth[]): BudgetMonth[] {
 function loadMonths(): BudgetMonth[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return migrateMonths(JSON.parse(raw) as BudgetMonth[]);
+    if (raw) {
+      const parsed = JSON.parse(raw) as BudgetMonth[];
+      const isOldDemo = parsed.length === 3 && parsed.some((month) => month.id === '1') && parsed.some((month) => month.id === '2') && parsed.some((month) => month.id === '3');
+      if (!isOldDemo) return migrateMonths(parsed);
+    }
   } catch { /* ignore */ }
   return sampleMonths;
 }

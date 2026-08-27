@@ -734,7 +734,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
                 <span>Dados salvos automaticamente</span>
                 <span style={{ color: '#151515' }}>·</span>
-                <button onClick={() => { if (confirm('Limpar todos os dados e voltar ao exemplo?')) db.resetData(); }} style={{ background: 'transparent', border: 'none', color: '#1e1e1e', cursor: 'pointer', fontSize: 10, padding: 0, textDecoration: 'underline' }}>Resetar</button>
+                <button onClick={() => { if (confirm('Limpar todos os dados e começar novamente?')) db.resetData(); }} style={{ background: 'transparent', border: 'none', color: '#1e1e1e', cursor: 'pointer', fontSize: 10, padding: 0, textDecoration: 'underline' }}>Resetar</button>
               </div>
               <button
                 onClick={() => setEditMode((p) => !p)}

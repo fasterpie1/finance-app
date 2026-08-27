@@ -1,4 +1,6 @@
 import { type BillCategory, BILL_CATEGORY_LABELS } from '../types';
+import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
 export interface ExtractedPurchase {
   id: string;
@@ -29,6 +31,9 @@ Regras:
 - Valores brasileiros: R$ 1.234,56 → amount=1234.56`;
 
 const VISION_MODEL = 'qwen/qwen3.6-27b';
+const TEXT_MODEL = 'groq/compound-mini';
+
+GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 function normalizeCategory(raw: unknown): BillCategory {
   if (typeof raw !== 'string') return 'compras';
@@ -41,7 +46,8 @@ function normalizeCategory(raw: unknown): BillCategory {
 function normalizePurchase(raw: Record<string, unknown>): Omit<ExtractedPurchase, 'id' | 'selected'> | null {
   const name = typeof raw.name === 'string' ? raw.name.trim() : '';
   const amount = typeof raw.amount === 'number' ? raw.amount : parseFloat(String(raw.amount ?? ''));
-  if (!name || !amount || amount <= 0 || isNaN(amount)) return null;
+  const aggregateName = /compras?\s+(nacionais?|internacionais?)|total\s+(a\s+pagar|da\s+fatura)|valor\s+da\s+fatura|saldo\s+(obriga|rotativo)|pagamento\s+(total|mínimo)|gastos\s+desta\s+fatura/i;
+  if (!name || aggregateName.test(name) || !amount || amount <= 0 || isNaN(amount)) return null;
 
   let cur = typeof raw.installmentCurrent === 'number' ? raw.installmentCurrent : parseInt(String(raw.installmentCurrent ?? '1'), 10);
   let total = typeof raw.installmentTotal === 'number' ? raw.installmentTotal : parseInt(String(raw.installmentTotal ?? '1'), 10);
@@ -78,6 +84,28 @@ export function parseExtractedPurchases(content: string): Omit<ExtractedPurchase
     .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
     .map(normalizePurchase)
     .filter((p): p is Omit<ExtractedPurchase, 'id' | 'selected'> => p !== null);
+}
+
+function parsePdfTransactionFallback(statementText: string): Omit<ExtractedPurchase, 'id' | 'selected'>[] {
+  const purchases: Omit<ExtractedPurchase, 'id' | 'selected'>[] = [];
+  const transactionPattern = /^\s*(\d{1,2}\s+(?:jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez))\s+(.+?)\s+(\d{1,3}(?:\.\d{3})*,\d{2})\s*$/i;
+  const ignoredTerms = /pagamento|estorno|tarifa|juros|iof|multa|anuidade|saldo|encargos|crédito/i;
+
+  statementText.split(/\r?\n/).forEach((line) => {
+    const match = line.match(transactionPattern);
+    if (!match || ignoredTerms.test(match[2])) return;
+    const amount = parseFloat(match[3].replace(/\./g, '').replace(',', '.'));
+    if (!amount || amount <= 0) return;
+    const installment = match[2].match(/parcela\s+(\d+)\/(\d+)/i);
+    purchases.push({
+      name: match[2].trim(),
+      amount: Math.round(amount * 100) / 100,
+      installmentCurrent: installment ? Number(installment[1]) : 1,
+      installmentTotal: installment ? Number(installment[2]) : 1,
+      category: 'compras',
+    });
+  });
+  return purchases;
 }
 
 export async function extractPurchasesFromImage(
@@ -117,6 +145,58 @@ export async function extractPurchasesFromImage(
   const data = await res.json();
   const content = data.choices?.[0]?.message?.content ?? '{"purchases":[]}';
   return parseExtractedPurchases(content);
+}
+
+export async function extractPurchasesFromText(
+  apiKey: string,
+  statementText: string,
+): Promise<Omit<ExtractedPurchase, 'id' | 'selected'>[]> {
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: TEXT_MODEL,
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: `Extraia somente as compras e parcelas individuais das seções de transações desta fatura. NUNCA transforme em compra valores de resumo como "Compras nacionais", "Total a pagar", "Valor da fatura", subtotais de cartão ou saldo de obrigações. Ignore pagamentos, estornos, tarifas, anuidade, juros, IOF, saldos e totais. Os lançamentos aparecem em linhas com data, descrição e valor.\n\n${statementText.slice(0, 120000)}` },
+      ],
+      response_format: { type: 'json_object' },
+      max_tokens: 4096,
+      temperature: 0.1,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: { message?: string } }).error?.message ?? `Erro ${res.status}`);
+  }
+
+  const data = await res.json();
+  const content = data.choices?.[0]?.message?.content ?? '{"purchases":[]}';
+  const extracted = parseExtractedPurchases(content);
+  return extracted.length > 0 ? extracted : parsePdfTransactionFallback(statementText);
+}
+
+export async function pdfToText(file: File): Promise<string> {
+  const pdf = await getDocument({ data: await file.arrayBuffer() }).promise;
+  const pages: string[] = [];
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+    const page = await pdf.getPage(pageNumber);
+    const content = await page.getTextContent();
+    const lines = new Map<number, string[]>();
+    content.items.forEach((item) => {
+      if (!('str' in item) || !item.str.trim()) return;
+      const y = Math.round(item.transform[5]);
+      const line = lines.get(y) || [];
+      line.push(item.str.trim());
+      lines.set(y, line);
+    });
+    pages.push(Array.from(lines.entries()).sort(([a], [b]) => b - a).map(([, items]) => items.join(' ')).join('\n'));
+  }
+  return pages.join('\n');
 }
 
 export function fileToBase64(file: File): Promise<{ base64: string; mimeType: string }> {
