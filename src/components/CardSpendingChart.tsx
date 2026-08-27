@@ -17,6 +17,8 @@ interface MonthData {
 
 interface Props {
   months: MonthData[];
+  selectedMonthName: string;
+  selectedMonthYear: number;
   hideValues?: boolean;
 }
 
@@ -36,7 +38,7 @@ function loadCategories(available: BillCategory[]): BillCategory[] {
   return available.slice(0, 3);
 }
 
-export const CardSpendingChart: React.FC<Props> = ({ months, hideValues }) => {
+export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, selectedMonthYear, hideValues }) => {
   const cardBills = (month: MonthData) => month.bills.filter((bill) =>
     (bill.type === 'parcela' && bill.category !== 'financiamento') || bill.isOnCreditCard === true
   );
@@ -58,7 +60,9 @@ export const CardSpendingChart: React.FC<Props> = ({ months, hideValues }) => {
     });
   };
 
-  const chartMonths = months.filter((month) => cardBills(month).length > 0);
+  const selectedIndex = months.findIndex((month) => month.name.toLowerCase() === selectedMonthName.toLowerCase() && month.year === selectedMonthYear);
+  const monthsUntilSelected = months.slice(0, selectedIndex >= 0 ? selectedIndex + 1 : months.length);
+  const chartMonths = monthsUntilSelected.slice(-5);
   const values = selectedCategories.flatMap((category) => chartMonths.map((month) =>
     cardBills(month).filter((bill) => bill.category === category).reduce((total, bill) => total + bill.amount, 0)
   ));
@@ -102,8 +106,8 @@ export const CardSpendingChart: React.FC<Props> = ({ months, hideValues }) => {
       ) : chartMonths.length === 0 ? (
         <div style={{ border: '1px dashed #242424', borderRadius: 8, padding: 28, textAlign: 'center', color: '#444', fontSize: 12 }}>Ainda não há lançamentos de cartão suficientes para comparar.</div>
       ) : (
-        <div style={{ overflowX: 'auto', margin: '0 -4px' }}>
-          <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} width="100%" role="img" aria-label="Evolução mensal dos gastos no cartão por categoria" style={{ minWidth: 480, display: 'block' }}>
+        <div style={{ margin: '0 -4px' }}>
+          <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} width="100%" role="img" aria-label="Evolução mensal dos gastos no cartão por categoria" style={{ display: 'block' }}>
             {gridValues.map((value) => {
               const y = yFor(value);
               return (
@@ -115,7 +119,10 @@ export const CardSpendingChart: React.FC<Props> = ({ months, hideValues }) => {
             })}
             <line x1={PADDING.left} x2={CHART_WIDTH - PADDING.right} y1={PADDING.top + plotHeight} y2={PADDING.top + plotHeight} stroke="#292929" />
             {chartMonths.map((month, index) => (
-              <text key={month.id} x={xFor(index)} y={CHART_HEIGHT - 15} textAnchor="middle" fill="#555" fontSize="10">{formatMonthShort(month.name, month.year)}</text>
+              <g key={month.id}>
+                <text x={xFor(index)} y={CHART_HEIGHT - 23} textAnchor="middle" fill="#555" fontSize="10">{formatMonthShort(month.name, month.year)}</text>
+                <text x={xFor(index)} y={CHART_HEIGHT - 9} textAnchor="middle" fill="#777" fontSize="9">{hideValues ? '•••' : formatCurrency(selectedCategories.reduce((total, category) => total + cardBills(month).filter((bill) => bill.category === category).reduce((sum, bill) => sum + bill.amount, 0), 0))}</text>
+              </g>
             ))}
             {series.map(({ category, points }) => (
               <g key={category}>

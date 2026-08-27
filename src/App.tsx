@@ -7,7 +7,7 @@ import { CreditCardView } from './components/CreditCardView';
 import { ChatView } from './components/ChatView';
 import { CategoryChart } from './components/CategoryChart';
 import { CardSpendingChart } from './components/CardSpendingChart';
-import { type Bill, formatCurrency, parseBRL, formatMonthShort, BILL_CATEGORY_LABELS } from './types';
+import { type Bill, formatCurrency, parseBRL, formatMonthShort, BILL_CATEGORY_LABELS, getMonthIndex } from './types';
 
 type Tab = 'dashboard' | 'cartao' | 'chat';
 type AddSection = 'fixed' | 'variable' | null;
@@ -315,6 +315,22 @@ export default function App() {
   const savingsActual = db.remaining > 0 ? db.remaining : 0;
   const savingsPct = savingsGoal > 0 ? Math.min(Math.round((savingsActual / savingsGoal) * 100), 100) : 0;
 
+  const previousMonths = db.months.filter((month) => {
+    if (month.year !== db.selectedMonth.year) return month.year < db.selectedMonth.year;
+    return getMonthIndex(month.name) < getMonthIndex(db.selectedMonth.name);
+  }).slice(-5);
+  const historicalContext = previousMonths.length > 0
+    ? `\n\nHistórico dos meses anteriores para comparação:\n${previousMonths.map((month) => {
+      const cardBills = month.bills.filter((bill) => (bill.type === 'parcela' && bill.category !== 'financiamento') || bill.isOnCreditCard === true);
+      const categoryTotals = cardBills.reduce<Record<string, number>>((totals, bill) => {
+        totals[BILL_CATEGORY_LABELS[bill.category]] = (totals[BILL_CATEGORY_LABELS[bill.category]] || 0) + bill.amount;
+        return totals;
+      }, {});
+      const categories = Object.entries(categoryTotals).map(([category, amount]) => `${category}: ${formatCurrency(amount)}`).join(', ') || 'sem gastos no cartão';
+      return `- ${month.name} ${month.year}: contas ${formatCurrency(month.bills.reduce((sum, bill) => sum + bill.amount, 0))}; cartão ${formatCurrency(cardBills.reduce((sum, bill) => sum + bill.amount, 0))}; categorias do cartão: ${categories}`;
+    }).join('\n')}`
+    : '\n\nNão há meses anteriores cadastrados para comparação.';
+
   const financialContext = `Você é um assistente financeiro pessoal inteligente e simpático. Responda sempre em português do Brasil, de forma objetiva e prática.
 
 Mês atual: ${db.selectedMonth.name} ${db.selectedMonth.year}
@@ -329,7 +345,7 @@ Meta de economia: ${savingsGoal > 0 ? formatCurrency(savingsGoal) : 'Não defini
 Contas do mês:
 ${db.billsSorted.map((b) => `- ${b.name} (${BILL_CATEGORY_LABELS[b.category]}) — ${formatCurrency(b.amount)} — Dia ${b.dueDay}${b.installmentCurrent ? ` — Parcela ${b.installmentCurrent}/${b.installmentTotal}` : ''} — ${b.isPaid ? 'Pago' : 'Pendente'}`).join('\n')}
 
-Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus gastos, dívidas, planejamento financeiro ou como economizar.`;
+Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus gastos, dívidas, planejamento financeiro ou como economizar.${historicalContext}`;
 
   const toggleAdd = (section: AddSection) => setAddSection((prev) => (prev === section ? null : section));
   const handleAddBill = (bill: Bill) => { db.addBill(bill); setAddSection(null); };
@@ -501,7 +517,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
           <CollapsibleSection key="chart" title="Visualizações dos gastos" isOpen={isSectionOpen('chart_v2', true)} onToggle={() => toggleSection('chart_v2')} hideValues={hideValues} editMode={editMode}>
             <CategoryChart bills={db.selectedMonth.bills} hideValues={hideValues} />
             <div style={{ height: 1, background: '#1a1a1a', margin: '18px 0' }} />
-            <CardSpendingChart months={db.months} hideValues={hideValues} />
+            <CardSpendingChart months={db.months} selectedMonthName={db.selectedMonth.name} selectedMonthYear={db.selectedMonth.year} hideValues={hideValues} />
           </CollapsibleSection>
         );
 
