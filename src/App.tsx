@@ -6,6 +6,7 @@ import { InlineAddRow } from './components/InlineAddRow';
 import { CreditCardView } from './components/CreditCardView';
 import { ChatView } from './components/ChatView';
 import { CategoryChart } from './components/CategoryChart';
+import { CardSpendingChart } from './components/CardSpendingChart';
 import { type Bill, formatCurrency, parseBRL, formatMonthShort, BILL_CATEGORY_LABELS } from './types';
 
 type Tab = 'dashboard' | 'cartao' | 'chat';
@@ -496,10 +497,11 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
         );
 
       case 'chart':
-        if (db.billsSorted.length === 0 && !editMode) return null;
         return (
-          <CollapsibleSection key="chart" title="Gastos por categoria" isOpen={isSectionOpen('chart', false)} onToggle={() => toggleSection('chart')} hideValues={hideValues} editMode={editMode}>
+          <CollapsibleSection key="chart" title="Visualizações dos gastos" isOpen={isSectionOpen('chart_v2', true)} onToggle={() => toggleSection('chart_v2')} hideValues={hideValues} editMode={editMode}>
             <CategoryChart bills={db.selectedMonth.bills} hideValues={hideValues} />
+            <div style={{ height: 1, background: '#1a1a1a', margin: '18px 0' }} />
+            <CardSpendingChart months={db.months} hideValues={hideValues} />
           </CollapsibleSection>
         );
 
