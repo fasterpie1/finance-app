@@ -24,8 +24,8 @@ interface Props {
 
 const STORAGE_KEY = 'financa_card_chart_categories_v1';
 const CHART_WIDTH = 680;
-const CHART_HEIGHT = 250;
-const PADDING = { top: 18, right: 18, bottom: 42, left: 58 };
+const CHART_HEIGHT = 270;
+const PADDING = { top: 22, right: 18, bottom: 58, left: 72 };
 
 function loadCategories(available: BillCategory[]): BillCategory[] {
   try {
@@ -62,7 +62,7 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
 
   const selectedIndex = months.findIndex((month) => month.name.toLowerCase() === selectedMonthName.toLowerCase() && month.year === selectedMonthYear);
   const monthsUntilSelected = months.slice(0, selectedIndex >= 0 ? selectedIndex + 1 : months.length);
-  const chartMonths = monthsUntilSelected.slice(-5);
+  const chartMonths = monthsUntilSelected.slice(-4);
   const values = selectedCategories.flatMap((category) => chartMonths.map((month) =>
     cardBills(month).filter((bill) => bill.category === category).reduce((total, bill) => total + bill.amount, 0)
   ));
@@ -84,16 +84,16 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
         <div>
-          <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Gastos no cartão por categoria</h3>
-          <div style={{ marginTop: 5, fontSize: 11, color: '#3a3a3a' }}>Evolução mensal · selecione até 3 categorias</div>
+          <h3 style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#666', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Gastos no cartão por categoria</h3>
+          <div style={{ marginTop: 5, fontSize: 12, color: '#4a4a4a' }}>Últimos 4 meses · selecione até 3 categorias</div>
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           {availableCategories.map((category) => {
             const selected = selectedCategories.includes(category);
             const limitReached = selectedCategories.length === 3 && !selected;
             return (
-              <button key={category} type="button" onClick={() => toggleCategory(category)} disabled={limitReached} style={{ display: 'flex', alignItems: 'center', gap: 6, border: `1px solid ${selected ? BILL_CATEGORY_COLORS[category] : '#242424'}`, background: selected ? `${BILL_CATEGORY_COLORS[category]}18` : '#151515', borderRadius: 5, color: selected ? '#d4d4d4' : '#555', cursor: limitReached ? 'not-allowed' : 'pointer', opacity: limitReached ? 0.45 : 1, padding: '5px 8px', fontSize: 10, transition: 'all 0.15s' }}>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: BILL_CATEGORY_COLORS[category] }} />
+              <button key={category} type="button" onClick={() => toggleCategory(category)} disabled={limitReached} style={{ display: 'flex', alignItems: 'center', gap: 7, border: `1px solid ${selected ? BILL_CATEGORY_COLORS[category] : '#242424'}`, background: selected ? `${BILL_CATEGORY_COLORS[category]}18` : '#151515', borderRadius: 5, color: selected ? '#d4d4d4' : '#666', cursor: limitReached ? 'not-allowed' : 'pointer', opacity: limitReached ? 0.45 : 1, padding: '7px 9px', fontSize: 11, transition: 'all 0.15s' }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: BILL_CATEGORY_COLORS[category], flexShrink: 0 }} />
                 {BILL_CATEGORY_LABELS[category]}
               </button>
             );
@@ -113,15 +113,15 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
               return (
                 <g key={value}>
                   <line x1={PADDING.left} x2={CHART_WIDTH - PADDING.right} y1={y} y2={y} stroke="#202020" strokeDasharray="3 5" />
-                  <text x={PADDING.left - 8} y={y + 3} textAnchor="end" fill="#444" fontSize="10">{hideValues ? '•••' : formatCurrency(value).replace('R$', '').trim()}</text>
+                  <text x={PADDING.left - 10} y={y + 4} textAnchor="end" fill="#555" fontSize="12">{hideValues ? '•••' : formatCurrency(value).replace('R$', '').trim()}</text>
                 </g>
               );
             })}
             <line x1={PADDING.left} x2={CHART_WIDTH - PADDING.right} y1={PADDING.top + plotHeight} y2={PADDING.top + plotHeight} stroke="#292929" />
             {chartMonths.map((month, index) => (
               <g key={month.id}>
-                <text x={xFor(index)} y={CHART_HEIGHT - 23} textAnchor="middle" fill="#555" fontSize="10">{formatMonthShort(month.name, month.year)}</text>
-                <text x={xFor(index)} y={CHART_HEIGHT - 9} textAnchor="middle" fill="#777" fontSize="9">{hideValues ? '•••' : formatCurrency(selectedCategories.reduce((total, category) => total + cardBills(month).filter((bill) => bill.category === category).reduce((sum, bill) => sum + bill.amount, 0), 0))}</text>
+                <text x={xFor(index)} y={CHART_HEIGHT - 29} textAnchor="middle" fill="#666" fontSize="12">{formatMonthShort(month.name, month.year)}</text>
+                <text x={xFor(index)} y={CHART_HEIGHT - 11} textAnchor="middle" fill="#999" fontSize="11" fontWeight="600">{hideValues ? '•••' : formatCurrency(selectedCategories.reduce((total, category) => total + cardBills(month).filter((bill) => bill.category === category).reduce((sum, bill) => sum + bill.amount, 0), 0))}</text>
               </g>
             ))}
             {series.map(({ category, points }) => (

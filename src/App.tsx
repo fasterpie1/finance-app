@@ -515,9 +515,9 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
       case 'chart':
         return (
           <CollapsibleSection key="chart" title="Visualizações dos gastos" isOpen={isSectionOpen('chart_v2', true)} onToggle={() => toggleSection('chart_v2')} hideValues={hideValues} editMode={editMode}>
-            <CategoryChart bills={db.selectedMonth.bills} hideValues={hideValues} />
-            <div style={{ height: 1, background: '#1a1a1a', margin: '18px 0' }} />
             <CardSpendingChart months={db.months} selectedMonthName={db.selectedMonth.name} selectedMonthYear={db.selectedMonth.year} hideValues={hideValues} />
+            <div style={{ height: 1, background: '#1a1a1a', margin: '18px 0' }} />
+            <CategoryChart bills={db.selectedMonth.bills} hideValues={hideValues} />
           </CollapsibleSection>
         );
 
