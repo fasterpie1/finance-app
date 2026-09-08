@@ -16,6 +16,7 @@ type AddSection = 'fixed' | 'variable' | null;
 const SECTIONS_KEY = 'financa_sections_v1';
 const PRIVACY_KEY = 'financa_privacy';
 const LAYOUT_KEY = 'financa_layout_order';
+const APP_VERSION_KEY = 'financa_app_version';
 
 type SectionId = 'savings' | 'fixed' | 'cartao_preview' | 'variable' | 'chart' | 'backup';
 
@@ -37,6 +38,25 @@ function loadLayoutOrder(): SectionId[] {
 }
 function saveLayoutOrder(order: SectionId[]) {
   localStorage.setItem(LAYOUT_KEY, JSON.stringify(order));
+}
+
+async function refreshAppOrData(refreshData: () => Promise<void>): Promise<void> {
+  try {
+    const response = await fetch(`${import.meta.env.BASE_URL}version.json?${Date.now()}`, { cache: 'no-store' });
+    if (response.ok) {
+      const { version } = await response.json() as { version?: string };
+      const currentVersion = localStorage.getItem(APP_VERSION_KEY);
+      if (version && currentVersion && version !== currentVersion) {
+        localStorage.setItem(APP_VERSION_KEY, version);
+        window.location.reload();
+        return;
+      }
+      if (version) localStorage.setItem(APP_VERSION_KEY, version);
+    }
+  } catch {
+    // A missing version file should not prevent the data refresh.
+  }
+  await refreshData();
 }
 
 function useKeyboardOpen() {
@@ -568,7 +588,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
         {userId && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {db.syncNotice && <span style={{ fontSize: 10, color: '#4b8f73' }}>{db.syncNotice}</span>}
-            <button onClick={() => void db.refreshData()} disabled={db.isRefreshing} title="Atualizar dados compartilhados" aria-label="Atualizar dados compartilhados" style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: db.isRefreshing ? '#3b82f6' : '#666', cursor: db.isRefreshing ? 'wait' : 'pointer', width: 32, height: 30, display: 'grid', placeItems: 'center' }}>
+            <button onClick={() => void refreshAppOrData(db.refreshData)} disabled={db.isRefreshing} title="Atualizar aplicativo e dados compartilhados" aria-label="Atualizar aplicativo e dados compartilhados" style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: db.isRefreshing ? '#3b82f6' : '#666', cursor: db.isRefreshing ? 'wait' : 'pointer', width: 32, height: 30, display: 'grid', placeItems: 'center' }}>
               <IconRefresh spinning={db.isRefreshing} />
             </button>
           </div>

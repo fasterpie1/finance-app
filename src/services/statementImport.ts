@@ -28,10 +28,12 @@ Regras:
 - Extraia apenas lançamentos/compras individuais
 - Se aparecer "3/12" ou "Parc 3 de 12", use installmentCurrent=3 e installmentTotal=12
 - Compras à vista ou sem indicação de parcelas: installmentCurrent=1, installmentTotal=1
-- Valores brasileiros: R$ 1.234,56 → amount=1234.56`;
+- Valores brasileiros: R$ 1.234,56 → amount=1234.56
+- Responda SOMENTE com o objeto JSON. Não use markdown, explicações ou texto antes/depois do JSON.`;
 
-const VISION_MODEL = 'qwen/qwen3.6-27b';
+const VISION_MODELS = ['qwen/qwen3.6-27b', 'qwen/qwen3.8-27b'] as const;
 const TEXT_MODEL = 'groq/compound-mini';
+const MAX_OUTPUT_TOKENS = 700;
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
@@ -113,38 +115,47 @@ export async function extractPurchasesFromImage(
   imageBase64: string,
   mimeType: string,
 ): Promise<Omit<ExtractedPurchase, 'id' | 'selected'>[]> {
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: VISION_MODEL,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: 'Extraia todas as compras desta fatura de cartão de crédito brasileira.' },
-            { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
-          ],
-        },
-      ],
-      response_format: { type: 'json_object' },
-      max_tokens: 4096,
-      temperature: 0.1,
-    }),
-  });
+  let lastError = 'Não foi possível interpretar a imagem da fatura.';
 
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error((err as { error?: { message?: string } }).error?.message ?? `Erro ${res.status}`);
+  for (const model of VISION_MODELS) {
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Leia a imagem e retorne somente JSON válido no formato {"purchases":[]}. Extraia as compras individuais.' },
+              { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
+            ],
+          },
+        ],
+        response_format: { type: 'json_object' },
+        max_tokens: MAX_OUTPUT_TOKENS,
+        temperature: 0.1,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      lastError = (err as { error?: { message?: string } }).error?.message ?? `Erro ${res.status}`;
+      continue;
+    }
+
+    const data = await res.json();
+    const content = data.choices?.[0]?.message?.content ?? '';
+    const extracted = parseExtractedPurchases(content);
+    if (extracted.length > 0) return extracted;
+    lastError = 'O modelo não retornou compras em JSON válido.';
   }
 
-  const data = await res.json();
-  const content = data.choices?.[0]?.message?.content ?? '{"purchases":[]}';
-  return parseExtractedPurchases(content);
+  throw new Error(lastError);
 }
 
 export async function extractPurchasesFromText(
@@ -164,7 +175,7 @@ export async function extractPurchasesFromText(
         { role: 'user', content: `Extraia somente as compras e parcelas individuais das seções de transações desta fatura. NUNCA transforme em compra valores de resumo como "Compras nacionais", "Total a pagar", "Valor da fatura", subtotais de cartão ou saldo de obrigações. Ignore pagamentos, estornos, tarifas, anuidade, juros, IOF, saldos e totais. Os lançamentos aparecem em linhas com data, descrição e valor.\n\n${statementText.slice(0, 120000)}` },
       ],
       response_format: { type: 'json_object' },
-      max_tokens: 4096,
+      max_tokens: MAX_OUTPUT_TOKENS,
       temperature: 0.1,
     }),
   });
