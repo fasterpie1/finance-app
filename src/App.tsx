@@ -40,6 +40,21 @@ function saveLayoutOrder(order: SectionId[]) {
   localStorage.setItem(LAYOUT_KEY, JSON.stringify(order));
 }
 
+function refreshPwaAssets(version: string): void {
+  const assetLinks = [
+    ['icon-192.png', 'icon-192'],
+    ['apple-touch-icon.png', 'apple-touch-icon'],
+    ['manifest.json', 'manifest'],
+  ] as const;
+  assetLinks.forEach(([asset, rel]) => {
+    const link = document.querySelector<HTMLLinkElement>(`link[rel="${rel}"]`);
+    if (link) link.href = `${import.meta.env.BASE_URL}${asset}?v=${encodeURIComponent(version)}`;
+  });
+  document.querySelectorAll<HTMLLinkElement>('link[rel="icon"]').forEach((link) => {
+    link.href = `${import.meta.env.BASE_URL}icon-192.png?v=${encodeURIComponent(version)}`;
+  });
+}
+
 async function refreshAppOrData(refreshData: () => Promise<void>): Promise<void> {
   try {
     const response = await fetch(`${import.meta.env.BASE_URL}version.json?${Date.now()}`, { cache: 'no-store' });
@@ -47,6 +62,7 @@ async function refreshAppOrData(refreshData: () => Promise<void>): Promise<void>
       const { version } = await response.json() as { version?: string };
       const currentVersion = localStorage.getItem(APP_VERSION_KEY);
       if (version && currentVersion && version !== currentVersion) {
+        refreshPwaAssets(version);
         localStorage.setItem(APP_VERSION_KEY, version);
         window.location.reload();
         return;
