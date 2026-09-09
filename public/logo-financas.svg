@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 768 768">
+  <defs>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff2a8"/>
+      <stop offset="0.42" stop-color="#f8c95c"/>
+      <stop offset="1" stop-color="#a96b12"/>
+    </linearGradient>
+    <linearGradient id="goldText" x1="0" y1="0" x2="0.9" y2="1">
+      <stop stop-color="#fff0a0"/>
+      <stop offset="0.5" stop-color="#f5c34d"/>
+      <stop offset="1" stop-color="#bd791b"/>
+    </linearGradient>
+  </defs>
+  <rect width="768" height="768" fill="#000"/>
+  <circle cx="448" cy="230" r="121" fill="url(#gold)"/>
+  <path d="M447 142v35c-34 0-58 19-58 47 0 27 20 40 57 51 27 8 37 14 37 27 0 14-14 23-37 23-22 0-41-8-57-23l-17 31c16 17 42 27 72 29v35h20v-36c38-4 61-25 61-56 0-31-21-45-61-57-25-8-34-14-34-25 0-11 10-19 28-19 19 0 34 6 49 18l18-30c-16-13-37-21-61-24v-36z" fill="#000"/>
+  <rect x="148" y="340" width="74" height="160" rx="13" fill="url(#gold)"/>
+  <path d="M240 373c48-25 80-34 119-34 36 0 73 13 112 29 25 10 54 19 83 22 30 3 40 21 28 38-10 15-32 21-60 17l-71-10c-14-2-22 7-10 14l54 22c30 12 55 7 75-11l74-77c16-17 34-20 45-9 11 12 6 30-8 47l-82 96c-29 34-66 51-109 50-53-1-103-20-146-40l-104-49z" fill="url(#gold)"/>
+  <text x="384" y="634" text-anchor="middle" fill="url(#goldText)" font-family="Arial, Helvetica, sans-serif" font-size="88" font-weight="700" letter-spacing="1">Finanças</text>
+</svg>
