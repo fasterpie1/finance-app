@@ -187,9 +187,6 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const keyboardOpen = useKeyboardOpen();
 
-  const [goalEditing, setGoalEditing] = useState(false);
-  const [goalInput, setGoalInput] = useState('');
-
   const [hideValues, setHideValues] = useState(loadPrivacy);
   const togglePrivacy = () => {
     setHideValues((prev) => {
@@ -347,15 +344,12 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
     }
   }, [layoutOrder, dragId]);
 
-  const paidCount = db.selectedMonth.bills.filter((b) => b.isPaid).length;
+  const paidCount = db.selectedMonth.bills.filter((b) => b.isPaid || b.cardPaymentMethod === 'debito_pix').length;
   const totalCount = db.selectedMonth.bills.length;
   const progressPct = totalCount > 0 ? Math.round((paidCount / totalCount) * 100) : 0;
   const fixedTotal = db.fixedBills.reduce((s, b) => s + b.amount, 0);
   const fixedPaidTotal = db.fixedBills.filter((b) => b.isPaid).reduce((s, b) => s + b.amount, 0);
   const pendingAmount = db.totalPlanned - db.totalPaid;
-  const savingsGoal = db.selectedMonth.savingsGoal || 0;
-  const savingsActual = db.remaining > 0 ? db.remaining : 0;
-  const savingsPct = savingsGoal > 0 ? Math.min(Math.round((savingsActual / savingsGoal) * 100), 100) : 0;
 
   const previousMonths = db.months.filter((month) => {
     if (month.year !== db.selectedMonth.year) return month.year < db.selectedMonth.year;
@@ -382,7 +376,6 @@ Total já pago: ${formatCurrency(db.totalPaid)}
 Total pendente: ${formatCurrency(db.totalPlanned - db.totalPaid)}
 Saldo que sobra: ${formatCurrency(db.remaining)}
 Contas pagas: ${paidCount} de ${totalCount}
-Meta de economia: ${savingsGoal > 0 ? formatCurrency(savingsGoal) : 'Não definida'}
 
 Contas do mês:
 ${db.billsSorted.map((b) => `- ${b.name} (${BILL_CATEGORY_LABELS[b.category]}) — ${formatCurrency(b.amount)} — Dia ${b.dueDay}${b.installmentCurrent ? ` — Parcela ${b.installmentCurrent}/${b.installmentTotal}` : ''} — ${b.isPaid ? 'Pago' : 'Pendente'}`).join('\n')}
@@ -401,7 +394,8 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
   const renderSection = (id: SectionId) => {
     switch (id) {
       case 'savings':
-        return (
+        return null;
+        /* return (
           <CollapsibleSection key="savings" title="Meta de economia" isOpen={isSectionOpen('savings', false)} onToggle={() => toggleSection('savings')} hideValues={hideValues} editMode={editMode}>
             {savingsGoal > 0 ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -438,7 +432,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
               </div>
             )}
           </CollapsibleSection>
-        );
+        ); */
 
       case 'fixed':
         return (
@@ -542,7 +536,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
       case 'variable':
         if (db.variableBills.length === 0 && addSection !== 'variable' && !editMode) return null;
         return (
-          <CollapsibleSection key="variable" title="Variáveis / Reservas" count={db.variableBills.length} totalAmount={db.variableBills.reduce((s, b) => s + b.amount, 0)} isOpen={isSectionOpen('variable')} onToggle={() => toggleSection('variable')} hideValues={hideValues} editMode={editMode} rightAction={
+          <CollapsibleSection key="variable" title="Gastos variáveis" count={db.variableBills.length} totalAmount={db.variableBills.reduce((s, b) => s + b.amount, 0)} isOpen={isSectionOpen('variable')} onToggle={() => toggleSection('variable')} hideValues={hideValues} editMode={editMode} rightAction={
             <button onClick={() => toggleAdd('variable')} style={{ background: addSection === 'variable' ? '#111520' : 'transparent', border: `1px solid ${addSection === 'variable' ? '#1e2a3e' : '#1e1e1e'}`, borderRadius: 6, color: addSection === 'variable' ? '#60a5fa' : '#555', cursor: 'pointer', fontSize: 11, padding: '3px 10px', transition: 'all 0.15s' }}>
               {addSection === 'variable' ? 'Cancelar' : 'Adicionar'}
             </button>
@@ -812,6 +806,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
           <CreditCardView
             selectedMonthName={db.selectedMonth.name} selectedMonthYear={db.selectedMonth.year}
             creditCardBills={db.creditCardBills} linkedFixedBills={linkedFixedBills} allMonths={db.months}
+            debitPixBills={db.debitPixBills}
             onTogglePaid={db.togglePaid} onSaveBill={db.saveBill} onDeleteBill={db.deleteBill}
             onAddPurchase={db.addCreditCardPurchase} onImportBatch={db.addCreditCardPurchasesBatch} getAffectedMonths={db.getAffectedMonths}
             onPayCreditCard={db.payCreditCard} onUnpayCreditCard={db.unpayCreditCard}

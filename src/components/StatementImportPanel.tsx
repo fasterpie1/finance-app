@@ -42,22 +42,22 @@ export const StatementImportPanel: React.FC<Props> = ({ defaultDueDay, onImport 
   const selectedTotal = items.filter((i) => i.selected).reduce((s, i) => s + i.amount, 0);
 
   const handleFile = async (file: File) => {
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
     setError('');
     setLoading(true);
     setItems([]);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(URL.createObjectURL(file));
-    setPreviewIsPdf(file.type === 'application/pdf');
+    setPreviewIsPdf(isPdf);
 
     try {
-      if (!apiKey) throw new Error('Configure sua chave Groq na aba Assistente antes de importar.');
-      const extracted = file.type === 'application/pdf'
+      const extracted = isPdf
         ? await extractPurchasesFromText(apiKey, await pdfToText(file))
         : await (async () => {
           const { base64, mimeType } = await fileToBase64(file);
           return extractPurchasesFromImage(apiKey, base64, mimeType);
         })();
-      if (extracted.length === 0) throw new Error(file.type === 'application/pdf' ? 'Nenhuma compra encontrada no PDF. Se ele for escaneado, envie uma imagem ou um PDF com texto selecionável.' : 'Nenhuma compra encontrada na imagem. Verifique se a fatura está legível e tente novamente.');
+      if (extracted.length === 0) throw new Error(isPdf ? 'Nenhuma compra encontrada no PDF. Se ele for escaneado, envie uma imagem ou um PDF com texto selecionável.' : 'Nenhuma compra encontrada na imagem. Verifique se a fatura está legível e tente novamente.');
       setItems(extracted.map((p) => ({ ...p, id: makeId(), selected: true })));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao processar arquivo');
@@ -123,7 +123,7 @@ export const StatementImportPanel: React.FC<Props> = ({ defaultDueDay, onImport 
 
           {!apiKey && (
             <div style={{ background: '#1a150a', border: '1px solid #2a2010', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#f59e0b' }}>
-              Configure sua chave Groq na aba <strong>Assistente</strong> para usar a importação por foto.
+              PDFs com texto são processados localmente. Para importar imagens ou prints com a Groq, configure sua chave na aba <strong>Assistente</strong>.
             </div>
           )}
 
@@ -145,13 +145,13 @@ export const StatementImportPanel: React.FC<Props> = ({ defaultDueDay, onImport 
 
           <button
             onClick={() => fileRef.current?.click()}
-            disabled={loading || !apiKey}
+            disabled={loading}
             style={{
               background: loading ? '#151520' : '#111520',
               border: '1px dashed #1e2a3e',
               borderRadius: 8,
               color: loading ? '#3a4a5a' : '#60a5fa',
-              cursor: loading || !apiKey ? 'not-allowed' : 'pointer',
+              cursor: loading ? 'not-allowed' : 'pointer',
               padding: '14px',
               fontSize: 13,
               fontWeight: 600,

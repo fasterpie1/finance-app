@@ -20,6 +20,7 @@ export type BillCategory =
   | 'outros';
 
 export type BillType = 'mensal' | 'parcela' | 'fixa' | 'variavel';
+export type CardPaymentMethod = 'credito' | 'debito_pix';
 
 export const BILL_CATEGORY_LABELS: Record<BillCategory, string> = {
   luz: 'Luz',
@@ -86,6 +87,8 @@ export interface Bill {
   installmentTotal?: number;
   /** Indica que essa conta fixa é cobrada no cartão de crédito */
   isOnCreditCard?: boolean;
+  /** Forma de pagamento de uma compra lançada na área do cartão */
+  cardPaymentMethod?: CardPaymentMethod;
 }
 
 export interface BudgetMonth {

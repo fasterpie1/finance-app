@@ -15,6 +15,7 @@ interface Props {
   selectedMonthName: string;
   selectedMonthYear: number;
   creditCardBills: Bill[];
+  debitPixBills: Bill[];
   linkedFixedBills: Bill[];
   allMonths: { id: string; name: string; year: number; bills: Bill[] }[];
   onTogglePaid: (id: string) => void;
@@ -36,13 +37,14 @@ const labelStyle: React.CSSProperties = {
 };
 
 export const CreditCardView: React.FC<Props> = ({
-  selectedMonthName, selectedMonthYear, creditCardBills, linkedFixedBills, allMonths,
+  selectedMonthName, selectedMonthYear, creditCardBills, debitPixBills, linkedFixedBills, allMonths,
   onTogglePaid, onSaveBill, onDeleteBill, onAddPurchase, onImportBatch, getAffectedMonths, onPayCreditCard, onUnpayCreditCard, hideValues,
 }) => {
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');
   const [dueDay, setDueDay] = useState('10');
   const [category, setCategory] = useState<BillCategory>('compras');
+  const [paymentMethod, setPaymentMethod] = useState<'credito' | 'debito_pix'>('credito');
   const [curInstallment, setCurInstallment] = useState('1');
   const [totalInstallment, setTotalInstallment] = useState('1');
   const [formOpen, setFormOpen] = useState(() => {
@@ -73,8 +75,8 @@ export const CreditCardView: React.FC<Props> = ({
     if (!trimmed || !amount) return;
     const c = Math.max(1, Math.min(cur, total));
     const t = Math.max(c, total);
-    onAddPurchase({ name: trimmed, amount: parseBRL(amount), dueDay: Math.max(1, Math.min(31, parseInt(dueDay) || 10)), category, installmentCurrent: c, installmentTotal: t });
-    setName(''); setAmount(''); setCurInstallment('1'); setTotalInstallment('1');
+    onAddPurchase({ name: trimmed, amount: parseBRL(amount), dueDay: Math.max(1, Math.min(31, parseInt(dueDay) || 10)), category, installmentCurrent: paymentMethod === 'debito_pix' ? 1 : c, installmentTotal: paymentMethod === 'debito_pix' ? 1 : t, paymentMethod });
+    setName(''); setAmount(''); setCurInstallment('1'); setTotalInstallment('1'); setPaymentMethod('credito');
   };
 
   const masked = 'R$ ••••';
@@ -148,10 +150,11 @@ export const CreditCardView: React.FC<Props> = ({
               <div><label style={labelStyle}>Nome da compra</label><input style={fieldStyle} placeholder="Ex: Tênis Nike" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdd()} /></div>
               <div><label style={labelStyle}>Categoria</label><select style={fieldStyle} value={category} onChange={(e) => setCategory(e.target.value as BillCategory)}>{(Object.keys(BILL_CATEGORY_LABELS) as BillCategory[]).map((c) => (<option key={c} value={c}>{BILL_CATEGORY_LABELS[c]}</option>))}</select></div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+            <div><label style={labelStyle}>Forma de pagamento</label><select style={fieldStyle} value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as 'credito' | 'debito_pix')}><option value="credito">Cartão de crédito</option><option value="debito_pix">Débito/Pix</option></select></div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, opacity: paymentMethod === 'debito_pix' ? 0.45 : 1 }}>
               <div><label style={labelStyle}>Valor da parcela</label><input style={fieldStyle} inputMode="decimal" pattern="[0-9.,]*" placeholder="211,00" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.,]/g, ''))} onKeyDown={(e) => e.key === 'Enter' && handleAdd()} /></div>
-              <div><label style={labelStyle}>Parcela atual</label><input style={fieldStyle} inputMode="numeric" pattern="[0-9]*" value={curInstallment} onChange={(e) => setCurInstallment(e.target.value.replace(/[^0-9]/g, ''))} /></div>
-              <div><label style={labelStyle}>Total parcelas</label><input style={fieldStyle} inputMode="numeric" pattern="[0-9]*" value={totalInstallment} onChange={(e) => setTotalInstallment(e.target.value.replace(/[^0-9]/g, ''))} /></div>
+              <div><label style={labelStyle}>Parcela atual</label><input disabled={paymentMethod === 'debito_pix'} style={fieldStyle} inputMode="numeric" pattern="[0-9]*" value={paymentMethod === 'debito_pix' ? '1' : curInstallment} onChange={(e) => setCurInstallment(e.target.value.replace(/[^0-9]/g, ''))} /></div>
+              <div><label style={labelStyle}>Total parcelas</label><input disabled={paymentMethod === 'debito_pix'} style={fieldStyle} inputMode="numeric" pattern="[0-9]*" value={paymentMethod === 'debito_pix' ? '1' : totalInstallment} onChange={(e) => setTotalInstallment(e.target.value.replace(/[^0-9]/g, ''))} /></div>
             </div>
             <div style={{ maxWidth: 200 }}><label style={labelStyle}>Dia do vencimento</label><input style={fieldStyle} inputMode="numeric" pattern="[0-9]*" value={dueDay} onChange={(e) => setDueDay(e.target.value.replace(/[^0-9]/g, ''))} /></div>
 
@@ -205,6 +208,18 @@ export const CreditCardView: React.FC<Props> = ({
             {linkedFixedBills.map((bill) => (<BillRow key={bill.id} bill={bill} onTogglePaid={() => onTogglePaid(bill.id)} onSave={onSaveBill} onDelete={() => onDeleteBill(bill.id)} hideValues={hideValues} showPaidToggle={false} />))}
           </div>
           <div style={{ fontSize: 11, color: '#3a3a3a', marginTop: 8, paddingLeft: 4 }}>Essas contas são pagas junto com a fatura do cartão.</div>
+        </div>
+      )}
+
+      {debitPixBills.length > 0 && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Compras no débito/Pix</h3>
+            <span style={{ fontSize: 10, color: '#f59e0b', background: '#1a150a', border: '1px solid #2a2010', borderRadius: 4, padding: '1px 7px', fontWeight: 600 }}>{debitPixBills.length}</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {debitPixBills.map((bill) => (<BillRow key={bill.id} bill={bill} onTogglePaid={() => onTogglePaid(bill.id)} onSave={onSaveBill} onDelete={() => onDeleteBill(bill.id)} hideValues={hideValues} showPaidToggle={false} />))}
+          </div>
         </div>
       )}
 

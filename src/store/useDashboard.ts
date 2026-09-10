@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { type Bill, type BudgetMonth, type BillCategory, MONTH_NAMES, getMonthIndex, formatCurrency } from '../types';
+import { type Bill, type BudgetMonth, type BillCategory, type CardPaymentMethod, MONTH_NAMES, getMonthIndex, formatCurrency } from '../types';
 import { sampleMonths } from '../data/sampleData';
 import { supabase } from '../services/supabase';
 
@@ -70,6 +70,7 @@ export interface CreditCardPurchase {
   category: BillCategory;
   installmentCurrent: number;
   installmentTotal: number;
+  paymentMethod?: CardPaymentMethod;
 }
 
 export function useDashboard(userId: string | null = null) {
@@ -163,10 +164,13 @@ export function useDashboard(userId: string | null = null) {
   const creditCardBills = billsSorted.filter(
     (b) => b.type === 'parcela' && b.category !== 'financiamento'
   );
-  const variableBills = billsSorted.filter((b) => b.type === 'variavel');
+  const debitPixBills = billsSorted.filter(
+    (b) => b.isOnCreditCard === true && b.cardPaymentMethod === 'debito_pix'
+  );
+  const variableBills = billsSorted.filter((b) => b.type === 'variavel' && b.cardPaymentMethod !== 'debito_pix');
 
   const totalPlanned = selectedMonth.bills.reduce((s, b) => s + b.amount, 0);
-  const totalPaid = selectedMonth.bills.filter((b) => b.isPaid).reduce((s, b) => s + b.amount, 0);
+  const totalPaid = selectedMonth.bills.filter((b) => b.isPaid || b.cardPaymentMethod === 'debito_pix').reduce((s, b) => s + b.amount, 0);
   const remaining = selectedMonth.income - totalPlanned;
 
   const selectMonth = useCallback((id: string) => setSelectedMonthId(id), []);
@@ -323,10 +327,12 @@ export function useDashboard(userId: string | null = null) {
         category: purchase.category,
         amount: purchase.amount,
         dueDay: purchase.dueDay,
-        type: 'parcela',
+        type: purchase.paymentMethod === 'debito_pix' ? 'variavel' : 'parcela',
         isPaid: false,
         month: mi.name,
         note: 'Cartão de crédito',
+        isOnCreditCard: purchase.paymentMethod === 'debito_pix',
+        cardPaymentMethod: purchase.paymentMethod ?? 'credito',
         installmentCurrent: installmentNum,
         installmentTotal: purchase.installmentTotal,
       };
@@ -394,7 +400,7 @@ export function useDashboard(userId: string | null = null) {
           ...m,
           bills: m.bills.map((b) => {
             // Marca parcelas do cartão como pagas
-            const isCreditCardBill = b.type === 'parcela' && b.category !== 'financiamento';
+            const isCreditCardBill = b.type === 'parcela' && b.category !== 'financiamento' && b.cardPaymentMethod !== 'debito_pix';
             // Marca contas fixas vinculadas ao cartão como pagas
             const isLinkedFixed = b.isOnCreditCard === true;
             if (isCreditCardBill || isLinkedFixed) {
@@ -415,7 +421,7 @@ export function useDashboard(userId: string | null = null) {
         return {
           ...m,
           bills: m.bills.map((b) => {
-            const isCreditCardBill = b.type === 'parcela' && b.category !== 'financiamento';
+            const isCreditCardBill = b.type === 'parcela' && b.category !== 'financiamento' && b.cardPaymentMethod !== 'debito_pix';
             const isLinkedFixed = b.isOnCreditCard === true;
             if (isCreditCardBill || isLinkedFixed) {
               return { ...b, isPaid: false };
@@ -487,6 +493,7 @@ export function useDashboard(userId: string | null = null) {
     billsSorted,
     fixedBills,
     creditCardBills,
+    debitPixBills,
     variableBills,
     totalPlanned,
     totalPaid,
