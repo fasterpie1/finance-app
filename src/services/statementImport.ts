@@ -26,7 +26,13 @@ Cada item do array:
 Regras:
 - Ignore totais da fatura, juros, IOF, multas, pagamentos, saldo anterior, encargos
 - Extraia apenas lançamentos/compras individuais
-- Se aparecer "3/12" ou "Parc 3 de 12", use installmentCurrent=3 e installmentTotal=12
+- Existem quatro formatos possíveis: tabela Itaú em preto e branco; lista C6 em PDF; lista do app com status "Em processamento"; e lista do app com "Parcela X de Y".
+- Em tabelas Itaú, "beautyglam 08/09 56,36" significa nome=beautyglam, parcela=8/9, valor=56.36. O mesmo vale para "AMAZON BR 07/12 31,59".
+- Em listas C6, "PONTO CERTO - Parcela 7/10 163,90" significa nome=PONTO CERTO, parcela=7/10, valor=163.90.
+- Em prints do app, "O001 DI SANTINNI ROD6", "Parcela 2 de 2" e "R$ 249,99" pertencem à mesma compra.
+- Se aparecer "3/12", "Parc 3 de 12" ou "Parcela 3 de 12", use installmentCurrent=3 e installmentTotal=12.
+- Nunca use como nome: "Em processamento", "Cartão final 6852", "Cartão final 8649", cidades, "Subtotal", menus ou cabeçalhos.
+- Ignore pagamentos, inclusive valores negativos, como "Inclusão de Pagamento".
 - Compras à vista ou sem indicação de parcelas: installmentCurrent=1, installmentTotal=1
 - Valores brasileiros: R$ 1.234,56 → amount=1234.56
 - Responda SOMENTE com o objeto JSON. Não use markdown, explicações ou texto antes/depois do JSON.`;
@@ -46,13 +52,18 @@ function normalizeCategory(raw: unknown): BillCategory {
 }
 
 function normalizePurchase(raw: Record<string, unknown>): Omit<ExtractedPurchase, 'id' | 'selected'> | null {
-  const name = typeof raw.name === 'string' ? raw.name.trim() : '';
+  let name = typeof raw.name === 'string' ? raw.name.trim() : '';
   const amount = typeof raw.amount === 'number' ? raw.amount : parseFloat(String(raw.amount ?? ''));
-  const aggregateName = /compras?\s+(nacionais?|internacionais?)|total\s+(a\s+pagar|da\s+fatura)|valor\s+da\s+fatura|saldo\s+(obriga|rotativo)|pagamento\s+(total|mínimo)|gastos\s+desta\s+fatura/i;
+  const aggregateName = /compras?\s+(nacionais?|internacionais?)|total\s+(a\s+pagar|da\s+fatura)|valor\s+da\s+fatura|saldo\s+(obriga|rotativo)|pagamento\s+(total|mínimo)|gastos\s+desta\s+fatura|em\s+processamento|cart[aã]o\s+final|inclus[aã]o\s+de\s+pagamento|subtotal/i;
   if (!name || aggregateName.test(name) || !amount || amount <= 0 || isNaN(amount)) return null;
 
-  let cur = typeof raw.installmentCurrent === 'number' ? raw.installmentCurrent : parseInt(String(raw.installmentCurrent ?? '1'), 10);
-  let total = typeof raw.installmentTotal === 'number' ? raw.installmentTotal : parseInt(String(raw.installmentTotal ?? '1'), 10);
+  const installmentText = `${String(raw.installmentCurrent ?? '')} ${String(raw.installmentTotal ?? '')} ${name}`;
+  const installmentMatch = installmentText.match(/(?:parcela\s*)?(\d{1,2})\s*(?:\/|de)\s*(\d{1,2})/i);
+  let cur = installmentMatch ? Number(installmentMatch[1]) : (typeof raw.installmentCurrent === 'number' ? raw.installmentCurrent : parseInt(String(raw.installmentCurrent ?? '1'), 10));
+  let total = installmentMatch ? Number(installmentMatch[2]) : (typeof raw.installmentTotal === 'number' ? raw.installmentTotal : parseInt(String(raw.installmentTotal ?? '1'), 10));
+  if (installmentMatch) name = name.replace(installmentMatch[0], ' ').replace(/\s{2,}/g, ' ').trim();
+  name = name.replace(/\b(?:em processamento|cart[aã]o final\s*\d{4}|s[aã]o paulo|rio de janeiro|rio de|brasil)\b/gi, '').replace(/\s{2,}/g, ' ').trim();
+  if (!name || aggregateName.test(name)) return null;
   if (isNaN(cur) || cur < 1) cur = 1;
   if (isNaN(total) || total < 1) total = 1;
   cur = Math.min(cur, total);
