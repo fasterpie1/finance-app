@@ -846,6 +846,119 @@ body[data-theme='light'] .daily-notification-item.is-overdue .daily-notification
   color: #b91c1c;
 }
 
+.help-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.62);
+}
+
+.help-modal {
+  width: min(680px, 100%);
+  max-height: min(760px, calc(100vh - 40px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #111;
+  color: #e0e0e0;
+  border: 1px solid #2a2a2a;
+  border-radius: 14px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+  animation: daily-notification-in 0.2s ease-out;
+}
+
+.help-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 24px;
+  border-bottom: 1px solid #242424;
+}
+
+.help-modal-header h2 {
+  margin: 5px 0 0;
+  color: #f1f5f9;
+  font-size: 21px;
+}
+
+.help-modal-content {
+  overflow-y: auto;
+  padding: 6px 24px 18px;
+}
+
+.help-modal-content section {
+  padding: 16px 0;
+  border-bottom: 1px solid #202020;
+}
+
+.help-modal-content section:last-child {
+  border-bottom: 0;
+}
+
+.help-modal-content h3 {
+  margin: 0 0 6px;
+  color: #dbeafe;
+  font-size: 14px;
+}
+
+.help-modal-content p {
+  margin: 0;
+  color: #9ca3af;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.help-modal-content strong {
+  color: #e5e7eb;
+}
+
+.help-modal-close {
+  margin: 0 24px 22px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 7px;
+  background: #2563eb;
+  color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+body[data-theme='light'] .help-modal {
+  background: #ffffff;
+  color: #1d232c;
+  border-color: #dfe2e7;
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.22);
+}
+
+body[data-theme='light'] .help-modal-header {
+  border-bottom-color: #e2e8f0;
+}
+
+body[data-theme='light'] .help-modal-header h2 {
+  color: #1e293b;
+}
+
+body[data-theme='light'] .help-modal-content section {
+  border-bottom-color: #e2e8f0;
+}
+
+body[data-theme='light'] .help-modal-content h3 {
+  color: #1e3a8a;
+}
+
+body[data-theme='light'] .help-modal-content p {
+  color: #475569;
+}
+
+body[data-theme='light'] .help-modal-content strong {
+  color: #1e293b;
+}
+
 /* PWA safe areas */
 @supports (padding: max(0px)) {
   body {

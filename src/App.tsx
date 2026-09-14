@@ -218,6 +218,7 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
   const keyboardOpen = useKeyboardOpen();
   const [theme, setTheme] = useState<'dark' | 'light'>(loadTheme);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [dailyNotifications, setDailyNotifications] = useState<BillNotification[]>([]);
   const [dailyNotificationOpen, setDailyNotificationOpen] = useState(false);
   const [goalEditing, setGoalEditing] = useState(false);
@@ -801,8 +802,39 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
               <div className="settings-label">Conta</div>
               <button className="settings-action" onClick={() => { setSettingsOpen(false); signOut(); }} disabled={!userId}><span>Sair da conta</span><span className="settings-action-arrow">→</span></button>
             </div>
+            <div className="settings-group">
+              <div className="settings-label">Ajuda</div>
+              <button className="settings-action" onClick={() => setHelpOpen(true)}><span>Como usar o app</span><span className="settings-action-arrow">→</span></button>
+            </div>
           </aside>
         </>
+      )}
+
+      {helpOpen && (
+        <div className="help-modal-backdrop" role="presentation">
+          <article className="help-modal" role="dialog" aria-modal="true" aria-labelledby="help-modal-title">
+            <div className="help-modal-header">
+              <div>
+                <div className="settings-eyebrow">Guia rápido</div>
+                <h2 id="help-modal-title">Como usar o Finança</h2>
+              </div>
+              <button className="settings-icon-button" onClick={() => setHelpOpen(false)} title="Fechar guia" aria-label="Fechar guia"><IconClose /></button>
+            </div>
+            <div className="help-modal-content">
+              <section><h3>1. Escolha o mês</h3><p>Use os botões no topo para navegar entre os meses. O mês selecionado controla as contas, o cartão, os gráficos e a meta exibidos na tela.</p></section>
+              <section><h3>2. Cadastre suas contas</h3><p>Adicione contas fixas, mensais ou variáveis. Informe o nome, valor, categoria e dia de vencimento. As contas lançadas em um mês são consideradas para pagamento no mês seguinte.</p></section>
+              <section><h3>3. Organize o cartão</h3><p>Na aba Cartão, lance compras à vista ou parceladas. As parcelas são distribuídas pelos meses automaticamente. O vencimento deve ser definido em <strong>Vencimento da fatura</strong>, uma única vez por mês.</p></section>
+              <section><h3>4. Lance a fatura por print</h3><p>Na aba Cartão, abra <strong>Importar fatura</strong> e selecione um print, foto ou PDF legível da fatura. A IA identifica as compras em quantidade, valores, categorias e parcelas. Revise os itens encontrados, desmarque o que não quiser lançar e confirme para adicionar tudo ao cartão. É necessário configurar a chave Groq no Assistente antes da importação.</p></section>
+              <section><h3>5. Acompanhe sua meta</h3><p>A Meta financeira compara o valor guardado no mês com a meta mensal. O acumulado soma o que foi guardado nos meses anteriores. A meta pode acompanhar a sobra prevista ou ser fixada manualmente.</p></section>
+              <section><h3>6. Leia os gráficos</h3><p>Em Visualizações dos gastos, compare a evolução do cartão e veja a distribuição por categoria. Use os filtros para escolher quais categorias aparecem no gráfico.</p></section>
+              <section><h3>7. Use os lembretes</h3><p>Quando uma conta estiver a até três dias do vencimento, um popup aparece ao entrar no app. A fatura do cartão aparece agrupada em um único lembrete. Contas atrasadas ficam destacadas em vermelho.</p></section>
+              <section><h3>8. Backup e sincronização</h3><p>Exporte um backup antes de trocar de aparelho ou limpar o navegador. Com a conta conectada, os dados também podem ser sincronizados na nuvem.</p></section>
+              <section><h3>9. Assistente financeiro</h3><p>Na aba IA, clique no link <a className="help-modal-link" href="https://console.groq.com/keys" target="_blank" rel="noreferrer">console.groq.com/keys</a>, crie sua conta, entre no painel e clique em <strong>Create API Key</strong>. Gere o token, copie-o e cole no campo <strong>Chave API Groq</strong> do Assistente. Depois clique em <strong>Salvar e começar</strong>. A chave fica salva apenas neste navegador; não compartilhe esse token. A IA usa os dados financeiros do mês atual para responder sobre gastos, contas pendentes e planejamento.</p></section>
+              <section><h3>10. Preferências</h3><p>Abra as configurações pelo ícone de engrenagem para alternar entre modo escuro e claro, ocultar valores pelo botão do olho e sair da conta.</p></section>
+            </div>
+            <button className="help-modal-close" onClick={() => setHelpOpen(false)}>Fechar guia</button>
+          </article>
+        </div>
       )}
 
       {/* ─── Main ─── */}
