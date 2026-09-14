@@ -219,6 +219,7 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
   const [theme, setTheme] = useState<'dark' | 'light'>(loadTheme);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const monthButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [dailyNotifications, setDailyNotifications] = useState<BillNotification[]>([]);
   const [dailyNotificationOpen, setDailyNotificationOpen] = useState(false);
   const [goalEditing, setGoalEditing] = useState(false);
@@ -231,6 +232,10 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
     localStorage.setItem(THEME_KEY, theme);
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'light' ? '#f4f5f7' : '#0a0a0a');
   }, [theme]);
+
+  useEffect(() => {
+    monthButtonRefs.current[db.selectedMonthId]?.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'center' });
+  }, [db.selectedMonthId, db.months]);
 
   useEffect(() => {
     const todayKey = getLocalDateKey();
@@ -843,7 +848,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
         {/* Month selector */}
         <div className="theme-month-selector" style={{ display: 'flex', gap: 5, overflowX: 'auto', paddingBottom: 2, alignItems: 'center' }}>
           {db.months.map((m) => (
-            <button key={m.id} className={db.selectedMonthId === m.id ? 'theme-month-active' : undefined} onClick={() => db.selectMonth(m.id)} style={{
+            <button key={m.id} ref={(element) => { monthButtonRefs.current[m.id] = element; }} className={db.selectedMonthId === m.id ? 'theme-month-active' : undefined} onClick={() => db.selectMonth(m.id)} style={{
               background: db.selectedMonthId === m.id ? '#1a1a1a' : 'transparent',
               border: `1px solid ${db.selectedMonthId === m.id ? '#2a2a2a' : '#151515'}`,
               borderRadius: 6, color: db.selectedMonthId === m.id ? '#e0e0e0' : '#444',

@@ -31,11 +31,11 @@ function loadMonths(): BudgetMonth[] {
 }
 
 function loadSelectedId(months: BudgetMonth[]): string {
-  try {
-    const saved = localStorage.getItem(SELECTED_KEY);
-    if (saved && months.some((m) => m.id === saved)) return saved;
-  } catch { /* ignore */ }
-  return months[0].id;
+  const current = months.find((month) => {
+    const today = new Date();
+    return month.year === today.getFullYear() && getMonthIndex(month.name) === today.getMonth();
+  });
+  return current?.id ?? months[0].id;
 }
 
 /** Ordena meses por ano e índice do mês */
@@ -168,7 +168,7 @@ export function useDashboard(userId: string | null = null) {
       } else if (data?.months && Array.isArray(data.months) && data.months.length > 0) {
         const remoteMonths = sortMonths(migrateMonths(data.months as BudgetMonth[]));
         setMonths(remoteMonths);
-        setSelectedMonthId(data.selected_month_id && remoteMonths.some((month) => month.id === data.selected_month_id) ? data.selected_month_id : remoteMonths[0].id);
+        setSelectedMonthId(loadSelectedId(remoteMonths));
         setLastSyncedAt(data.updated_at ? new Date(data.updated_at) : new Date());
         setSyncError(null);
       } else {
@@ -196,7 +196,7 @@ export function useDashboard(userId: string | null = null) {
       const remoteMonths = sortMonths(migrateMonths(data.months as BudgetMonth[]));
       const hasChanges = JSON.stringify(months) !== JSON.stringify(remoteMonths);
       setMonths(remoteMonths);
-      setSelectedMonthId(data.selected_month_id && remoteMonths.some((month) => month.id === data.selected_month_id) ? data.selected_month_id : remoteMonths[0].id);
+      setSelectedMonthId(loadSelectedId(remoteMonths));
       setLastSyncedAt(data.updated_at ? new Date(data.updated_at) : new Date());
       setSyncNotice(hasChanges ? 'Alterações de outro dispositivo carregadas' : 'Nenhuma alteração nova');
       setSyncError(null);
