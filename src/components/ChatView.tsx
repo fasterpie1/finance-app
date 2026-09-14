@@ -13,6 +13,7 @@ interface Props {
 }
 
 const STORAGE_KEY_CHAT = 'finance_chat_history';
+const STORAGE_KEY_GROQ_STATUS = 'groq_configured';
 const CHAT_MODEL = 'groq/compound-mini';
 const MAX_CONTEXT_MESSAGES = 12;
 
@@ -50,15 +51,30 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId }) => {
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, loading]);
   useEffect(() => { writeUserStorage(userId, STORAGE_KEY_CHAT, JSON.stringify(messages.slice(-50))); }, [messages, userId]);
   useEffect(() => {
+    const cachedStatus = readUserStorage(userId, STORAGE_KEY_GROQ_STATUS);
+    if (cachedStatus === 'true') {
+      setShowKeySetup(false);
+      setKeyLoading(false);
+      void hasGroqKey().then((configured) => {
+        if (!configured) {
+          removeUserStorage(userId, STORAGE_KEY_GROQ_STATUS);
+          setShowKeySetup(true);
+        }
+      }).catch(() => undefined);
+      return;
+    }
     const legacyKey = localStorage.getItem('groq_api_key') || '';
     const status = legacyKey.startsWith('gsk_')
       ? saveGroqKey(legacyKey).then(() => { localStorage.removeItem('groq_api_key'); return true; })
       : hasGroqKey();
-    void status.then((configured) => setShowKeySetup(!configured)).catch(() => setShowKeySetup(true)).finally(() => setKeyLoading(false));
-  }, []);
+    void status.then((configured) => {
+      setShowKeySetup(!configured);
+      if (configured) writeUserStorage(userId, STORAGE_KEY_GROQ_STATUS, 'true');
+    }).catch(() => setShowKeySetup(true)).finally(() => setKeyLoading(false));
+  }, [userId]);
 
-  const saveKey = async () => { const k = apiKeyInput.trim(); if (!k.startsWith('gsk_')) return; setKeyLoading(true); try { await saveGroqKey(k); setShowKeySetup(false); setApiKeyInput(''); } catch (err) { setMessages((prev) => [...prev, { role: 'error', content: err instanceof Error ? err.message : 'Não foi possível salvar a chave.' }]); } finally { setKeyLoading(false); } };
-  const removeKey = async () => { setKeyLoading(true); try { await deleteGroqKey(); setShowKeySetup(true); } catch (err) { setMessages((prev) => [...prev, { role: 'error', content: err instanceof Error ? err.message : 'Não foi possível remover a chave.' }]); } finally { setKeyLoading(false); } };
+  const saveKey = async () => { const k = apiKeyInput.trim(); if (!k.startsWith('gsk_')) return; setKeyLoading(true); try { await saveGroqKey(k); writeUserStorage(userId, STORAGE_KEY_GROQ_STATUS, 'true'); setShowKeySetup(false); setApiKeyInput(''); } catch (err) { setMessages((prev) => [...prev, { role: 'error', content: err instanceof Error ? err.message : 'Não foi possível salvar a chave.' }]); } finally { setKeyLoading(false); } };
+  const removeKey = async () => { setKeyLoading(true); try { await deleteGroqKey(); removeUserStorage(userId, STORAGE_KEY_GROQ_STATUS); setShowKeySetup(true); } catch (err) { setMessages((prev) => [...prev, { role: 'error', content: err instanceof Error ? err.message : 'Não foi possível remover a chave.' }]); } finally { setKeyLoading(false); } };
   const clearChat = () => { setMessages([]); removeUserStorage(userId, STORAGE_KEY_CHAT); };
 
   const sendMessage = async (text?: string) => {
@@ -78,6 +94,14 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId }) => {
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } };
+
+  if (keyLoading) {
+    return (
+      <div className="theme-chat-view" style={{ display: 'grid', placeItems: 'center', minHeight: 400, color: '#555', fontSize: 12 }}>
+        Verificando o Assistente...
+      </div>
+    );
+  }
 
   if (showKeySetup) {
     return (

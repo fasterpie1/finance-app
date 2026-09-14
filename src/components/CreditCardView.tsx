@@ -12,6 +12,7 @@ import { StatementImportPanel } from './StatementImportPanel';
 import { type Bill } from '../types';
 
 interface Props {
+  userId: string | null;
   selectedMonthName: string;
   selectedMonthYear: number;
   creditCardBills: Bill[];
@@ -39,7 +40,7 @@ const labelStyle: React.CSSProperties = {
 };
 
 export const CreditCardView: React.FC<Props> = ({
-  selectedMonthName, selectedMonthYear, creditCardBills, debitPixBills, linkedFixedBills, allMonths,
+  userId, selectedMonthName, selectedMonthYear, creditCardBills, debitPixBills, linkedFixedBills, allMonths,
   onTogglePaid, onSaveBill, onDeleteBill, onAddPurchase, onImportBatch, getAffectedMonths, onPayCreditCard, onUnpayCreditCard, creditCardDueDay, onUpdateCreditCardDueDay, hideValues,
 }) => {
   const [name, setName] = useState('');
@@ -201,7 +202,7 @@ export const CreditCardView: React.FC<Props> = ({
       </div>
 
       {/* Importar da fatura */}
-      <StatementImportPanel onImport={onImportBatch} />
+      <StatementImportPanel userId={userId} onImport={onImportBatch} />
 
       {/* Parcelas do mês */}
       <div>

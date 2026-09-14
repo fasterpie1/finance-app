@@ -14,9 +14,11 @@ import {
   pdfToText,
 } from '../services/statementImport';
 import { hasGroqKey } from '../services/groq';
+import { readUserStorage, writeUserStorage } from '../services/userStorage';
 
 interface Props {
   onImport: (purchases: CreditCardPurchase[]) => void;
+  userId: string | null;
 }
 
 const fieldStyle: React.CSSProperties = {
@@ -27,7 +29,9 @@ function makeId(): string {
   return Math.random().toString(36).slice(2, 9);
 }
 
-export const StatementImportPanel: React.FC<Props> = ({ onImport }) => {
+const STORAGE_KEY_GROQ_STATUS = 'groq_configured';
+
+export const StatementImportPanel: React.FC<Props> = ({ onImport, userId }) => {
   const fileRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -36,7 +40,9 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport }) => {
   const [previewIsPdf, setPreviewIsPdf] = useState(false);
   const [items, setItems] = useState<ExtractedPurchase[]>([]);
 
-  const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
+  const hasCachedKeyStatus = readUserStorage(userId, STORAGE_KEY_GROQ_STATUS) === 'true';
+  const [apiKeyConfigured, setApiKeyConfigured] = useState(hasCachedKeyStatus);
+  const [checkingKey, setCheckingKey] = useState(!hasCachedKeyStatus);
   const selectedCount = items.filter((i) => i.selected).length;
   const selectedTotal = items.filter((i) => i.selected).reduce((s, i) => s + i.amount, 0);
 
@@ -103,8 +109,18 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport }) => {
 
   useEffect(() => {
     if (!open) return;
-    void hasGroqKey().then(setApiKeyConfigured).catch(() => setApiKeyConfigured(false));
-  }, [open]);
+    const cachedStatus = readUserStorage(userId, STORAGE_KEY_GROQ_STATUS) === 'true';
+    if (cachedStatus) {
+      void hasGroqKey().then((configured) => {
+        if (!configured) setApiKeyConfigured(false);
+      }).catch(() => undefined);
+      return;
+    }
+    void hasGroqKey().then((configured) => {
+      setApiKeyConfigured(configured);
+      if (configured) writeUserStorage(userId, STORAGE_KEY_GROQ_STATUS, 'true');
+    }).catch(() => setApiKeyConfigured(false)).finally(() => setCheckingKey(false));
+  }, [open, userId]);
 
   return (
     <div className="theme-import-panel" style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 12, overflow: 'hidden' }}>
@@ -124,7 +140,13 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport }) => {
         <div style={{ padding: '0 18px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ height: 1, background: '#1a1a1a' }} />
 
-          {!apiKeyConfigured && (
+          {checkingKey && (
+            <div style={{ background: '#111520', border: '1px solid #1e2a3e', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#60a5fa' }}>
+              Verificando o Assistente...
+            </div>
+          )}
+
+          {!checkingKey && !apiKeyConfigured && (
             <div style={{ background: '#1a150a', border: '1px solid #2a2010', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#f59e0b' }}>
               Configure sua chave Groq na aba <strong>Assistente</strong> para usar a importação por foto.
             </div>
@@ -148,13 +170,13 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport }) => {
 
           <button
             onClick={() => fileRef.current?.click()}
-            disabled={loading || !apiKeyConfigured}
+            disabled={loading || checkingKey || !apiKeyConfigured}
             style={{
               background: loading ? '#151520' : '#111520',
               border: '1px dashed #1e2a3e',
               borderRadius: 8,
               color: loading ? '#3a4a5a' : '#60a5fa',
-              cursor: loading || !apiKeyConfigured ? 'not-allowed' : 'pointer',
+              cursor: loading || checkingKey || !apiKeyConfigured ? 'not-allowed' : 'pointer',
               padding: '14px',
               fontSize: 13,
               fontWeight: 600,

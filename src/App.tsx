@@ -1023,6 +1023,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
         {tab === 'chat' && <ChatView financialContext={financialContext} userId={userId} />}
         {tab === 'cartao' && (
           <CreditCardView
+            userId={userId}
             selectedMonthName={db.selectedMonth.name} selectedMonthYear={db.selectedMonth.year}
             creditCardBills={db.creditCardBills} linkedFixedBills={linkedFixedBills} allMonths={db.months}
             debitPixBills={db.debitPixBills}
