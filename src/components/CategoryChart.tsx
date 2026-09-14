@@ -36,13 +36,19 @@ export const CategoryChart: React.FC<Props> = ({ bills, hideValues }) => {
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
 
-  let offset = 0;
-  const segments = data.map((d) => {
-    const dashArray = (d.pct / 100) * circumference;
-    const currentOffset = offset;
-    offset += dashArray;
-    return { ...d, dashArray, offset: currentOffset };
-  });
+  const segments = data.reduce<{
+    items: Array<CategoryData & { dashArray: number; offset: number }>;
+    offset: number;
+  }>((accumulator, item) => {
+    const dashArray = (item.pct / 100) * circumference;
+    return {
+      items: [
+        ...accumulator.items,
+        { ...item, dashArray, offset: accumulator.offset },
+      ],
+      offset: accumulator.offset + dashArray,
+    };
+  }, { items: [], offset: 0 }).items;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>

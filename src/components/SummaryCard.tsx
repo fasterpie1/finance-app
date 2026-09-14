@@ -19,8 +19,10 @@ const accentColors: Record<string, string> = {
 
 export const SummaryCard: React.FC<Props> = ({ title, value, accent = 'default', subtitle, valueColor, hidden }) => {
   const color = accentColors[accent];
+  const valueTone = valueColor === '#ef4444' ? 'red' : valueColor === '#10b981' ? 'green' : accent;
   return (
     <div
+      className="theme-summary-card"
       style={{
         flex: 1,
         background: '#131313',
@@ -35,6 +37,7 @@ export const SummaryCard: React.FC<Props> = ({ title, value, accent = 'default',
       }}
     >
       <div
+        className={`theme-summary-value theme-summary-value-${valueTone}`}
         style={{
           position: 'absolute',
           top: 0,

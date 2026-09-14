@@ -8,6 +8,8 @@ import { ChatView } from './components/ChatView';
 import { CategoryChart } from './components/CategoryChart';
 import { CardSpendingChart } from './components/CardSpendingChart';
 import { AuthPanel } from './components/AuthPanel';
+import { DailyBillNotification } from './components/DailyBillNotification';
+import { getBillNotifications, type BillNotification } from './store/useDashboard';
 import { type Bill, formatCurrency, parseBRL, formatMonthShort, BILL_CATEGORY_LABELS, getMonthIndex } from './types';
 
 type Tab = 'dashboard' | 'cartao' | 'chat';
@@ -17,10 +19,13 @@ const SECTIONS_KEY = 'financa_sections_v1';
 const PRIVACY_KEY = 'financa_privacy';
 const LAYOUT_KEY = 'financa_layout_order';
 const APP_VERSION_KEY = 'financa_app_version';
+const THEME_KEY = 'financa_theme';
+const DAILY_NOTIFICATION_KEY = 'financa_daily_bill_notification_v1';
 
 type SectionId = 'savings' | 'fixed' | 'cartao_preview' | 'variable' | 'chart' | 'backup';
 
-const DEFAULT_ORDER: SectionId[] = ['savings', 'fixed', 'cartao_preview', 'variable', 'chart', 'backup'];
+const DEFAULT_ORDER: SectionId[] = ['fixed', 'cartao_preview', 'variable', 'chart', 'savings', 'backup'];
+const LEGACY_DEFAULT_ORDER: SectionId[] = ['savings', 'fixed', 'cartao_preview', 'variable', 'chart', 'backup'];
 
 function loadSections(): Record<string, boolean> {
   try { const raw = localStorage.getItem(SECTIONS_KEY); if (raw) return JSON.parse(raw); } catch { /* ignore */ }
@@ -32,8 +37,25 @@ function saveSections(sections: Record<string, boolean>) {
 function loadPrivacy(): boolean {
   try { return localStorage.getItem(PRIVACY_KEY) === 'true'; } catch { return false; }
 }
+function loadTheme(): 'dark' | 'light' {
+  try { return localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark'; } catch { return 'dark'; }
+}
+function getLocalDateKey(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 function loadLayoutOrder(): SectionId[] {
-  try { const raw = localStorage.getItem(LAYOUT_KEY); if (raw) { const arr = JSON.parse(raw) as SectionId[]; if (arr.length === DEFAULT_ORDER.length) return arr; } } catch { /* ignore */ }
+  try {
+    const raw = localStorage.getItem(LAYOUT_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw) as SectionId[];
+      if (arr.length === DEFAULT_ORDER.length) {
+        return arr.join(',') === LEGACY_DEFAULT_ORDER.join(',') ? DEFAULT_ORDER : arr;
+      }
+    }
+  } catch { /* ignore */ }
   return DEFAULT_ORDER;
 }
 function saveLayoutOrder(order: SectionId[]) {
@@ -104,6 +126,14 @@ const IconChat = ({ active }: { active: boolean }) => (
     <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
   </svg>
 );
+const IconSettings = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" /><path d="m19.4 15 .1.1a2 2 0 0 1-2.8 2.8l-.1-.1a2 2 0 0 0-3.4 1.4v.2a2 2 0 0 1-4 0v-.2a2 2 0 0 0-3.4-1.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A2 2 0 0 0 3.7 11H3.5a2 2 0 0 1 0-4h.2A2 2 0 0 0 5.1 3.6L5 3.5a2 2 0 1 1 2.8-2.8l.1.1A2 2 0 0 0 11.3 2h.2a2 2 0 0 1 4 0v.2a2 2 0 0 0 3.4 1.4l.1-.1A2 2 0 1 1 21.8 6l-.1.1A2 2 0 0 0 20.3 9h.2a2 2 0 0 1 0 4h-.2a2 2 0 0 0-.9 2Z" />
+  </svg>
+);
+const IconSun = () => <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" /></svg>;
+const IconMoon = () => <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3 6.5 6.5 0 0 0 21 12.8Z" /></svg>;
+const IconClose = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="m6 6 12 12M18 6 6 18" /></svg>;
 const IconRefresh = ({ spinning }: { spinning: boolean }) => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: spinning ? 'spin 0.8s linear infinite' : undefined }}>
     <path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 5v4h4" /><path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 19v-4h-4" />
@@ -153,12 +183,12 @@ function CollapsibleSection({ title, count, totalAmount, isOpen, onToggle, right
   title: string; count?: number; totalAmount?: number; isOpen: boolean; onToggle: () => void; rightAction?: React.ReactNode; children: React.ReactNode; hideValues?: boolean; editMode?: boolean;
 }) {
   return (
-    <section style={{ background: '#111', border: `1px solid ${editMode ? '#2a3a4a' : '#1a1a1a'}`, borderRadius: 10, padding: '14px 16px', transition: 'border-color 0.2s', position: 'relative' }}>
+    <section className="app-section" style={{ background: '#111', border: `1px solid ${editMode ? '#2a3a4a' : '#1a1a1a'}`, borderRadius: 10, padding: '14px 16px', transition: 'border-color 0.2s', position: 'relative' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isOpen && !editMode ? 12 : 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: editMode ? 'default' : 'pointer', flex: 1 }} onClick={editMode ? undefined : onToggle}>
           {!editMode && <IconChevron open={isOpen} />}
           <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{title}</h3>
-          {count !== undefined && <span style={{ fontSize: 10, fontWeight: 600, color: '#3a3a3a', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 6px' }}>{count}</span>}
+          {count !== undefined && <span className="theme-count-pill" style={{ fontSize: 10, fontWeight: 600, color: '#3a3a3a', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 6px' }}>{count}</span>}
           {totalAmount !== undefined && !isOpen && !editMode && <span style={{ fontSize: 12, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#ef4444', marginLeft: 'auto', paddingRight: 8, transition: 'color 0.2s' }}>{hideValues ? 'R$ ••••' : formatCurrency(totalAmount)}</span>}
         </div>
         {isOpen && !editMode && rightAction}
@@ -172,7 +202,7 @@ function EmptyState({ label, action, onAction }: { label: string; action?: strin
   return (
     <div style={{ background: '#0e0e0e', border: '1px dashed #1e1e1e', borderRadius: 8, padding: 20, textAlign: 'center', color: '#333', fontSize: 12 }}>
       <div>{label}</div>
-      {action && onAction && <button onClick={onAction} style={{ marginTop: 10, background: '#111520', border: '1px solid #1e2a3e', borderRadius: 6, color: '#60a5fa', cursor: 'pointer', padding: '7px 14px', fontSize: 12, fontWeight: 600 }}>{action}</button>}
+      {action && onAction && <button className="theme-empty-action" onClick={onAction} style={{ marginTop: 10, background: '#111520', border: '1px solid #1e2a3e', borderRadius: 6, color: '#60a5fa', cursor: 'pointer', padding: '7px 14px', fontSize: 12, fontWeight: 600 }}>{action}</button>}
     </div>
   );
 }
@@ -186,6 +216,42 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
   const [incomeInput, setIncomeInput] = useState('');
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const keyboardOpen = useKeyboardOpen();
+  const [theme, setTheme] = useState<'dark' | 'light'>(loadTheme);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [dailyNotifications, setDailyNotifications] = useState<BillNotification[]>([]);
+  const [dailyNotificationOpen, setDailyNotificationOpen] = useState(false);
+  const [goalEditing, setGoalEditing] = useState(false);
+  const [goalInput, setGoalInput] = useState('');
+  const [savedAmountEditing, setSavedAmountEditing] = useState(false);
+  const [savedAmountInput, setSavedAmountInput] = useState('');
+
+  useEffect(() => {
+    document.body.dataset.theme = theme;
+    localStorage.setItem(THEME_KEY, theme);
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'light' ? '#f4f5f7' : '#0a0a0a');
+  }, [theme]);
+
+  useEffect(() => {
+    const todayKey = getLocalDateKey();
+    let cancelled = false;
+    try {
+      if (localStorage.getItem(DAILY_NOTIFICATION_KEY) === todayKey) return;
+      const upcoming = getBillNotifications(db.months);
+      if (upcoming.length === 0) return;
+      const timer = window.setTimeout(() => {
+        if (cancelled) return;
+        localStorage.setItem(DAILY_NOTIFICATION_KEY, todayKey);
+        setDailyNotifications(upcoming);
+        setDailyNotificationOpen(true);
+      }, 0);
+      return () => {
+        cancelled = true;
+        window.clearTimeout(timer);
+      };
+    } catch {
+      // A storage failure should not block the dashboard.
+    }
+  }, [db.months]);
 
   const [hideValues, setHideValues] = useState(loadPrivacy);
   const togglePrivacy = () => {
@@ -211,7 +277,9 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
   const [dragDelta, setDragDelta] = useState(0);
   const dragMeta = useRef({ startY: 0, heights: {} as Record<string, number> });
   const layoutOrderRef = useRef(layoutOrder);
-  layoutOrderRef.current = layoutOrder;
+  useEffect(() => {
+    layoutOrderRef.current = layoutOrder;
+  }, [layoutOrder]);
   const flipRef = useRef<{ id: SectionId; delta: number } | null>(null);
   const prevOrderStr = useRef(layoutOrder.join(','));
   const GAP = 20; // matches the flex container gap
@@ -350,6 +418,14 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
   const fixedTotal = db.fixedBills.reduce((s, b) => s + b.amount, 0);
   const fixedPaidTotal = db.fixedBills.filter((b) => b.isPaid).reduce((s, b) => s + b.amount, 0);
   const pendingAmount = db.totalPlanned - db.totalPaid;
+  const savingsGoalIsManual = db.selectedMonth.savingsGoalMode === 'manual';
+  const predictedSavings = Math.max(db.remaining, 0);
+  const savingsGoal = savingsGoalIsManual ? (db.selectedMonth.savingsGoal ?? 0) : predictedSavings;
+  const savedAmount = db.selectedMonth.savedAmount ?? 0;
+  const accumulatedSaved = db.months
+    .filter((month) => month.year < db.selectedMonth.year || (month.year === db.selectedMonth.year && getMonthIndex(month.name) <= getMonthIndex(db.selectedMonth.name)))
+    .reduce((total, month) => total + (month.savedAmount ?? 0), 0);
+  const monthlySavingsPct = savingsGoal > 0 ? Math.min(Math.round((savedAmount / savingsGoal) * 100), 100) : 0;
 
   const previousMonths = db.months.filter((month) => {
     if (month.year !== db.selectedMonth.year) return month.year < db.selectedMonth.year;
@@ -394,7 +470,66 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
   const renderSection = (id: SectionId) => {
     switch (id) {
       case 'savings':
-        return null;
+        return (
+          <CollapsibleSection key="savings" title="Meta financeira" isOpen={isSectionOpen('savings', false)} onToggle={() => toggleSection('savings')} hideValues={hideValues} editMode={editMode} rightAction={
+            <button onClick={() => { setGoalInput(savingsGoal > 0 ? String(savingsGoal) : ''); setGoalEditing(true); }} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#555', cursor: 'pointer', fontSize: 11, padding: '3px 10px' }}>
+              {savingsGoalIsManual ? 'Editar meta' : 'Fixar meta'}
+            </button>
+          }>
+            {savingsGoal > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                  <div className="theme-goal-card" style={{ background: '#0e0e0e', borderRadius: 8, padding: '10px 12px' }}>
+                    <div style={{ fontSize: 10, color: '#444', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{savingsGoalIsManual ? 'Meta mensal fixa' : 'Sobra prevista'}</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#d4d4d4', marginTop: 4 }}>{hideValues ? masked : formatCurrency(savingsGoal)}</div>
+                  </div>
+                  <div className="theme-goal-card" style={{ background: '#0e0e0e', borderRadius: 8, padding: '10px 12px' }}>
+                    <div style={{ fontSize: 10, color: '#444', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Guardado no mês</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: hideValues ? '#1a1a1a' : savedAmount >= savingsGoal ? '#10b981' : '#f59e0b', marginTop: 4 }}>{hideValues ? masked : formatCurrency(savedAmount)}</div>
+                  </div>
+                  <div className="theme-goal-card" style={{ background: '#0e0e0e', borderRadius: 8, padding: '10px 12px' }}>
+                    <div style={{ fontSize: 10, color: '#444', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Acumulado</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#60a5fa', marginTop: 4 }}>{hideValues ? masked : formatCurrency(accumulatedSaved)}</div>
+                  </div>
+                </div>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span style={{ fontSize: 10, color: '#3a3a3a' }}>{monthlySavingsPct}% da {savingsGoalIsManual ? 'meta mensal fixa' : 'sobra prevista'}</span>
+                    <span style={{ fontSize: 10, color: savedAmount >= savingsGoal ? '#10b981' : '#f59e0b' }}>{savedAmount >= savingsGoal ? 'Meta mensal atingida' : `Meta mensal não atingida · faltam ${hideValues ? masked : formatCurrency(savingsGoal - savedAmount)}`}</span>
+                  </div>
+                  <ProgressBar value={savedAmount} max={savingsGoal} color={savedAmount >= savingsGoal ? '#10b981' : '#f59e0b'} />
+                </div>
+                <div style={{ borderTop: '1px solid #1a1a1a', paddingTop: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 10, color: '#444', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Guardado em {db.selectedMonth.name}</div>
+                      <div style={{ fontSize: 12, color: '#555', marginTop: 3 }}>Esse valor entra no acumulado dos próximos meses.</div>
+                    </div>
+                    <button onClick={() => { setSavedAmountInput(savedAmount > 0 ? String(savedAmount) : ''); setSavedAmountEditing(true); }} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#60a5fa', cursor: 'pointer', padding: '5px 10px', fontSize: 11, whiteSpace: 'nowrap' }}>Informar valor</button>
+                  </div>
+                  {savedAmountEditing && (
+                    <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                      <input autoFocus inputMode="decimal" placeholder="Ex: 4.000,00" value={savedAmountInput} onChange={(event) => setSavedAmountInput(event.target.value.replace(/[^0-9.,]/g, ''))} onKeyDown={(event) => { if (event.key === 'Enter') { db.updateSavedAmount(parseBRL(savedAmountInput)); setSavedAmountEditing(false); } if (event.key === 'Escape') setSavedAmountEditing(false); }} style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 6, color: '#e0e0e0', padding: '8px 10px', fontSize: 13, flex: 1, outline: 'none' }} />
+                      <button onClick={() => { db.updateSavedAmount(parseBRL(savedAmountInput)); setSavedAmountEditing(false); }} style={{ background: '#10b981', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '8px 12px', fontSize: 11, fontWeight: 600 }}>Salvar</button>
+                    </div>
+                  )}
+                </div>
+                {savingsGoalIsManual && (
+                  <button onClick={() => { db.usePredictedSavingsGoal(); setGoalEditing(false); }} style={{ background: 'transparent', border: '1px dashed #1e1e1e', borderRadius: 6, color: '#555', cursor: 'pointer', padding: '6px 10px', fontSize: 10, alignSelf: 'flex-start' }}>Voltar a usar sobra prevista</button>
+                )}
+              </div>
+            ) : goalEditing ? null : (
+              <EmptyState label="Defina uma meta para acompanhar quanto você está acumulando." action="Definir meta" onAction={() => { setGoalInput(''); setGoalEditing(true); }} />
+            )}
+            {goalEditing && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: savingsGoal > 0 ? 8 : 0 }}>
+                <input autoFocus inputMode="decimal" placeholder="Ex: 5.000,00" value={goalInput} onChange={(event) => setGoalInput(event.target.value.replace(/[^0-9.,]/g, ''))} onKeyDown={(event) => { if (event.key === 'Enter') { db.updateSavingsGoal(parseBRL(goalInput)); setGoalEditing(false); } if (event.key === 'Escape') setGoalEditing(false); }} style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 6, color: '#e0e0e0', padding: '8px 12px', fontSize: 14, fontWeight: 700, flex: 1, outline: 'none' }} />
+                <button onClick={() => { db.updateSavingsGoal(parseBRL(goalInput)); setGoalEditing(false); }} style={{ background: '#10b981', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '8px 14px', fontSize: 12, fontWeight: 600 }}>Salvar</button>
+                <button onClick={() => setGoalEditing(false)} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#555', cursor: 'pointer', padding: '8px 12px', fontSize: 12 }}>Cancelar</button>
+              </div>
+            )}
+          </CollapsibleSection>
+        );
         /* return (
           <CollapsibleSection key="savings" title="Meta de economia" isOpen={isSectionOpen('savings', false)} onToggle={() => toggleSection('savings')} hideValues={hideValues} editMode={editMode}>
             {savingsGoal > 0 ? (
@@ -442,11 +577,11 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
             </button>
           }>
             <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-              <div style={{ flex: 1, background: '#0e0e0e', borderRadius: 6, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div className="theme-inset-panel" style={{ flex: 1, background: '#0e0e0e', borderRadius: 6, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 10, color: '#444' }}>Total</span>
                 <span style={{ fontSize: 13, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#ef4444', transition: 'color 0.2s' }}>{hideValues ? masked : formatCurrency(fixedTotal)}</span>
               </div>
-              <div style={{ flex: 1, background: '#0e0e0e', borderRadius: 6, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div className="theme-inset-panel" style={{ flex: 1, background: '#0e0e0e', borderRadius: 6, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 10, color: '#444' }}>Pago</span>
                 <span style={{ fontSize: 13, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#10b981', transition: 'color 0.2s' }}>{hideValues ? masked : formatCurrency(fixedPaidTotal)}</span>
               </div>
@@ -457,7 +592,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
               {addSection === 'fixed' && <InlineAddRow monthName={db.selectedMonth.name} onSave={handleAddBill} onCancel={() => setAddSection(null)} defaultType="mensal" />}
             </div>
             {hasFixedBills && (
-              <button onClick={() => { if (confirm('Copiar contas fixas do mês anterior?')) db.copyFixedBillsFromPrevious(); }} style={{ marginTop: 10, background: 'transparent', border: '1px dashed #1e1e1e', borderRadius: 6, color: '#333', cursor: 'pointer', padding: '6px 12px', fontSize: 10, width: '100%' }}>
+              <button className="theme-copy-previous" onClick={() => { if (confirm('Copiar contas fixas do mês anterior?')) db.copyFixedBillsFromPrevious(); }} style={{ marginTop: 10, background: 'transparent', border: '1px dashed #1e1e1e', borderRadius: 6, color: '#333', cursor: 'pointer', padding: '6px 12px', fontSize: 10, width: '100%' }}>
                 Copiar contas fixas do mês anterior
               </button>
             )}
@@ -466,7 +601,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
 
       case 'cartao_preview':
         return (
-          <section key="cartao_preview" style={editMode ? { background: '#111', border: '1px solid #2a3a4a', borderRadius: 10, padding: '14px 16px' } : undefined}>
+          <section key="cartao_preview" className="theme-card-preview" style={editMode ? { background: '#111', border: '1px solid #2a3a4a', borderRadius: 10, padding: '14px 16px' } : undefined}>
             {!editMode && (
               <>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
@@ -482,7 +617,14 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                   <div style={{ background: '#131313', border: `1px solid ${allCardPaid ? '#10b98122' : '#1a1a1a'}`, borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12, opacity: allCardPaid ? 0.55 : 1, transition: 'all 0.15s' }}>
                     {/* Bolinha de pago — igual às contas */}
                     <button
-                      onClick={(e) => { e.stopPropagation(); allCardPaid ? db.unpayCreditCard() : db.payCreditCard(); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (allCardPaid) {
+                          db.unpayCreditCard();
+                        } else {
+                          db.payCreditCard();
+                        }
+                      }}
                       style={{
                         width: 20, height: 20, borderRadius: '50%',
                         border: `2px solid ${allCardPaid ? '#10b981' : '#2d2d2d'}`,
@@ -505,7 +647,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                     <div onClick={() => setTab('cartao')} style={{ flex: 1, cursor: 'pointer', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
                       <span style={{ fontSize: 13, fontWeight: 600, color: allCardPaid ? '#555' : '#d4d4d4', textDecoration: allCardPaid ? 'line-through' : 'none' }}>Fatura do mês</span>
                       <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-                        <span style={{ fontSize: 10, color: '#444', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 6px' }}>
+                        <span className="theme-card-count" style={{ fontSize: 10, color: '#444', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 6px' }}>
                           {db.creditCardBills.length} parcela{db.creditCardBills.length !== 1 ? 's' : ''}
                         </span>
                         {linkedFixedBills.length > 0 && (
@@ -564,8 +706,8 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
               <div style={{ background: importMsg.includes('sucesso') ? '#0a1a0a' : '#1a1010', border: `1px solid ${importMsg.includes('sucesso') ? '#152515' : '#2a1515'}`, borderRadius: 6, padding: '8px 12px', fontSize: 11, color: importMsg.includes('sucesso') ? '#4ade80' : '#ef4444', marginBottom: 10 }}>{importMsg}</div>
             )}
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button onClick={db.exportData} style={{ flex: 1, minWidth: 130, background: '#111520', border: '1px solid #1e2a3e', borderRadius: 6, color: '#60a5fa', cursor: 'pointer', padding: '10px 14px', fontSize: 12, fontWeight: 600 }}>Exportar backup</button>
-              <label style={{ flex: 1, minWidth: 130, background: '#131313', border: '1px solid #1e1e1e', borderRadius: 6, color: '#777', cursor: 'pointer', padding: '10px 14px', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+              <button className="theme-export-backup" onClick={db.exportData} style={{ flex: 1, minWidth: 130, background: '#111520', border: '1px solid #1e2a3e', borderRadius: 6, color: '#60a5fa', cursor: 'pointer', padding: '10px 14px', fontSize: 12, fontWeight: 600 }}>Exportar backup</button>
+              <label className="theme-backup-import" style={{ flex: 1, minWidth: 130, background: '#131313', border: '1px solid #1e1e1e', borderRadius: 6, color: '#777', cursor: 'pointer', padding: '10px 14px', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
                 Importar backup
                 <input type="file" accept=".json" style={{ display: 'none' }} onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; const ok = await db.importData(file); setImportMsg(ok ? 'Dados restaurados com sucesso!' : 'Arquivo inválido.'); setTimeout(() => setImportMsg(null), 4000); e.target.value = ''; }} />
               </label>
@@ -580,10 +722,10 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
   };
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0a0a0a', color: '#e0e0e0', fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif" }}>
+    <div className="app-shell" style={{ minHeight: '100vh', background: '#0a0a0a', color: '#e0e0e0', fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif" }}>
 
       {/* ─── Header (simples, com safe area) ─── */}
-      <header style={{
+      <header className="app-header" style={{
         borderBottom: '1px solid #151515',
         paddingLeft: 16, paddingRight: 16,
         paddingTop: 'max(env(safe-area-inset-top, 0px), 12px)',
@@ -595,18 +737,28 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
           <span style={{ fontSize: 14, fontWeight: 700, color: '#c0c0c0', letterSpacing: '-0.02em' }}>finança</span>
           <span style={{ fontSize: 9, color: '#3a3a3a', letterSpacing: '0.1em', fontWeight: 500 }}>PESSOAL</span>
         </div>
-        {userId && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {db.syncNotice && <span style={{ fontSize: 10, color: '#4b8f73' }}>{db.syncNotice}</span>}
-            <button onClick={() => void refreshAppOrData(db.refreshData)} disabled={db.isRefreshing} title="Atualizar aplicativo e dados compartilhados" aria-label="Atualizar aplicativo e dados compartilhados" style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: db.isRefreshing ? '#3b82f6' : '#666', cursor: db.isRefreshing ? 'wait' : 'pointer', width: 32, height: 30, display: 'grid', placeItems: 'center' }}>
-              <IconRefresh spinning={db.isRefreshing} />
-            </button>
-          </div>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {userId && (
+            <>
+              {db.syncNotice && <span style={{ fontSize: 10, color: '#4b8f73' }}>{db.syncNotice}</span>}
+              <button onClick={() => void refreshAppOrData(db.refreshData)} disabled={db.isRefreshing} title="Atualizar aplicativo e dados compartilhados" aria-label="Atualizar aplicativo e dados compartilhados" style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: db.isRefreshing ? '#3b82f6' : '#666', cursor: db.isRefreshing ? 'wait' : 'pointer', width: 32, height: 30, display: 'grid', placeItems: 'center' }}>
+                <IconRefresh spinning={db.isRefreshing} />
+              </button>
+            </>
+          )}
+          <button onClick={() => setSettingsOpen(true)} title="Abrir configurações" aria-label="Abrir configurações" style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#666', cursor: 'pointer', width: 32, height: 30, display: 'grid', placeItems: 'center' }}><IconSettings /></button>
+        </div>
       </header>
 
+      {dailyNotificationOpen && (
+        <DailyBillNotification
+          notifications={dailyNotifications}
+          onClose={() => setDailyNotificationOpen(false)}
+        />
+      )}
+
       {/* ─── Bottom Nav ─── */}
-      <nav style={{
+      <nav className="app-nav" style={{
         position: 'fixed', bottom: 0, left: 0, right: 0, height: 56,
         background: '#0e0e0e', borderTop: '1px solid #151515',
         display: keyboardOpen ? 'none' : 'flex', alignItems: 'center', justifyContent: 'space-around',
@@ -624,13 +776,42 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
         ))}
       </nav>
 
+      {settingsOpen && (
+        <>
+          <button className="settings-backdrop" aria-label="Fechar configurações" onClick={() => setSettingsOpen(false)} />
+          <aside className="settings-drawer" aria-label="Configurações">
+            <div className="settings-heading">
+              <div>
+                <div className="settings-eyebrow">Preferências</div>
+                <h2>Configurações</h2>
+              </div>
+              <button onClick={() => setSettingsOpen(false)} title="Fechar" aria-label="Fechar configurações" className="settings-icon-button"><IconClose /></button>
+            </div>
+            <div className="settings-group">
+              <div className="settings-label">Aparência</div>
+              <div className="theme-switch-row">
+                <div className="theme-switch-copy">
+                  <span className="theme-switch-icon">{theme === 'light' ? <IconSun /> : <IconMoon />}</span>
+                  <div><strong>{theme === 'light' ? 'Modo claro' : 'Modo escuro'}</strong><small>{theme === 'light' ? 'Fundo claro para ambientes iluminados' : 'Tema padrão do aplicativo'}</small></div>
+                </div>
+                <button className={`theme-switch ${theme === 'light' ? 'is-light' : ''}`} role="switch" aria-checked={theme === 'light'} aria-label="Alternar modo claro e escuro" onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}><span /></button>
+              </div>
+            </div>
+            <div className="settings-group">
+              <div className="settings-label">Conta</div>
+              <button className="settings-action" onClick={() => { setSettingsOpen(false); signOut(); }} disabled={!userId}><span>Sair da conta</span><span className="settings-action-arrow">→</span></button>
+            </div>
+          </aside>
+        </>
+      )}
+
       {/* ─── Main ─── */}
-      <div style={{ maxWidth: 900, margin: '0 auto', padding: '16px 16px 80px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div className="app-content" style={{ maxWidth: 900, margin: '0 auto', padding: '16px 16px 80px', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
         {/* Month selector */}
-        <div style={{ display: 'flex', gap: 5, overflowX: 'auto', paddingBottom: 2, alignItems: 'center' }}>
+        <div className="theme-month-selector" style={{ display: 'flex', gap: 5, overflowX: 'auto', paddingBottom: 2, alignItems: 'center' }}>
           {db.months.map((m) => (
-            <button key={m.id} onClick={() => db.selectMonth(m.id)} style={{
+            <button key={m.id} className={db.selectedMonthId === m.id ? 'theme-month-active' : undefined} onClick={() => db.selectMonth(m.id)} style={{
               background: db.selectedMonthId === m.id ? '#1a1a1a' : 'transparent',
               border: `1px solid ${db.selectedMonthId === m.id ? '#2a2a2a' : '#151515'}`,
               borderRadius: 6, color: db.selectedMonthId === m.id ? '#e0e0e0' : '#444',
@@ -647,7 +828,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
           <>
             {/* Edit mode banner */}
             {editMode && (
-              <div style={{ background: '#111520', border: '1px solid #1e2a3e', borderRadius: 8, padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div className="theme-edit-banner" style={{ background: '#111520', border: '1px solid #1e2a3e', borderRadius: 8, padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <GripIcon />
                   <span style={{ fontSize: 12, color: '#60a5fa', fontWeight: 500 }}>Arraste para reordenar</span>
@@ -657,7 +838,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
             )}
 
             {/* Progress */}
-            <div style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 10, padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div className="theme-progress-panel" style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 10, padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 12, color: '#555' }}>Contas pagas: <strong style={{ color: '#999' }}>{paidCount}</strong> de <strong style={{ color: '#999' }}>{totalCount}</strong></span>
                 <span style={{ fontSize: 12, fontWeight: 700, color: progressPct === 100 ? '#10b981' : '#666' }}>{progressPct}%</span>
@@ -669,7 +850,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
             <div style={{ position: 'relative' }}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
                 {incomeEditing ? (
-                  <div style={{ background: '#131313', border: '1px solid #2a2a2a', borderRadius: 12, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div className="theme-income-editor" style={{ background: '#131313', border: '1px solid #2a2a2a', borderRadius: 12, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <label style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>Entrada mensal</label>
                     <div style={{ display: 'flex', gap: 8 }}>
                       <input autoFocus inputMode="decimal" pattern="[0-9.,]*" value={incomeInput} onChange={(e) => setIncomeInput(e.target.value.replace(/[^0-9.,]/g, ''))} onKeyDown={(e) => { if (e.key === 'Enter') { db.updateIncome(parseBRL(incomeInput)); setIncomeEditing(false); } if (e.key === 'Escape') setIncomeEditing(false); }} style={{ background: '#0e0e0e', border: '1px solid #252525', borderRadius: 6, color: '#e0e0e0', padding: '6px 10px', fontSize: 16, fontWeight: 700, width: '100%', outline: 'none', fontFamily: 'inherit' }} />
@@ -690,7 +871,8 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
               {/* Olhinho flutuante no centro exato dos 4 cards */}
               <button
                 onClick={togglePrivacy}
-                aria-label={hideValues ? 'Mostrar valores' : 'Ocultar valores'}
+                  className="theme-privacy-toggle"
+                  aria-label={hideValues ? 'Mostrar valores' : 'Ocultar valores'}
                 style={{
                   position: 'absolute',
                   top: '50%',
@@ -810,6 +992,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
             onTogglePaid={db.togglePaid} onSaveBill={db.saveBill} onDeleteBill={db.deleteBill}
             onAddPurchase={db.addCreditCardPurchase} onImportBatch={db.addCreditCardPurchasesBatch} getAffectedMonths={db.getAffectedMonths}
             onPayCreditCard={db.payCreditCard} onUnpayCreditCard={db.unpayCreditCard}
+            creditCardDueDay={db.selectedMonth.creditCardDueDay} onUpdateCreditCardDueDay={db.updateCreditCardDueDay}
             hideValues={hideValues}
           />
         )}

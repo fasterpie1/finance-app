@@ -21,6 +21,7 @@ export type BillCategory =
 
 export type BillType = 'mensal' | 'parcela' | 'fixa' | 'variavel';
 export type CardPaymentMethod = 'credito' | 'debito_pix';
+export type SavingsGoalMode = 'auto' | 'manual';
 
 export const BILL_CATEGORY_LABELS: Record<BillCategory, string> = {
   luz: 'Luz',
@@ -98,6 +99,9 @@ export interface BudgetMonth {
   income: number;
   bills: Bill[];
   savingsGoal?: number;
+  savingsGoalMode?: SavingsGoalMode;
+  savedAmount?: number;
+  creditCardDueDay?: number;
 }
 
 export const MONTH_NAMES = [

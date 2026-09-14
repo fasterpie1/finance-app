@@ -65,7 +65,7 @@ export const InlineAddRow: React.FC<Props> = ({ monthName, onSave, onCancel, def
   const categoryColor = BILL_CATEGORY_COLORS[category];
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#111', border: '1px dashed #2a2a2a', borderRadius: 10, padding: '10px 12px', flexWrap: 'wrap' }}>
+    <div className="theme-inline-row" style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#111', border: '1px dashed #2a2a2a', borderRadius: 10, padding: '10px 12px', flexWrap: 'wrap' }}>
       <div style={{ width: 8, height: 8, borderRadius: '50%', background: categoryColor, flexShrink: 0, opacity: 0.8 }} />
       <input ref={nameRef} placeholder="Nome da conta..." value={name} onChange={(e) => setName(e.target.value)} onKeyDown={onKeyDown} style={{ ...fieldStyle, flex: '1 1 140px', minWidth: 120 }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>

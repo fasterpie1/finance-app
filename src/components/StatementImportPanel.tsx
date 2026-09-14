@@ -15,7 +15,6 @@ import {
 } from '../services/statementImport';
 
 interface Props {
-  defaultDueDay: string;
   onImport: (purchases: CreditCardPurchase[]) => void;
 }
 
@@ -27,7 +26,7 @@ function makeId(): string {
   return Math.random().toString(36).slice(2, 9);
 }
 
-export const StatementImportPanel: React.FC<Props> = ({ defaultDueDay, onImport }) => {
+export const StatementImportPanel: React.FC<Props> = ({ onImport }) => {
   const fileRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -35,7 +34,6 @@ export const StatementImportPanel: React.FC<Props> = ({ defaultDueDay, onImport 
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewIsPdf, setPreviewIsPdf] = useState(false);
   const [items, setItems] = useState<ExtractedPurchase[]>([]);
-  const [dueDay, setDueDay] = useState(defaultDueDay);
 
   const apiKey = localStorage.getItem('groq_api_key') || '';
   const selectedCount = items.filter((i) => i.selected).length;
@@ -76,7 +74,6 @@ export const StatementImportPanel: React.FC<Props> = ({ defaultDueDay, onImport 
       .map((i) => ({
         name: i.name.trim(),
         amount: i.amount,
-        dueDay: Math.max(1, Math.min(31, parseInt(dueDay) || 10)),
         category: i.category,
         installmentCurrent: Math.max(1, Math.min(i.installmentCurrent, i.installmentTotal)),
         installmentTotal: Math.max(i.installmentCurrent, i.installmentTotal),
@@ -104,7 +101,7 @@ export const StatementImportPanel: React.FC<Props> = ({ defaultDueDay, onImport 
   };
 
   return (
-    <div style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 12, overflow: 'hidden' }}>
+    <div className="theme-import-panel" style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 12, overflow: 'hidden' }}>
       <button onClick={toggleOpen} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'transparent', border: 'none', padding: '14px 18px', cursor: 'pointer', color: '#c0c0c0' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -194,9 +191,6 @@ export const StatementImportPanel: React.FC<Props> = ({ defaultDueDay, onImport 
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#4ade80', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                   {items.length} compra{items.length !== 1 ? 's' : ''} encontrada{items.length !== 1 ? 's' : ''}
                 </span>
-                <div style={{ maxWidth: 120 }}>
-                  <input style={fieldStyle} inputMode="numeric" placeholder="Dia venc." value={dueDay} onChange={(e) => setDueDay(e.target.value.replace(/[^0-9]/g, ''))} title="Dia do vencimento" />
-                </div>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 320, overflowY: 'auto' }}>

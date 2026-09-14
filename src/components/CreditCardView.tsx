@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   type BillCategory,
   BILL_CATEGORY_LABELS,
@@ -26,6 +26,8 @@ interface Props {
   getAffectedMonths: (cur: number, total: number) => MonthInfo[];
   onPayCreditCard: () => void;
   onUnpayCreditCard: () => void;
+  creditCardDueDay?: number;
+  onUpdateCreditCardDueDay: (dueDay: number) => void;
   hideValues?: boolean;
 }
 
@@ -38,19 +40,25 @@ const labelStyle: React.CSSProperties = {
 
 export const CreditCardView: React.FC<Props> = ({
   selectedMonthName, selectedMonthYear, creditCardBills, debitPixBills, linkedFixedBills, allMonths,
-  onTogglePaid, onSaveBill, onDeleteBill, onAddPurchase, onImportBatch, getAffectedMonths, onPayCreditCard, onUnpayCreditCard, hideValues,
+  onTogglePaid, onSaveBill, onDeleteBill, onAddPurchase, onImportBatch, getAffectedMonths, onPayCreditCard, onUnpayCreditCard, creditCardDueDay, onUpdateCreditCardDueDay, hideValues,
 }) => {
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');
-  const [dueDay, setDueDay] = useState('10');
   const [category, setCategory] = useState<BillCategory>('compras');
   const [paymentMethod, setPaymentMethod] = useState<'credito' | 'debito_pix'>('credito');
   const [curInstallment, setCurInstallment] = useState('1');
   const [totalInstallment, setTotalInstallment] = useState('1');
+  const [invoiceDueDayInput, setInvoiceDueDayInput] = useState(String(creditCardDueDay ?? ''));
+  const [invoiceDueDayEditing, setInvoiceDueDayEditing] = useState(false);
   const [formOpen, setFormOpen] = useState(() => {
     try { const saved = localStorage.getItem('financa_sections_v1'); if (saved) { return JSON.parse(saved)['creditCardForm'] ?? false; } } catch { /* ignore */ }
     return false;
   });
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setInvoiceDueDayInput(String(creditCardDueDay ?? '')), 0);
+    return () => window.clearTimeout(timer);
+  }, [creditCardDueDay]);
 
   const toggleForm = () => {
     setFormOpen((prev: boolean) => {
@@ -75,14 +83,14 @@ export const CreditCardView: React.FC<Props> = ({
     if (!trimmed || !amount) return;
     const c = Math.max(1, Math.min(cur, total));
     const t = Math.max(c, total);
-    onAddPurchase({ name: trimmed, amount: parseBRL(amount), dueDay: Math.max(1, Math.min(31, parseInt(dueDay) || 10)), category, installmentCurrent: paymentMethod === 'debito_pix' ? 1 : c, installmentTotal: paymentMethod === 'debito_pix' ? 1 : t, paymentMethod });
+    onAddPurchase({ name: trimmed, amount: parseBRL(amount), category, installmentCurrent: paymentMethod === 'debito_pix' ? 1 : c, installmentTotal: paymentMethod === 'debito_pix' ? 1 : t, paymentMethod });
     setName(''); setAmount(''); setCurInstallment('1'); setTotalInstallment('1'); setPaymentMethod('credito');
   };
 
   const masked = 'R$ ••••';
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+    <div className="theme-card-view" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       {/* Fatura do mês — toggle simples */}
       {(creditCardBills.length > 0 || linkedFixedBills.length > 0) && (
         <div style={{ background: '#131313', border: `1px solid ${allCardPaid ? '#10b98122' : '#1e1e1e'}`, borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12, opacity: allCardPaid ? 0.55 : 1, transition: 'all 0.15s' }}>
@@ -118,6 +126,21 @@ export const CreditCardView: React.FC<Props> = ({
           </span>
         </div>
       )}
+
+      <div className="theme-card-due-setting">
+        <div>
+          <strong>Vencimento da fatura</strong>
+          <span>{creditCardDueDay ? `Todo dia ${creditCardDueDay} · replicado para o próximo mês` : 'Defina o dia em que a fatura será paga'}</span>
+        </div>
+        {invoiceDueDayEditing ? (
+          <div className="theme-card-due-form">
+            <input autoFocus inputMode="numeric" value={invoiceDueDayInput} onChange={(event) => setInvoiceDueDayInput(event.target.value.replace(/[^0-9]/g, ''))} onKeyDown={(event) => { if (event.key === 'Enter') { const value = Number(invoiceDueDayInput); if (value >= 1 && value <= 31) { onUpdateCreditCardDueDay(value); setInvoiceDueDayEditing(false); } } if (event.key === 'Escape') setInvoiceDueDayEditing(false); }} placeholder="Dia" aria-label="Dia de vencimento da fatura" />
+            <button type="button" onClick={() => { const value = Number(invoiceDueDayInput); if (value >= 1 && value <= 31) { onUpdateCreditCardDueDay(value); setInvoiceDueDayEditing(false); } }}>Salvar</button>
+          </div>
+        ) : (
+          <button type="button" onClick={() => { setInvoiceDueDayInput(String(creditCardDueDay ?? '')); setInvoiceDueDayEditing(true); }}>{creditCardDueDay ? 'Editar vencimento' : 'Adicionar vencimento'}</button>
+        )}
+      </div>
 
       {/* Resumo */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -156,8 +179,6 @@ export const CreditCardView: React.FC<Props> = ({
               <div><label style={labelStyle}>Parcela atual</label><input disabled={paymentMethod === 'debito_pix'} style={fieldStyle} inputMode="numeric" pattern="[0-9]*" value={paymentMethod === 'debito_pix' ? '1' : curInstallment} onChange={(e) => setCurInstallment(e.target.value.replace(/[^0-9]/g, ''))} /></div>
               <div><label style={labelStyle}>Total parcelas</label><input disabled={paymentMethod === 'debito_pix'} style={fieldStyle} inputMode="numeric" pattern="[0-9]*" value={paymentMethod === 'debito_pix' ? '1' : totalInstallment} onChange={(e) => setTotalInstallment(e.target.value.replace(/[^0-9]/g, ''))} /></div>
             </div>
-            <div style={{ maxWidth: 200 }}><label style={labelStyle}>Dia do vencimento</label><input style={fieldStyle} inputMode="numeric" pattern="[0-9]*" value={dueDay} onChange={(e) => setDueDay(e.target.value.replace(/[^0-9]/g, ''))} /></div>
-
             {affected.length > 0 && (
               <div style={{ background: '#0a1a0a', border: '1px solid #152515', borderRadius: 8, padding: '10px 14px' }}>
                 <div style={{ fontSize: 10, color: '#4ade80', fontWeight: 600, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Lançamento em {affected.length} {affected.length === 1 ? 'mês' : 'meses'}</div>
@@ -180,13 +201,13 @@ export const CreditCardView: React.FC<Props> = ({
       </div>
 
       {/* Importar da fatura */}
-      <StatementImportPanel defaultDueDay={dueDay} onImport={onImportBatch} />
+      <StatementImportPanel onImport={onImportBatch} />
 
       {/* Parcelas do mês */}
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
           <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Parcelas em {selectedMonthName}</h3>
-          <span style={{ fontSize: 10, color: '#444', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 7px', fontWeight: 600 }}>{creditCardBills.length}</span>
+          <span className="theme-card-count" style={{ fontSize: 10, color: '#444', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 7px', fontWeight: 600 }}>{creditCardBills.length}</span>
         </div>
         {creditCardBills.length === 0 ? (
           <div style={{ background: '#111', border: '1px dashed #1e1e1e', borderRadius: 10, padding: 24, textAlign: 'center', color: '#333', fontSize: 12 }}>Nenhuma parcela neste mês.</div>
@@ -202,7 +223,7 @@ export const CreditCardView: React.FC<Props> = ({
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Fixas vinculadas ao cartão</h3>
-            <span style={{ fontSize: 10, color: '#60a5fa', background: '#111520', border: '1px solid #1e2a3e', borderRadius: 4, padding: '1px 7px', fontWeight: 600 }}>{linkedFixedBills.length}</span>
+            <span className="theme-card-count" style={{ fontSize: 10, color: '#60a5fa', background: '#111520', border: '1px solid #1e2a3e', borderRadius: 4, padding: '1px 7px', fontWeight: 600 }}>{linkedFixedBills.length}</span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {linkedFixedBills.map((bill) => (<BillRow key={bill.id} bill={bill} onTogglePaid={() => onTogglePaid(bill.id)} onSave={onSaveBill} onDelete={() => onDeleteBill(bill.id)} hideValues={hideValues} showPaidToggle={false} />))}
@@ -235,7 +256,7 @@ export const CreditCardView: React.FC<Props> = ({
               const pct = totalAmt > 0 ? (paid / totalAmt) * 100 : 0;
               const isSelected = m.name.toLowerCase() === selectedMonthName.toLowerCase() && m.year === selectedMonthYear;
               return (
-                <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 12, background: isSelected ? '#111520' : '#111', border: `1px solid ${isSelected ? '#1e2a3e' : '#1a1a1a'}`, borderRadius: 8, padding: '10px 14px' }}>
+                <div key={m.id} className={isSelected ? 'theme-month-overview theme-month-overview-active' : 'theme-month-overview'} style={{ display: 'flex', alignItems: 'center', gap: 12, background: isSelected ? '#111520' : '#111', border: `1px solid ${isSelected ? '#1e2a3e' : '#1a1a1a'}`, borderRadius: 8, padding: '10px 14px' }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: isSelected ? '#60a5fa' : '#777', minWidth: 55 }}>{formatMonthShort(m.name, m.year)}</div>
                   <div style={{ flex: 1, background: '#1a1a1a', borderRadius: 3, height: 4, overflow: 'hidden' }}>
                     <div style={{ width: `${pct}%`, height: '100%', background: '#10b981', borderRadius: 3, transition: 'width 0.3s' }} />

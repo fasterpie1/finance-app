@@ -13,6 +13,8 @@ function migrateMonths(months: BudgetMonth[]): BudgetMonth[] {
     ...m,
     year: m.year || currentYear,
     savingsGoal: m.savingsGoal ?? 0,
+    savingsGoalMode: m.savingsGoalMode ?? (m.savingsGoal && m.savingsGoal > 0 ? 'manual' : 'auto'),
+    savedAmount: m.savedAmount ?? 0,
   }));
 }
 
@@ -49,6 +51,75 @@ export interface MonthInfo {
   year: number;
 }
 
+export interface BillNotification {
+  billId: string;
+  name: string;
+  amount: number;
+  dueDate: Date;
+  daysUntilDue: number;
+  isOverdue: boolean;
+  plannedMonth: string;
+}
+
+function isCreditCardBill(bill: Bill): boolean {
+  return bill.isOnCreditCard === true
+    || (bill.type === 'parcela' && bill.category !== 'financiamento' && bill.cardPaymentMethod !== 'debito_pix');
+}
+
+function dateAtMidnight(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function nextMonthDate(month: BudgetMonth, dueDay: number): Date {
+  const monthIndex = getMonthIndex(month.name);
+  const dueMonthIndex = monthIndex < 0 ? 0 : (monthIndex + 1) % 12;
+  const dueYear = dueMonthIndex === 0 ? month.year + 1 : month.year;
+  const lastDay = new Date(dueYear, dueMonthIndex + 1, 0).getDate();
+  return new Date(dueYear, dueMonthIndex, Math.min(Math.max(dueDay, 1), lastDay));
+}
+
+export function getBillNotifications(months: BudgetMonth[], today = new Date()): BillNotification[] {
+  const currentDate = dateAtMidnight(today);
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  return months.flatMap((month) => {
+    const notifications: BillNotification[] = [];
+    const unpaidCardBills = month.bills.filter((bill) => !bill.isPaid && bill.cardPaymentMethod !== 'debito_pix' && isCreditCardBill(bill));
+
+    if (unpaidCardBills.length > 0 && month.creditCardDueDay) {
+      const dueDate = nextMonthDate(month, month.creditCardDueDay);
+      const daysUntilDue = Math.round((dueDate.getTime() - currentDate.getTime()) / dayMs);
+      notifications.push({
+        billId: `credit-card-invoice-${month.id}`,
+        name: 'Fatura do cartão',
+        amount: unpaidCardBills.reduce((total, bill) => total + bill.amount, 0),
+        dueDate,
+        daysUntilDue,
+        isOverdue: daysUntilDue < 0,
+        plannedMonth: `${month.name} ${month.year}`,
+      });
+    }
+
+    notifications.push(...month.bills
+      .filter((bill) => !bill.isPaid && bill.cardPaymentMethod !== 'debito_pix' && !isCreditCardBill(bill))
+      .map((bill) => {
+        const dueDate = nextMonthDate(month, bill.dueDay);
+        const daysUntilDue = Math.round((dueDate.getTime() - currentDate.getTime()) / dayMs);
+        return {
+          billId: bill.id,
+          name: bill.name,
+          amount: bill.amount,
+          dueDate,
+          daysUntilDue,
+          isOverdue: daysUntilDue < 0,
+          plannedMonth: `${month.name} ${month.year}`,
+        };
+      }));
+
+    return notifications.filter((notification) => notification.daysUntilDue <= 3);
+  }).sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime());
+}
+
 export function getMonthsFrom(startName: string, startYear: number, count: number): MonthInfo[] {
   const idx = getMonthIndex(startName);
   const start = idx === -1 ? 0 : idx;
@@ -66,7 +137,7 @@ function uuid(): string {
 export interface CreditCardPurchase {
   name: string;
   amount: number;
-  dueDay: number;
+  dueDay?: number;
   category: BillCategory;
   installmentCurrent: number;
   installmentTotal: number;
@@ -294,6 +365,9 @@ export function useDashboard(userId: string | null = null) {
         income: last.income,
         bills: [],
         savingsGoal: last.savingsGoal ?? 0,
+        savingsGoalMode: last.savingsGoalMode ?? 'auto',
+        savedAmount: 0,
+        creditCardDueDay: last.creditCardDueDay,
       };
       return sortMonths([...prev, newMonth]);
     });
@@ -303,8 +377,40 @@ export function useDashboard(userId: string | null = null) {
   const updateSavingsGoal = useCallback(
     (goal: number) => {
       setMonths((prev) =>
-        prev.map((m) => (m.id === selectedMonthId ? { ...m, savingsGoal: goal } : m))
+        prev.map((m) => (m.id === selectedMonthId ? { ...m, savingsGoal: goal, savingsGoalMode: 'manual' } : m))
       );
+    },
+    [selectedMonthId]
+  );
+
+  const usePredictedSavingsGoal = useCallback(() => {
+    setMonths((prev) => prev.map((m) => (
+      m.id === selectedMonthId ? { ...m, savingsGoal: 0, savingsGoalMode: 'auto' } : m
+    )));
+  }, [selectedMonthId]);
+
+  const updateSavedAmount = useCallback(
+    (amount: number) => {
+      setMonths((prev) => prev.map((m) => (
+        m.id === selectedMonthId ? { ...m, savedAmount: Math.max(0, amount) } : m
+      )));
+    },
+    [selectedMonthId]
+  );
+
+  const updateCreditCardDueDay = useCallback(
+    (dueDay: number) => {
+      setMonths((prev) => {
+        const sorted = sortMonths(prev);
+        const selectedIndex = sorted.findIndex((month) => month.id === selectedMonthId);
+        const nextMonthId = selectedIndex >= 0 ? sorted[selectedIndex + 1]?.id : undefined;
+        const normalizedDueDay = Math.max(1, Math.min(31, Math.round(dueDay)));
+        return prev.map((month) => (
+          month.id === selectedMonthId || month.id === nextMonthId
+            ? { ...month, creditCardDueDay: normalizedDueDay }
+            : month
+        ));
+      });
     },
     [selectedMonthId]
   );
@@ -326,7 +432,7 @@ export function useDashboard(userId: string | null = null) {
         name: purchase.name,
         category: purchase.category,
         amount: purchase.amount,
-        dueDay: purchase.dueDay,
+        dueDay: purchase.dueDay ?? 1,
         type: purchase.paymentMethod === 'debito_pix' ? 'variavel' : 'parcela',
         isPaid: false,
         month: mi.name,
@@ -509,6 +615,9 @@ export function useDashboard(userId: string | null = null) {
     copyFixedBillsFromPrevious,
     addNextMonth,
     updateSavingsGoal,
+    usePredictedSavingsGoal,
+    updateSavedAmount,
+    updateCreditCardDueDay,
     payCreditCard,
     unpayCreditCard,
     resetData,

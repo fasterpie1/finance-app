@@ -71,9 +71,11 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete,
   };
 
   const categoryColor = BILL_CATEGORY_COLORS[bill.category];
+  const isCardInstallment = bill.type === 'parcela' && bill.category !== 'financiamento' && bill.cardPaymentMethod !== 'debito_pix';
 
   return (
     <div
+      className="theme-bill-row"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
@@ -139,7 +141,7 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete,
             </span>
           )}
           {bill.installmentCurrent != null && bill.installmentTotal != null && (
-            <span style={{ fontSize: 10, fontWeight: 600, color: '#555', background: '#1a1a1a', border: '1px solid #252525', borderRadius: 4, padding: '1px 6px' }}>
+            <span className="theme-installment-pill" style={{ fontSize: 10, fontWeight: 600, color: '#555', background: '#1a1a1a', border: '1px solid #252525', borderRadius: 4, padding: '1px 6px' }}>
               {bill.installmentCurrent}/{bill.installmentTotal}
             </span>
           )}
@@ -153,22 +155,24 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete,
               ))}
             </select>
           ) : (
-            <span onClick={() => setEditField('category')} style={{ fontSize: 10, color: '#444', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 6px', cursor: 'pointer' }}>
+            <span className="theme-category-pill" onClick={() => setEditField('category')} style={{ fontSize: 10, color: '#444', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 6px', cursor: 'pointer' }}>
               {BILL_CATEGORY_LABELS[bill.category]}
             </span>
           )}
 
-          <span style={{ fontSize: 10, color: '#2a2a2a' }}>·</span>
-
-          {editField === 'dueDay' ? (
-            <input ref={inputRef} inputMode="numeric" pattern="[0-9]*" value={editStr} onChange={(e) => setEditStr(e.target.value.replace(/[^0-9]/g, ''))} onBlur={commit} onKeyDown={onKeyDown} style={{ ...editInputStyle, width: 48, fontSize: 11 }} />
-          ) : (
-            <span onClick={() => startEdit('dueDay')} style={{ fontSize: 10, color: '#444', cursor: 'text' }}>
-              Dia {bill.dueDay}
-            </span>
+          {!isCardInstallment && (
+            <>
+              <span style={{ fontSize: 10, color: '#2a2a2a' }}>·</span>
+              {editField === 'dueDay' ? (
+                <input ref={inputRef} inputMode="numeric" pattern="[0-9]*" value={editStr} onChange={(e) => setEditStr(e.target.value.replace(/[^0-9]/g, ''))} onBlur={commit} onKeyDown={onKeyDown} style={{ ...editInputStyle, width: 48, fontSize: 11 }} />
+              ) : (
+                <span onClick={() => startEdit('dueDay')} style={{ fontSize: 10, color: '#444', cursor: 'text' }}>
+                  Dia {bill.dueDay}
+                </span>
+              )}
+              <span style={{ fontSize: 10, color: '#2a2a2a' }}>·</span>
+            </>
           )}
-
-          <span style={{ fontSize: 10, color: '#2a2a2a' }}>·</span>
 
           {editField === 'type' ? (
             <select autoFocus value={bill.type} onChange={(e) => { onSave({ ...bill, type: e.target.value as BillType }); setEditField(null); }} onBlur={() => setEditField(null)} style={{ ...editInputStyle, fontSize: 11, padding: '1px 5px' }}>
