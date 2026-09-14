@@ -2,6 +2,20 @@
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
+## Configuração segura da IA
+
+A chave Groq é armazenada cifrada no Supabase e usada somente pela Edge Function `groq-proxy`. Ela não deve ser colocada no frontend, no backup ou em variáveis `VITE_`.
+
+1. Execute `supabase_schema.sql` no SQL Editor do projeto Supabase.
+2. Publique `supabase/functions/groq-proxy` com `supabase functions deploy groq-proxy`.
+3. Configure os secrets da função:
+
+```text
+supabase secrets set GROQ_KEY_ENCRYPTION_SECRET="um-segredo-longo-e-aleatorio" APP_ORIGIN="https://seu-dominio.vercel.app"
+```
+
+`SUPABASE_URL`, `SUPABASE_ANON_KEY` e `SUPABASE_SERVICE_ROLE_KEY` são fornecidos pelo ambiente das Edge Functions. Nunca exponha `SUPABASE_SERVICE_ROLE_KEY` no frontend.
+
 Currently, two official plugins are available:
 
 - [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)

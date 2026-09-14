@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { type Bill, type BudgetMonth, type BillCategory, type CardPaymentMethod, MONTH_NAMES, getMonthIndex, formatCurrency } from '../types';
 import { sampleMonths } from '../data/sampleData';
 import { supabase } from '../services/supabase';
+import { readUserStorage, removeUserStorage, writeUserStorage } from '../services/userStorage';
 
 const STORAGE_KEY = 'financa_months_v1';
 const SELECTED_KEY = 'financa_selected_v1';
@@ -18,9 +19,9 @@ function migrateMonths(months: BudgetMonth[]): BudgetMonth[] {
   }));
 }
 
-function loadMonths(): BudgetMonth[] {
+function loadMonths(userId: string | null): BudgetMonth[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = readUserStorage(userId, STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as BudgetMonth[];
       const isOldDemo = parsed.length === 3 && parsed.some((month) => month.id === '1') && parsed.some((month) => month.id === '2') && parsed.some((month) => month.id === '3');
@@ -145,12 +146,14 @@ export interface CreditCardPurchase {
 }
 
 export function useDashboard(userId: string | null = null) {
-  const [months, setMonths] = useState<BudgetMonth[]>(() => sortMonths(loadMonths()));
-  const [selectedMonthId, setSelectedMonthId] = useState<string>(() => loadSelectedId(loadMonths()));
+  const [months, setMonths] = useState<BudgetMonth[]>(() => sortMonths(loadMonths(userId)));
+  const [selectedMonthId, setSelectedMonthId] = useState<string>(() => loadSelectedId(loadMonths(userId)));
   const [syncError, setSyncError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
+  const [, setRemoteRevision] = useState(0);
+  const remoteRevisionRef = useRef(0);
   const remoteLoaded = useRef(!supabase || !userId);
 
   useEffect(() => {
@@ -161,7 +164,7 @@ export function useDashboard(userId: string | null = null) {
     const client = supabase;
     remoteLoaded.current = false;
     const loadRemote = async () => {
-      const { data, error } = await client.from('user_finance_data').select('months, selected_month_id, updated_at').eq('user_id', userId).maybeSingle();
+      const { data, error } = await client.from('user_finance_data').select('months, selected_month_id, updated_at, revision').eq('user_id', userId).maybeSingle();
       if (error) {
         console.error('Falha ao carregar dados do Supabase:', error);
         setSyncError(`Falha ao carregar dados: ${error.message}`);
@@ -170,9 +173,11 @@ export function useDashboard(userId: string | null = null) {
         setMonths(remoteMonths);
         setSelectedMonthId(loadSelectedId(remoteMonths));
         setLastSyncedAt(data.updated_at ? new Date(data.updated_at) : new Date());
+        setRemoteRevision(data.revision ?? 0);
+        remoteRevisionRef.current = data.revision ?? 0;
         setSyncError(null);
       } else {
-        const { error: insertError } = await client.from('user_finance_data').upsert({ user_id: userId, months: sampleMonths, selected_month_id: sampleMonths[0].id });
+        const { error: insertError } = await client.from('user_finance_data').upsert({ user_id: userId, months: sampleMonths, selected_month_id: sampleMonths[0].id, revision: 0 });
         if (insertError) {
           console.error('Falha ao criar dados do usuário no Supabase:', insertError);
           setSyncError(`Falha ao criar dados: ${insertError.message}`);
@@ -188,7 +193,7 @@ export function useDashboard(userId: string | null = null) {
   const refreshData = useCallback(async () => {
     if (!supabase || !userId || isRefreshing) return;
     setIsRefreshing(true);
-    const { data, error } = await supabase.from('user_finance_data').select('months, selected_month_id, updated_at').eq('user_id', userId).maybeSingle();
+    const { data, error } = await supabase.from('user_finance_data').select('months, selected_month_id, updated_at, revision').eq('user_id', userId).maybeSingle();
     if (error) {
       console.error('Falha ao atualizar dados do Supabase:', error);
       setSyncError(`Falha ao atualizar dados: ${error.message}`);
@@ -198,6 +203,8 @@ export function useDashboard(userId: string | null = null) {
       setMonths(remoteMonths);
       setSelectedMonthId(loadSelectedId(remoteMonths));
       setLastSyncedAt(data.updated_at ? new Date(data.updated_at) : new Date());
+      setRemoteRevision(data.revision ?? 0);
+      remoteRevisionRef.current = data.revision ?? 0;
       setSyncNotice(hasChanges ? 'Alterações de outro dispositivo carregadas' : 'Nenhuma alteração nova');
       setSyncError(null);
     }
@@ -207,13 +214,16 @@ export function useDashboard(userId: string | null = null) {
   // Salvar automaticamente sempre que mudar
   useEffect(() => {
     if (!remoteLoaded.current) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(months));
+    writeUserStorage(userId, STORAGE_KEY, JSON.stringify(months));
     if (supabase && userId) {
-      void supabase.from('user_finance_data').upsert({ user_id: userId, months, selected_month_id: selectedMonthId, updated_at: new Date().toISOString() }).then(({ error }) => {
-        if (error) {
+      const expectedRevision = remoteRevisionRef.current;
+      void supabase.from('user_finance_data').update({ months, selected_month_id: selectedMonthId, updated_at: new Date().toISOString(), revision: expectedRevision + 1 }).eq('user_id', userId).eq('revision', expectedRevision).select('revision').maybeSingle().then(({ data, error }) => {
+        if (error || !data) {
           console.error('Falha ao salvar dados no Supabase:', error);
-          setSyncError(`Falha ao salvar dados: ${error.message}`);
+          setSyncError('Conflito de sincronização: os dados mudaram em outro dispositivo. Atualize antes de salvar novamente.');
         } else {
+          remoteRevisionRef.current = data.revision;
+          setRemoteRevision(data.revision);
           setSyncError(null);
         }
       });
@@ -222,8 +232,8 @@ export function useDashboard(userId: string | null = null) {
 
   useEffect(() => {
     if (!remoteLoaded.current) return;
-    localStorage.setItem(SELECTED_KEY, selectedMonthId);
-  }, [selectedMonthId]);
+    writeUserStorage(userId, SELECTED_KEY, selectedMonthId);
+  }, [selectedMonthId, userId]);
 
   const selectedMonth = months.find((m) => m.id === selectedMonthId) ?? months[0];
 
@@ -540,11 +550,11 @@ export function useDashboard(userId: string | null = null) {
   }, [selectedMonthId]);
 
   const resetData = useCallback(() => {
-    localStorage.removeItem(STORAGE_KEY);
-    localStorage.removeItem(SELECTED_KEY);
+    removeUserStorage(userId, STORAGE_KEY);
+    removeUserStorage(userId, SELECTED_KEY);
     setMonths(sampleMonths);
     setSelectedMonthId(sampleMonths[0].id);
-  }, []);
+  }, [userId]);
 
   // Exportar todos os dados como JSON
   const exportData = useCallback(() => {
@@ -553,8 +563,7 @@ export function useDashboard(userId: string | null = null) {
       exportedAt: new Date().toISOString(),
       months,
       selectedMonthId,
-      chatHistory: localStorage.getItem('finance_chat_history') || '[]',
-      groqKey: localStorage.getItem('groq_api_key') || '',
+      chatHistory: undefined,
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -579,8 +588,6 @@ export function useDashboard(userId: string | null = null) {
           if (!data.months || !Array.isArray(data.months)) { resolve(false); return; }
           setMonths(sortMonths(migrateMonths(data.months)));
           if (data.selectedMonthId) setSelectedMonthId(data.selectedMonthId);
-          if (data.chatHistory) localStorage.setItem('finance_chat_history', data.chatHistory);
-          if (data.groqKey) localStorage.setItem('groq_api_key', data.groqKey);
           resolve(true);
         } catch {
           resolve(false);

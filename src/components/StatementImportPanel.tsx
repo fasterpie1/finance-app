@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   type BillCategory,
   BILL_CATEGORY_LABELS,
@@ -13,6 +13,7 @@ import {
   fileToBase64,
   pdfToText,
 } from '../services/statementImport';
+import { hasGroqKey } from '../services/groq';
 
 interface Props {
   onImport: (purchases: CreditCardPurchase[]) => void;
@@ -35,7 +36,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport }) => {
   const [previewIsPdf, setPreviewIsPdf] = useState(false);
   const [items, setItems] = useState<ExtractedPurchase[]>([]);
 
-  const apiKey = localStorage.getItem('groq_api_key') || '';
+  const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
   const selectedCount = items.filter((i) => i.selected).length;
   const selectedTotal = items.filter((i) => i.selected).reduce((s, i) => s + i.amount, 0);
 
@@ -48,12 +49,12 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport }) => {
     setPreviewIsPdf(file.type === 'application/pdf');
 
     try {
-      if (!apiKey) throw new Error('Configure sua chave Groq na aba Assistente antes de importar.');
+      if (!apiKeyConfigured) throw new Error('Configure sua chave Groq na aba Assistente antes de importar.');
       const extracted = file.type === 'application/pdf'
-        ? await extractPurchasesFromText(apiKey, await pdfToText(file))
+        ? await extractPurchasesFromText(await pdfToText(file))
         : await (async () => {
           const { base64, mimeType } = await fileToBase64(file);
-          return extractPurchasesFromImage(apiKey, base64, mimeType);
+          return extractPurchasesFromImage(base64, mimeType);
         })();
       if (extracted.length === 0) throw new Error(file.type === 'application/pdf' ? 'Nenhuma compra encontrada no PDF. Se ele for escaneado, envie uma imagem ou um PDF com texto selecionável.' : 'Nenhuma compra encontrada na imagem. Verifique se a fatura está legível e tente novamente.');
       setItems(extracted.map((p) => ({ ...p, id: makeId(), selected: true })));
@@ -100,6 +101,11 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport }) => {
     });
   };
 
+  useEffect(() => {
+    if (!open) return;
+    void hasGroqKey().then(setApiKeyConfigured).catch(() => setApiKeyConfigured(false));
+  }, [open]);
+
   return (
     <div className="theme-import-panel" style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 12, overflow: 'hidden' }}>
       <button onClick={toggleOpen} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'transparent', border: 'none', padding: '14px 18px', cursor: 'pointer', color: '#c0c0c0' }}>
@@ -118,7 +124,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport }) => {
         <div style={{ padding: '0 18px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ height: 1, background: '#1a1a1a' }} />
 
-          {!apiKey && (
+          {!apiKeyConfigured && (
             <div style={{ background: '#1a150a', border: '1px solid #2a2010', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#f59e0b' }}>
               Configure sua chave Groq na aba <strong>Assistente</strong> para usar a importação por foto.
             </div>
@@ -142,13 +148,13 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport }) => {
 
           <button
             onClick={() => fileRef.current?.click()}
-            disabled={loading || !apiKey}
+            disabled={loading || !apiKeyConfigured}
             style={{
               background: loading ? '#151520' : '#111520',
               border: '1px dashed #1e2a3e',
               borderRadius: 8,
               color: loading ? '#3a4a5a' : '#60a5fa',
-              cursor: loading || !apiKey ? 'not-allowed' : 'pointer',
+              cursor: loading || !apiKeyConfigured ? 'not-allowed' : 'pointer',
               padding: '14px',
               fontSize: 13,
               fontWeight: 600,

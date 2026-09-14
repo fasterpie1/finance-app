@@ -1020,7 +1020,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
           </>
         )}
 
-        {tab === 'chat' && <ChatView financialContext={financialContext} />}
+        {tab === 'chat' && <ChatView financialContext={financialContext} userId={userId} />}
         {tab === 'cartao' && (
           <CreditCardView
             selectedMonthName={db.selectedMonth.name} selectedMonthYear={db.selectedMonth.year}

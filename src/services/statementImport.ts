@@ -1,6 +1,7 @@
 import { type BillCategory, BILL_CATEGORY_LABELS } from '../types';
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { extractWithGroq } from './groq';
 
 export interface ExtractedPurchase {
   id: string;
@@ -122,82 +123,38 @@ function parsePdfTransactionFallback(statementText: string): Omit<ExtractedPurch
 }
 
 export async function extractPurchasesFromImage(
-  apiKey: string,
   imageBase64: string,
   mimeType: string,
 ): Promise<Omit<ExtractedPurchase, 'id' | 'selected'>[]> {
   let lastError = 'Não foi possível interpretar a imagem da fatura.';
 
   for (const model of VISION_MODELS) {
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
+    try {
+      const content = await extractWithGroq({
         model,
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: 'Leia a imagem e retorne somente JSON válido no formato {"purchases":[]}. Extraia as compras individuais.' },
-              { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
-            ],
-          },
+          { role: 'user', content: [{ type: 'text', text: 'Leia a imagem e retorne somente JSON válido no formato {"purchases":[]}. Extraia as compras individuais.' }, { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } }] },
         ],
         response_format: { type: 'json_object' },
         max_tokens: MAX_OUTPUT_TOKENS,
         temperature: 0.1,
-      }),
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      lastError = (err as { error?: { message?: string } }).error?.message ?? `Erro ${res.status}`;
-      continue;
-    }
-
-    const data = await res.json();
-    const content = data.choices?.[0]?.message?.content ?? '';
+      });
     const extracted = parseExtractedPurchases(content);
     if (extracted.length > 0) return extracted;
     lastError = 'O modelo não retornou compras em JSON válido.';
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : lastError;
+    }
   }
 
   throw new Error(lastError);
 }
 
 export async function extractPurchasesFromText(
-  apiKey: string,
   statementText: string,
 ): Promise<Omit<ExtractedPurchase, 'id' | 'selected'>[]> {
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: TEXT_MODEL,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: `Extraia somente as compras e parcelas individuais das seções de transações desta fatura. NUNCA transforme em compra valores de resumo como "Compras nacionais", "Total a pagar", "Valor da fatura", subtotais de cartão ou saldo de obrigações. Ignore pagamentos, estornos, tarifas, anuidade, juros, IOF, saldos e totais. Os lançamentos aparecem em linhas com data, descrição e valor.\n\n${statementText.slice(0, 120000)}` },
-      ],
-      response_format: { type: 'json_object' },
-      max_tokens: MAX_OUTPUT_TOKENS,
-      temperature: 0.1,
-    }),
-  });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error((err as { error?: { message?: string } }).error?.message ?? `Erro ${res.status}`);
-  }
-
-  const data = await res.json();
-  const content = data.choices?.[0]?.message?.content ?? '{"purchases":[]}';
+  const content = await extractWithGroq({ model: TEXT_MODEL, messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: `Extraia somente as compras e parcelas individuais das seções de transações desta fatura. NUNCA transforme em compra valores de resumo como "Compras nacionais", "Total a pagar", "Valor da fatura", subtotais de cartão ou saldo de obrigações. Ignore pagamentos, estornos, tarifas, anuidade, juros, IOF, saldos e totais. Os lançamentos aparecem em linhas com data, descrição e valor.\n\n${statementText.slice(0, 120000)}` }], response_format: { type: 'json_object' }, max_tokens: MAX_OUTPUT_TOKENS, temperature: 0.1 });
   const extracted = parseExtractedPurchases(content);
   return extracted.length > 0 ? extracted : parsePdfTransactionFallback(statementText);
 }

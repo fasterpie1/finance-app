@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { deleteGroqKey, hasGroqKey, saveGroqKey, sendGroqChat } from '../services/groq';
+import { readUserStorage, removeUserStorage, writeUserStorage } from '../services/userStorage';
 
 interface Message {
   role: 'user' | 'assistant' | 'error';
@@ -7,9 +9,9 @@ interface Message {
 
 interface Props {
   financialContext: string;
+  userId: string | null;
 }
 
-const STORAGE_KEY_API = 'groq_api_key';
 const STORAGE_KEY_CHAT = 'finance_chat_history';
 const CHAT_MODEL = 'groq/compound-mini';
 const MAX_CONTEXT_MESSAGES = 12;
@@ -23,8 +25,8 @@ const SUGGESTIONS = [
   'Meus gastos estão altos? O que cortar?',
 ];
 
-function loadChat(): Message[] {
-  try { const raw = localStorage.getItem(STORAGE_KEY_CHAT); if (raw) return JSON.parse(raw) as Message[]; } catch { /* ignore */ }
+function loadChat(userId: string | null): Message[] {
+  try { const raw = readUserStorage(userId, STORAGE_KEY_CHAT); if (raw) return JSON.parse(raw) as Message[]; } catch { /* ignore */ }
   return [];
 }
 
@@ -35,54 +37,40 @@ const IconAI = () => (
   </svg>
 );
 
-export const ChatView: React.FC<Props> = ({ financialContext }) => {
-  const [messages, setMessages] = useState<Message[]>(loadChat);
+export const ChatView: React.FC<Props> = ({ financialContext, userId }) => {
+  const [messages, setMessages] = useState<Message[]>(() => loadChat(userId));
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem(STORAGE_KEY_API) || '');
   const [apiKeyInput, setApiKeyInput] = useState('');
-  const [showKeySetup, setShowKeySetup] = useState(() => !localStorage.getItem(STORAGE_KEY_API));
+  const [showKeySetup, setShowKeySetup] = useState(true);
+  const [keyLoading, setKeyLoading] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, loading]);
-  useEffect(() => { localStorage.setItem(STORAGE_KEY_CHAT, JSON.stringify(messages.slice(-50))); }, [messages]);
+  useEffect(() => { writeUserStorage(userId, STORAGE_KEY_CHAT, JSON.stringify(messages.slice(-50))); }, [messages, userId]);
+  useEffect(() => {
+    const legacyKey = localStorage.getItem('groq_api_key') || '';
+    const status = legacyKey.startsWith('gsk_')
+      ? saveGroqKey(legacyKey).then(() => { localStorage.removeItem('groq_api_key'); return true; })
+      : hasGroqKey();
+    void status.then((configured) => setShowKeySetup(!configured)).catch(() => setShowKeySetup(true)).finally(() => setKeyLoading(false));
+  }, []);
 
-  const saveKey = () => { const k = apiKeyInput.trim(); if (!k.startsWith('gsk_')) return; localStorage.setItem(STORAGE_KEY_API, k); setApiKey(k); setShowKeySetup(false); setApiKeyInput(''); };
-  const removeKey = () => { localStorage.removeItem(STORAGE_KEY_API); setApiKey(''); setShowKeySetup(true); };
-  const clearChat = () => { setMessages([]); localStorage.removeItem(STORAGE_KEY_CHAT); };
+  const saveKey = async () => { const k = apiKeyInput.trim(); if (!k.startsWith('gsk_')) return; setKeyLoading(true); try { await saveGroqKey(k); setShowKeySetup(false); setApiKeyInput(''); } catch (err) { setMessages((prev) => [...prev, { role: 'error', content: err instanceof Error ? err.message : 'Não foi possível salvar a chave.' }]); } finally { setKeyLoading(false); } };
+  const removeKey = async () => { setKeyLoading(true); try { await deleteGroqKey(); setShowKeySetup(true); } catch (err) { setMessages((prev) => [...prev, { role: 'error', content: err instanceof Error ? err.message : 'Não foi possível remover a chave.' }]); } finally { setKeyLoading(false); } };
+  const clearChat = () => { setMessages([]); removeUserStorage(userId, STORAGE_KEY_CHAT); };
 
   const sendMessage = async (text?: string) => {
     const msg = (text ?? input).trim();
-    if (!msg || !apiKey || loading) return;
+    if (!msg || showKeySetup || loading) return;
     setInput('');
     const userMsg: Message = { role: 'user', content: msg };
     const history = [...messages.filter((m) => m.role !== 'error'), userMsg].slice(-MAX_CONTEXT_MESSAGES);
     setMessages(history);
     setLoading(true);
     try {
-      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model: CHAT_MODEL,
-          messages: [{ role: 'system', content: financialContext }, ...history.map((m) => ({ role: m.role === 'error' ? 'user' : m.role, content: m.content }))],
-          max_tokens: 1200,
-          temperature: 0.5,
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        if (res.status === 429) {
-          const retryAfter = res.headers.get('retry-after');
-          const wait = retryAfter ? ` Aguarde ${retryAfter} segundos.` : ' Aguarde alguns segundos.';
-          throw new Error(`Limite gratuito da Groq atingido.${wait}`);
-        }
-        throw new Error(err.error?.message ?? `Erro ${res.status}`);
-      }
-      const data = await res.json();
-      const content = data.choices?.[0]?.message?.content?.trim();
-      if (!content) throw new Error('A Groq encerrou a resposta antes de gerar o texto. Tente novamente com uma pergunta mais curta.');
+      const content = await sendGroqChat({ model: CHAT_MODEL, messages: [{ role: 'system', content: financialContext }, ...history.map((m) => ({ role: m.role === 'error' ? 'user' : m.role, content: m.content }))], max_tokens: 1200, temperature: 0.5 });
       setMessages((prev) => [...prev, { role: 'assistant', content }]);
     } catch (err) {
       setMessages((prev) => [...prev, { role: 'error', content: err instanceof Error ? err.message : 'Erro desconhecido' }]);
@@ -116,7 +104,7 @@ export const ChatView: React.FC<Props> = ({ financialContext }) => {
             </ol>
             <div style={{ fontSize: 10, color: '#3a3a3a', marginTop: 8 }}>Gratuito · Sem cartão · Modelo Compound Mini</div>
           </div>
-          <button onClick={saveKey} disabled={!apiKeyInput.startsWith('gsk_')} style={{ background: apiKeyInput.startsWith('gsk_') ? '#3b82f6' : '#151520', border: 'none', borderRadius: 6, color: apiKeyInput.startsWith('gsk_') ? '#fff' : '#3a4a5a', cursor: apiKeyInput.startsWith('gsk_') ? 'pointer' : 'not-allowed', padding: '10px', fontSize: 13, fontWeight: 600 }}>Salvar e começar</button>
+          <button onClick={saveKey} disabled={keyLoading || !apiKeyInput.startsWith('gsk_')} style={{ background: apiKeyInput.startsWith('gsk_') && !keyLoading ? '#3b82f6' : '#151520', border: 'none', borderRadius: 6, color: apiKeyInput.startsWith('gsk_') && !keyLoading ? '#fff' : '#3a4a5a', cursor: apiKeyInput.startsWith('gsk_') && !keyLoading ? 'pointer' : 'not-allowed', padding: '10px', fontSize: 13, fontWeight: 600 }}>{keyLoading ? 'Salvando...' : 'Salvar e começar'}</button>
         </div>
       </div>
     );

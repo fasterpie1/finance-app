@@ -3,8 +3,11 @@ create table if not exists public.user_finance_data (
   user_id uuid primary key references auth.users(id) on delete cascade,
   months jsonb not null default '[]'::jsonb,
   selected_month_id text,
+  revision integer not null default 0,
   updated_at timestamptz not null default now()
 );
+
+alter table public.user_finance_data add column if not exists revision integer not null default 0;
 
 alter table public.user_finance_data enable row level security;
 
@@ -23,3 +26,11 @@ create policy "Users can update own finance data"
 drop policy if exists "Users can delete own finance data" on public.user_finance_data;
 create policy "Users can delete own finance data"
   on public.user_finance_data for delete using (auth.uid() = user_id);
+
+create table if not exists public.user_groq_keys (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  encrypted_key text not null,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.user_groq_keys enable row level security;
