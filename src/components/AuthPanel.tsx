@@ -16,9 +16,26 @@ export const AuthPanel: React.FC<Props> = ({ children }) => {
 
   useEffect(() => {
     if (!supabase) return;
-    supabase.auth.getSession().then(({ data }) => { setUserId(data.session?.user.id ?? null); setLoading(false); });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => setUserId(session?.user.id ?? null));
-    return () => listener.subscription.unsubscribe();
+    let active = true;
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (!active) return;
+      if (error) {
+        console.error('Falha ao restaurar a sessão do Supabase:', error);
+        setMessage('Não foi possível restaurar sua sessão. Entre novamente.');
+      }
+      setUserId(data.session?.user.id ?? null);
+      setLoading(false);
+    }).catch((error: unknown) => {
+      if (!active) return;
+      console.error('Falha ao restaurar a sessão do Supabase:', error);
+      setMessage('Não foi possível restaurar sua sessão. Entre novamente.');
+      setLoading(false);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') console.warn('Sessão encerrada pelo Supabase. Verifique expiração, armazenamento local e configuração do domínio.');
+      setUserId(session?.user.id ?? null);
+    });
+    return () => { active = false; listener.subscription.unsubscribe(); };
   }, []);
 
   const signIn = async () => {
