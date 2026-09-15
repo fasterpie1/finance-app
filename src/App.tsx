@@ -9,6 +9,7 @@ import { CategoryChart } from './components/CategoryChart';
 import { CardSpendingChart } from './components/CardSpendingChart';
 import { AuthPanel } from './components/AuthPanel';
 import { DailyBillNotification } from './components/DailyBillNotification';
+import { GoogleCalendarSettings } from './components/GoogleCalendarSettings';
 import { getBillNotifications, type BillNotification } from './store/useDashboard';
 import { type Bill, formatCurrency, parseBRL, formatMonthShort, BILL_CATEGORY_LABELS, getMonthIndex } from './types';
 
@@ -811,6 +812,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
               <div className="settings-label">Ajuda</div>
               <button className="settings-action" onClick={() => setHelpOpen(true)}><span>Como usar o app</span><span className="settings-action-arrow">→</span></button>
             </div>
+            <GoogleCalendarSettings userId={userId} />
           </aside>
         </>
       )}

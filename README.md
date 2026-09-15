@@ -16,6 +16,26 @@ supabase secrets set GROQ_KEY_ENCRYPTION_SECRET="um-segredo-longo-e-aleatorio" A
 
 `SUPABASE_URL`, `SUPABASE_ANON_KEY` e `SUPABASE_SERVICE_ROLE_KEY` são fornecidos pelo ambiente das Edge Functions. Nunca exponha `SUPABASE_SERVICE_ROLE_KEY` no frontend.
 
+## Google Agenda
+
+Ative a Google Calendar API no Google Cloud Console, configure a tela de consentimento OAuth e crie uma credencial OAuth para aplicação Web. Adicione como redirect URI:
+
+```text
+https://SEU_PROJECT_REF.supabase.co/functions/v1/google-calendar/oauth-callback
+```
+
+Configure estes secrets na Edge Function `google-calendar`:
+
+```text
+GOOGLE_CLIENT_ID
+GOOGLE_CLIENT_SECRET
+GOOGLE_REDIRECT_URI=https://SEU_PROJECT_REF.supabase.co/functions/v1/google-calendar/oauth-callback
+GOOGLE_TOKEN_ENCRYPTION_SECRET
+APP_ORIGIN=https://seu-dominio.vercel.app
+```
+
+Para desenvolvimento, use o mesmo callback da função hospedada ou publique uma função local acessível pelo Google. O frontend nunca recebe o client secret, access token ou refresh token.
+
 Currently, two official plugins are available:
 
 - [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
