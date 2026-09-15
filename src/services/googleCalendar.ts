@@ -6,6 +6,8 @@ interface FunctionResponse {
   status?: GoogleCalendarStatus;
   authorization_url?: string;
   error?: string;
+  id?: string;
+  events?: CalendarEvent[];
 }
 
 async function invoke(body: Record<string, unknown>): Promise<FunctionResponse> {
@@ -38,14 +40,30 @@ export interface CalendarEventInput {
   reminder_minutes?: number;
 }
 
-export async function createCalendarEvent(input: CalendarEventInput): Promise<unknown> {
-  return invoke({ action: 'create-event', ...input });
+export interface CalendarEvent {
+  id: string;
+  summary?: string;
+  description?: string;
+  start?: { dateTime?: string; date?: string };
+  end?: { dateTime?: string; date?: string };
+  htmlLink?: string;
 }
 
-export async function updateCalendarEvent(eventId: string, input: Partial<CalendarEventInput>): Promise<unknown> {
-  return invoke({ action: 'update-event', event_id: eventId, ...input });
+export async function createCalendarEvent(input: CalendarEventInput): Promise<CalendarEvent> {
+  const data = await invoke({ action: 'create-event', ...input });
+  if (!data.id) throw new Error('O Google não retornou o ID do evento.');
+  return data as CalendarEvent;
+}
+
+export async function updateCalendarEvent(eventId: string, input: Partial<CalendarEventInput>): Promise<CalendarEvent> {
+  return invoke({ action: 'update-event', event_id: eventId, ...input }) as Promise<CalendarEvent>;
 }
 
 export async function deleteCalendarEvent(eventId: string): Promise<void> {
   await invoke({ action: 'delete-event', event_id: eventId });
+}
+
+export async function listCalendarEvents(input: { timeMin?: string; timeMax?: string; query?: string } = {}): Promise<CalendarEvent[]> {
+  const data = await invoke({ action: 'list-events', time_min: input.timeMin, time_max: input.timeMax, query: input.query });
+  return data.events ?? [];
 }

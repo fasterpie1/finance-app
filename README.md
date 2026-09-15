@@ -16,6 +16,16 @@ supabase secrets set GROQ_KEY_ENCRYPTION_SECRET="um-segredo-longo-e-aleatorio" A
 
 `SUPABASE_URL`, `SUPABASE_ANON_KEY` e `SUPABASE_SERVICE_ROLE_KEY` são fornecidos pelo ambiente das Edge Functions. Nunca exponha `SUPABASE_SERVICE_ROLE_KEY` no frontend.
 
+A função `google-calendar` mantém a verificação automática de JWT desativada porque o endpoint `/oauth-callback` é chamado diretamente pelo Google e não pode enviar o header `Authorization`. As ações da API continuam protegidas pelo `currentUser` dentro da função; o callback aceita somente um `state` válido, de uso único e com expiração.
+
+Publique respeitando essa configuração:
+
+```text
+supabase functions deploy google-calendar
+```
+
+Se publicar com uma versão/fluxo que ignore `supabase/config.toml`, use `supabase functions deploy google-calendar --no-verify-jwt`.
+
 ## Google Agenda
 
 Ative a Google Calendar API no Google Cloud Console, configure a tela de consentimento OAuth e crie uma credencial OAuth para aplicação Web. Adicione como redirect URI:
@@ -35,6 +45,8 @@ APP_ORIGIN=https://seu-dominio.vercel.app
 ```
 
 Para desenvolvimento, use o mesmo callback da função hospedada ou publique uma função local acessível pelo Google. O frontend nunca recebe o client secret, access token ou refresh token.
+
+Para alterar o texto exibido na tela de consentimento do Google, abra **Google Cloud Console > Google Auth Platform > Branding** e defina o nome do app como `Finança Pessoal`. O domínio `*.supabase.co` continuará sendo o domínio técnico do redirect URI, mas não precisa aparecer como nome do aplicativo depois que o branding estiver configurado. Em **Audience**, mantenha os usuários de teste autorizados enquanto o app não estiver publicado.
 
 Currently, two official plugins are available:
 

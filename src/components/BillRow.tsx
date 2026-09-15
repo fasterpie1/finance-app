@@ -9,6 +9,7 @@ import {
   formatCurrency,
   parseBRL,
 } from '../types';
+import { CalendarReminderButton } from './CalendarReminderButton';
 
 interface Props {
   bill: Bill;
@@ -20,6 +21,8 @@ interface Props {
   showPaidToggle?: boolean;
   /** Mostrar a opção de vincular ao cartão (para contas fixas) */
   showCreditCardToggle?: boolean;
+  onCalendarReminder?: () => void;
+  calendarReminderLoading?: boolean;
 }
 
 type EditField = 'name' | 'amount' | 'dueDay' | 'category' | 'type' | null;
@@ -35,7 +38,7 @@ const editInputStyle: React.CSSProperties = {
   fontFamily: 'inherit',
 };
 
-export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete, hideValues, showPaidToggle = true, showCreditCardToggle = false }) => {
+export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete, hideValues, showPaidToggle = true, showCreditCardToggle = false, onCalendarReminder, calendarReminderLoading = false }) => {
   const [editField, setEditField] = useState<EditField>(null);
   const [editStr, setEditStr] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -230,6 +233,10 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete,
         <span onClick={() => startEdit('amount')} style={{ fontSize: 14, fontWeight: 700, color: hideValues ? '#1a1a1a' : (bill.isPaid ? '#10b981' : '#d4d4d4'), flexShrink: 0, cursor: 'text', letterSpacing: '-0.01em', transition: 'color 0.2s' }}>
           {hideValues ? 'R$ ••••' : formatCurrency(bill.amount)}
         </span>
+      )}
+
+      {onCalendarReminder && !bill.isPaid && (
+        <CalendarReminderButton added={Boolean(bill.calendarEventId)} loading={calendarReminderLoading} onClick={onCalendarReminder} />
       )}
 
       {/* Deletar */}

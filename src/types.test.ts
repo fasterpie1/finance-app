@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatCurrency, getMonthIndex, parseBRL } from './types';
+import { formatCurrency, getBillReminderStart, getMonthIndex, parseBRL } from './types';
 import { getBillNotifications, getMonthsFrom } from './store/useDashboard';
 import type { BudgetMonth } from './types';
 
@@ -32,5 +32,10 @@ describe('financial helpers', () => {
   it('formats currency in Brazilian locale', () => {
     expect(formatCurrency(1234.56)).toContain('1.234,56');
     expect(getMonthIndex('Setembro')).toBe(8);
+  });
+
+  it('calculates the reminder on the previous day of the following month', () => {
+    expect(getBillReminderStart('Setembro', 2026, 7)).toEqual(new Date(2026, 9, 6, 9));
+    expect(getBillReminderStart('Dezembro', 2026, 1)).toEqual(new Date(2026, 11, 31, 9));
   });
 });

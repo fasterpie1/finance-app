@@ -10,6 +10,7 @@ import { type CreditCardPurchase, type MonthInfo } from '../store/useDashboard';
 import { BillRow } from './BillRow';
 import { StatementImportPanel } from './StatementImportPanel';
 import { type Bill } from '../types';
+import { CalendarReminderButton } from './CalendarReminderButton';
 
 interface Props {
   userId: string | null;
@@ -30,6 +31,9 @@ interface Props {
   creditCardDueDay?: number;
   onUpdateCreditCardDueDay: (dueDay: number) => void;
   hideValues?: boolean;
+  invoiceCalendarEventId?: string;
+  onInvoiceCalendarReminder?: () => void;
+  invoiceCalendarReminderLoading?: boolean;
 }
 
 const fieldStyle: React.CSSProperties = {
@@ -42,6 +46,7 @@ const labelStyle: React.CSSProperties = {
 export const CreditCardView: React.FC<Props> = ({
   userId, selectedMonthName, selectedMonthYear, creditCardBills, debitPixBills, linkedFixedBills, allMonths,
   onTogglePaid, onSaveBill, onDeleteBill, onAddPurchase, onImportBatch, getAffectedMonths, onPayCreditCard, onUnpayCreditCard, creditCardDueDay, onUpdateCreditCardDueDay, hideValues,
+  invoiceCalendarEventId, onInvoiceCalendarReminder, invoiceCalendarReminderLoading,
 }) => {
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');
@@ -125,6 +130,9 @@ export const CreditCardView: React.FC<Props> = ({
           <span style={{ fontSize: 14, fontWeight: 700, color: hideValues ? '#1a1a1a' : (allCardPaid ? '#10b981' : '#d4d4d4'), flexShrink: 0, letterSpacing: '-0.01em', transition: 'color 0.2s' }}>
             {hideValues ? masked : formatCurrency(faturaTotal)}
           </span>
+          {onInvoiceCalendarReminder && !allCardPaid && (
+            <CalendarReminderButton added={Boolean(invoiceCalendarEventId)} loading={invoiceCalendarReminderLoading} onClick={onInvoiceCalendarReminder} />
+          )}
         </div>
       )}
 

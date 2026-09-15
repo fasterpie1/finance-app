@@ -90,6 +90,8 @@ export interface Bill {
   isOnCreditCard?: boolean;
   /** Forma de pagamento de uma compra lançada na área do cartão */
   cardPaymentMethod?: CardPaymentMethod;
+  /** ID do lembrete correspondente no Google Agenda */
+  calendarEventId?: string;
 }
 
 export interface BudgetMonth {
@@ -102,6 +104,8 @@ export interface BudgetMonth {
   savingsGoalMode?: SavingsGoalMode;
   savedAmount?: number;
   creditCardDueDay?: number;
+  /** ID do lembrete da fatura agregada no Google Agenda */
+  creditCardCalendarEventId?: string;
 }
 
 export const MONTH_NAMES = [
@@ -129,6 +133,23 @@ export function formatMonthFull(name: string, year: number): string {
 
 export function formatCurrency(value: number): string {
   return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+/** O dia informado no mês representa o vencimento no mês seguinte. */
+export function getBillDueDate(monthName: string, year: number, dueDay: number): Date {
+  const monthIndex = getMonthIndex(monthName);
+  const nextMonthIndex = monthIndex < 0 ? 0 : (monthIndex + 1) % 12;
+  const nextYear = nextMonthIndex === 0 ? year + 1 : year;
+  const lastDay = new Date(nextYear, nextMonthIndex + 1, 0).getDate();
+  return new Date(nextYear, nextMonthIndex, Math.min(Math.max(Math.round(dueDay), 1), lastDay));
+}
+
+/** Horário padrão dos lembretes: 9h do dia anterior ao vencimento. */
+export function getBillReminderStart(monthName: string, year: number, dueDay: number): Date {
+  const dueDate = getBillDueDate(monthName, year, dueDay);
+  dueDate.setDate(dueDate.getDate() - 1);
+  dueDate.setHours(9, 0, 0, 0);
+  return dueDate;
 }
 
 /** Converte string com vírgula brasileira para número (ex: "137,50" → 137.5) */

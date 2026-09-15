@@ -10,6 +10,16 @@ interface Message {
 interface Props {
   financialContext: string;
   userId: string | null;
+  calendarActions?: CalendarAssistantActions;
+}
+
+export interface CalendarAssistantActions {
+  createBillReminder: (name: string) => Promise<string>;
+  createInvoiceReminder: () => Promise<string>;
+  listEvents: (day?: string) => Promise<string>;
+  createEvent: (input: { title: string; date: string; time?: string; durationMinutes?: number; description?: string }) => Promise<string>;
+  updateEvent: (input: { eventId?: string; query?: string; title?: string; date?: string; time?: string; description?: string }) => Promise<string>;
+  deleteEvent: (query: string) => Promise<string>;
 }
 
 const STORAGE_KEY_CHAT = 'finance_chat_history';
@@ -31,6 +41,32 @@ function loadChat(userId: string | null): Message[] {
   return [];
 }
 
+interface AssistantCommand {
+  action?: 'create_bill_reminder' | 'create_invoice_reminder' | 'create_event' | 'list_events' | 'update_event' | 'delete_event' | 'none';
+  billName?: string;
+  title?: string;
+  date?: string;
+  time?: string;
+  durationMinutes?: number;
+  description?: string;
+  eventId?: string;
+  query?: string;
+  response?: string;
+}
+
+function parseAssistantCommand(content: string): AssistantCommand | null {
+  try {
+    const parsed = JSON.parse(content) as unknown;
+    if (typeof parsed === 'object' && parsed !== null) return parsed as AssistantCommand;
+  } catch {
+    const match = content.match(/\{[\s\S]*\}/);
+    if (match) {
+      try { return JSON.parse(match[0]) as AssistantCommand; } catch { return null; }
+    }
+  }
+  return null;
+}
+
 const IconAI = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M12 2a4 4 0 014 4v1h2a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V9a2 2 0 012-2h2V6a4 4 0 014-4z" />
@@ -38,7 +74,7 @@ const IconAI = () => (
   </svg>
 );
 
-export const ChatView: React.FC<Props> = ({ financialContext, userId }) => {
+export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarActions }) => {
   const [messages, setMessages] = useState<Message[]>(() => loadChat(userId));
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -86,8 +122,22 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId }) => {
     setMessages(history);
     setLoading(true);
     try {
-      const content = await sendGroqChat({ model: CHAT_MODEL, messages: [{ role: 'system', content: financialContext }, ...history.map((m) => ({ role: m.role === 'error' ? 'user' : m.role, content: m.content }))], max_tokens: 1200, temperature: 0.5 });
-      setMessages((prev) => [...prev, { role: 'assistant', content }]);
+      const today = new Date().toISOString().slice(0, 10);
+      const commandInstructions = `\n\nVocê também pode controlar o Google Agenda. Hoje é ${today}. Para qualquer pedido de agenda, responda SOMENTE um JSON válido, sem markdown, com este formato: {"action":"...","response":"..."}. Ações disponíveis: create_bill_reminder com billName para uma conta do mês atual (o lembrete usa automaticamente 9h no dia anterior ao vencimento); create_invoice_reminder para a fatura do mês atual (também usa 9h); create_event com title, date YYYY-MM-DD, time HH:mm, durationMinutes e description; list_events com date YYYY-MM-DD (omita para hoje); update_event com eventId ou query e os campos a alterar; delete_event com query ou eventId. Para create_event, NUNCA invente nem assuma título, data ou horário: se algum desses três campos faltar, use action none e escreva em response uma pergunta objetiva dizendo exatamente o que falta. Para perguntas normais use action none e coloque a resposta em response. Não invente IDs nem contas.\n`;
+      const rawContent = await sendGroqChat({ model: CHAT_MODEL, messages: [{ role: 'system', content: financialContext + commandInstructions }, ...history.map((m) => ({ role: m.role === 'error' ? 'user' : m.role, content: m.content }))], response_format: { type: 'json_object' }, max_tokens: 1200, temperature: 0.5 });
+      const command = parseAssistantCommand(rawContent);
+      if (!command || !command.action || command.action === 'none' || !calendarActions) {
+        setMessages((prev) => [...prev, { role: 'assistant', content: command?.response ?? rawContent }]);
+        return;
+      }
+      let result: string;
+      if (command.action === 'create_bill_reminder') result = command.billName ? await calendarActions.createBillReminder(command.billName) : 'Informe qual conta deve receber o lembrete.';
+      else if (command.action === 'create_invoice_reminder') result = await calendarActions.createInvoiceReminder();
+      else if (command.action === 'list_events') result = await calendarActions.listEvents(command.date);
+      else if (command.action === 'create_event') result = command.title && command.date ? await calendarActions.createEvent({ title: command.title, date: command.date, time: command.time, durationMinutes: command.durationMinutes, description: command.description }) : 'Informe o título e a data do evento.';
+      else if (command.action === 'update_event') result = await calendarActions.updateEvent({ eventId: command.eventId, query: command.query, title: command.title, date: command.date, time: command.time, description: command.description });
+      else result = command.query || command.eventId ? await calendarActions.deleteEvent(command.query ?? command.eventId ?? '') : 'Informe qual evento deve ser removido.';
+      setMessages((prev) => [...prev, { role: 'assistant', content: result }]);
     } catch (err) {
       setMessages((prev) => [...prev, { role: 'error', content: err instanceof Error ? err.message : 'Erro desconhecido' }]);
     } finally { setLoading(false); setTimeout(() => inputRef.current?.focus(), 100); }

@@ -10,7 +10,10 @@ import { CardSpendingChart } from './components/CardSpendingChart';
 import { AuthPanel } from './components/AuthPanel';
 import { DailyBillNotification } from './components/DailyBillNotification';
 import { GoogleCalendarSettings } from './components/GoogleCalendarSettings';
+import { CalendarReminderButton } from './components/CalendarReminderButton';
 import { getBillNotifications, type BillNotification } from './store/useDashboard';
+import { createCalendarEvent, deleteCalendarEvent, listCalendarEvents, updateCalendarEvent } from './services/googleCalendar';
+import { billReminderInput, invoiceReminderInput } from './services/calendarReminders';
 import { type Bill, formatCurrency, parseBRL, formatMonthShort, BILL_CATEGORY_LABELS, getMonthIndex } from './types';
 
 type Tab = 'dashboard' | 'cartao' | 'chat';
@@ -227,6 +230,8 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
   const [goalInput, setGoalInput] = useState('');
   const [savedAmountEditing, setSavedAmountEditing] = useState(false);
   const [savedAmountInput, setSavedAmountInput] = useState('');
+  const [calendarWorkingId, setCalendarWorkingId] = useState<string | null>(null);
+  const [calendarError, setCalendarError] = useState<string | null>(null);
 
   useEffect(() => {
     document.body.dataset.theme = theme;
@@ -473,6 +478,121 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
   const creditCardTotal = db.creditCardBills.reduce((s, b) => s + b.amount, 0) + linkedFixedBills.reduce((s, b) => s + b.amount, 0);
   const allCardPaid = db.creditCardBills.length > 0 && db.creditCardBills.every((b) => b.isPaid) && linkedFixedBills.every((b) => b.isPaid);
 
+  const removeCalendarEvent = async (eventId: string): Promise<boolean> => {
+    try { await deleteCalendarEvent(eventId); return true; } catch (error) { setCalendarError(error instanceof Error ? error.message : 'Não foi possível atualizar o Google Agenda.'); return false; }
+  };
+
+  const addBillReminder = async (bill: Bill): Promise<string> => {
+    if (!userId) return 'É necessário entrar na conta para usar o Google Agenda.';
+    if (bill.calendarEventId) return `O lembrete de ${bill.name} já foi adicionado ao Google Agenda.`;
+    if (calendarWorkingId) return 'Já existe uma operação em andamento no Google Agenda.';
+    setCalendarWorkingId(bill.id); setCalendarError(null);
+    try {
+      const event = await createCalendarEvent(billReminderInput(bill, db.selectedMonth));
+      db.saveBill({ ...bill, calendarEventId: event.id });
+      return `Lembrete de ${bill.name} criado para o dia anterior ao vencimento, às 9h.`;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Não foi possível criar o lembrete.';
+      setCalendarError(message);
+      return message;
+    } finally { setCalendarWorkingId(null); }
+  };
+
+  const togglePaidWithCalendar = (bill: Bill) => {
+    db.togglePaid(bill.id);
+    if (!bill.isPaid && bill.calendarEventId) {
+      void removeCalendarEvent(bill.calendarEventId).then((removed) => { if (removed) db.saveBill({ ...bill, isPaid: true, calendarEventId: undefined }); });
+    }
+  };
+
+  const saveBillWithCalendar = (bill: Bill) => {
+    const previous = db.selectedMonth.bills.find((item) => item.id === bill.id);
+    db.saveBill(bill);
+    if (!previous?.calendarEventId) return;
+    if (bill.isPaid) {
+      void removeCalendarEvent(previous.calendarEventId).then((removed) => { if (removed) db.saveBill({ ...bill, calendarEventId: undefined }); });
+      return;
+    }
+    if (previous.name !== bill.name || previous.amount !== bill.amount || previous.dueDay !== bill.dueDay) {
+      void updateCalendarEvent(previous.calendarEventId, billReminderInput(bill, db.selectedMonth)).catch((error: unknown) => setCalendarError(error instanceof Error ? error.message : 'Não foi possível atualizar o lembrete.'));
+    }
+  };
+
+  const deleteBillWithCalendar = (bill: Bill) => {
+    db.deleteBill(bill.id);
+    if (bill.calendarEventId) void removeCalendarEvent(bill.calendarEventId);
+  };
+
+  const addInvoiceReminder = async (): Promise<string> => {
+    const month = db.selectedMonth;
+    if (!userId) return 'É necessário entrar na conta para usar o Google Agenda.';
+    if (month.creditCardCalendarEventId) return 'O lembrete da fatura deste mês já foi adicionado ao Google Agenda.';
+    if (calendarWorkingId) return 'Já existe uma operação em andamento no Google Agenda.';
+    setCalendarWorkingId(`invoice:${month.id}`); setCalendarError(null);
+    try {
+      const event = await createCalendarEvent(invoiceReminderInput(month, creditCardTotal));
+      db.updateCreditCardCalendarEventId(event.id);
+      return `Lembrete da fatura de ${month.name} criado para o dia anterior ao vencimento, às 9h.`;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Não foi possível criar o lembrete da fatura.';
+      setCalendarError(message);
+      return message;
+    } finally { setCalendarWorkingId(null); }
+  };
+
+  const calendarAssistantActions = {
+    createBillReminder: async (name: string) => {
+      const bill = db.selectedMonth.bills.find((item) => item.name.toLowerCase().includes(name.toLowerCase()))
+        ?? db.selectedMonth.bills.find((item) => name.toLowerCase().includes(item.name.toLowerCase()));
+      return bill ? addBillReminder(bill) : `Não encontrei uma conta chamada ${name} no mês atual.`;
+    },
+    createInvoiceReminder: addInvoiceReminder,
+    listEvents: async (day?: string) => {
+      const target = day ? new Date(`${day}T00:00:00`) : new Date();
+      if (Number.isNaN(target.getTime())) return 'A data informada é inválida.';
+      const start = new Date(target.getFullYear(), target.getMonth(), target.getDate()).toISOString();
+      const end = new Date(target.getFullYear(), target.getMonth(), target.getDate() + 1).toISOString();
+      const events = await listCalendarEvents({ timeMin: start, timeMax: end });
+      return events.length > 0 ? events.map((event) => `- ${event.summary ?? 'Sem título'} (${event.start?.dateTime ?? event.start?.date ?? 'sem horário'}) [id: ${event.id}]`).join('\n') : 'Não há eventos nesse dia.';
+    },
+    createEvent: async (input: { title: string; date: string; time?: string; durationMinutes?: number; description?: string }) => {
+      const start = new Date(`${input.date}T${input.time || '09:00'}:00`);
+      if (!input.title) return 'Falta o título do evento. O que devo adicionar ao Google Agenda?';
+      if (!input.date || Number.isNaN(start.getTime())) return 'Falta a data do evento. Para qual dia devo adicionar?';
+      if (!input.time) return 'Falta o horário do evento. Que horas devo usar?';
+      const end = new Date(start.getTime() + Math.max(15, input.durationMinutes ?? 15) * 60_000);
+      const event = await createCalendarEvent({ title: input.title, description: input.description, start: start.toISOString(), end: end.toISOString(), reminder_minutes: 0 });
+      return `Evento ${input.title} criado no Google Agenda (id: ${event.id}).`;
+    },
+    updateEvent: async (input: { eventId?: string; query?: string; title?: string; date?: string; time?: string; description?: string }) => {
+      const events = await listCalendarEvents({ query: input.query });
+      const event = events.find((item) => item.id === input.eventId) ?? events.find((item) => item.summary?.toLowerCase().includes((input.query ?? '').toLowerCase()));
+      if (!event) return 'Não encontrei esse evento no Google Agenda.';
+      const start = input.date ? new Date(`${input.date}T${input.time || '09:00'}:00`) : undefined;
+      const updated = await updateCalendarEvent(event.id, { title: input.title, description: input.description, ...(start ? { start: start.toISOString(), end: new Date(start.getTime() + 15 * 60_000).toISOString() } : {}) });
+      return `Evento atualizado no Google Agenda: ${updated.id ?? event.id}.`;
+    },
+    deleteEvent: async (query: string) => {
+      const events = await listCalendarEvents({ query });
+      const event = events.find((item) => item.id === query) ?? events.find((item) => item.summary?.toLowerCase().includes(query.toLowerCase()));
+      if (!event) return 'Não encontrei esse evento no Google Agenda.';
+      await deleteCalendarEvent(event.id);
+      return `Evento removido do Google Agenda: ${event.summary ?? query}.`;
+    },
+  };
+
+  const payCreditCardWithCalendar = () => {
+    const eventId = db.selectedMonth.creditCardCalendarEventId;
+    db.payCreditCard();
+    if (eventId) void removeCalendarEvent(eventId).then((removed) => { if (removed) db.updateCreditCardCalendarEventId(undefined); });
+  };
+
+  const updateInvoiceDueDayWithCalendar = (dueDay: number) => {
+    const eventId = db.selectedMonth.creditCardCalendarEventId;
+    db.updateCreditCardDueDay(dueDay);
+    if (eventId) void updateCalendarEvent(eventId, invoiceReminderInput({ ...db.selectedMonth, creditCardDueDay: dueDay }, creditCardTotal)).catch((error: unknown) => setCalendarError(error instanceof Error ? error.message : 'Não foi possível atualizar o lembrete da fatura.'));
+  };
+
   /* ─── Section renderers ─── */
   const renderSection = (id: SectionId) => {
     switch (id) {
@@ -595,7 +715,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
             </div>
             {!hasFixedBills && addSection !== 'fixed' && <EmptyState label="Nenhuma conta fixa ainda." action="Copiar do mês anterior" onAction={db.copyFixedBillsFromPrevious} />}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {db.fixedBills.map((bill) => (<BillRow key={bill.id} bill={bill} onTogglePaid={() => db.togglePaid(bill.id)} onSave={db.saveBill} onDelete={() => db.deleteBill(bill.id)} hideValues={hideValues} showCreditCardToggle />))}
+              {db.fixedBills.map((bill) => (<BillRow key={bill.id} bill={bill} onTogglePaid={() => togglePaidWithCalendar(bill)} onSave={saveBillWithCalendar} onDelete={() => deleteBillWithCalendar(bill)} onCalendarReminder={!bill.isOnCreditCard ? () => void addBillReminder(bill) : undefined} calendarReminderLoading={calendarWorkingId === bill.id} hideValues={hideValues} showCreditCardToggle />))}
               {addSection === 'fixed' && <InlineAddRow monthName={db.selectedMonth.name} onSave={handleAddBill} onCancel={() => setAddSection(null)} defaultType="mensal" />}
             </div>
             {hasFixedBills && (
@@ -674,6 +794,9 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                     <span style={{ fontSize: 14, fontWeight: 700, color: hideValues ? '#1a1a1a' : (allCardPaid ? '#10b981' : '#d4d4d4'), flexShrink: 0, letterSpacing: '-0.01em', transition: 'color 0.2s' }}>
                       {hideValues ? masked : formatCurrency(creditCardTotal)}
                     </span>
+                    {!allCardPaid && (
+                      <CalendarReminderButton added={Boolean(db.selectedMonth.creditCardCalendarEventId)} loading={calendarWorkingId === `invoice:${db.selectedMonth.id}`} onClick={() => void addInvoiceReminder()} />
+                    )}
                   </div>
                 )}
               </>
@@ -691,7 +814,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
             </button>
           }>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {db.variableBills.map((bill) => (<BillRow key={bill.id} bill={bill} onTogglePaid={() => db.togglePaid(bill.id)} onSave={db.saveBill} onDelete={() => db.deleteBill(bill.id)} hideValues={hideValues} />))}
+              {db.variableBills.map((bill) => (<BillRow key={bill.id} bill={bill} onTogglePaid={() => togglePaidWithCalendar(bill)} onSave={saveBillWithCalendar} onDelete={() => deleteBillWithCalendar(bill)} onCalendarReminder={() => void addBillReminder(bill)} calendarReminderLoading={calendarWorkingId === bill.id} hideValues={hideValues} />))}
               {addSection === 'variable' && <InlineAddRow monthName={db.selectedMonth.name} onSave={handleAddBill} onCancel={() => setAddSection(null)} defaultType="variavel" />}
             </div>
           </CollapsibleSection>
@@ -762,6 +885,12 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
           notifications={dailyNotifications}
           onClose={() => setDailyNotificationOpen(false)}
         />
+      )}
+
+      {calendarError && (
+        <div role="alert" style={{ margin: '8px 0', padding: '8px 12px', border: '1px solid #2a1515', borderRadius: 6, background: '#1a1010', color: '#ef4444', fontSize: 11 }}>
+          {calendarError}
+        </div>
       )}
 
       {/* ─── Bottom Nav ─── */}
@@ -1022,7 +1151,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
           </>
         )}
 
-        {tab === 'chat' && <ChatView financialContext={financialContext} userId={userId} />}
+        {tab === 'chat' && <ChatView financialContext={financialContext} userId={userId} calendarActions={calendarAssistantActions} />}
         {tab === 'cartao' && (
           <CreditCardView
             userId={userId}
@@ -1031,8 +1160,9 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
             debitPixBills={db.debitPixBills}
             onTogglePaid={db.togglePaid} onSaveBill={db.saveBill} onDeleteBill={db.deleteBill}
             onAddPurchase={db.addCreditCardPurchase} onImportBatch={db.addCreditCardPurchasesBatch} getAffectedMonths={db.getAffectedMonths}
-            onPayCreditCard={db.payCreditCard} onUnpayCreditCard={db.unpayCreditCard}
-            creditCardDueDay={db.selectedMonth.creditCardDueDay} onUpdateCreditCardDueDay={db.updateCreditCardDueDay}
+            onPayCreditCard={payCreditCardWithCalendar} onUnpayCreditCard={db.unpayCreditCard}
+            creditCardDueDay={db.selectedMonth.creditCardDueDay} onUpdateCreditCardDueDay={updateInvoiceDueDayWithCalendar}
+            invoiceCalendarEventId={db.selectedMonth.creditCardCalendarEventId} onInvoiceCalendarReminder={() => void addInvoiceReminder()} invoiceCalendarReminderLoading={calendarWorkingId === `invoice:${db.selectedMonth.id}`}
             hideValues={hideValues}
           />
         )}

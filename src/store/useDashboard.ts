@@ -425,6 +425,15 @@ export function useDashboard(userId: string | null = null) {
     [selectedMonthId]
   );
 
+  const updateCreditCardCalendarEventId = useCallback(
+    (eventId?: string) => {
+      setMonths((prev) => prev.map((month) => (
+        month.id === selectedMonthId ? { ...month, creditCardCalendarEventId: eventId } : month
+      )));
+    },
+    [selectedMonthId]
+  );
+
   // ====== CARTÃO DE CRÉDITO ======
   const applyCreditCardPurchase = (
     updated: BudgetMonth[],
@@ -625,6 +634,7 @@ export function useDashboard(userId: string | null = null) {
     usePredictedSavingsGoal,
     updateSavedAmount,
     updateCreditCardDueDay,
+    updateCreditCardCalendarEventId,
     payCreditCard,
     unpayCreditCard,
     resetData,
