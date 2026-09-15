@@ -717,6 +717,13 @@ select {
     font-weight: 600;
   }
 
+  .theme-card-invoice-preview > button:last-child {
+    grid-column: 3 / 5;
+    grid-row: 3;
+    justify-self: start;
+    width: max-content;
+  }
+
   .theme-category-row {
     min-height: 52px;
     padding: 10px 8px !important;
