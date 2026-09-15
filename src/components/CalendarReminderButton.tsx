@@ -15,7 +15,7 @@ export const CalendarReminderButton: React.FC<Props> = ({ added, loading = false
     style={{
       display: 'inline-flex', alignItems: 'center', gap: 5, border: `1px solid ${added ? '#173522' : '#1e2a3e'}`,
       borderRadius: 5, background: added ? '#0d1a12' : '#111520', color: added ? '#4ade80' : '#60a5fa',
-      cursor: added || loading ? 'default' : 'pointer', padding: '3px 7px', fontSize: 9, fontWeight: 600,
+      cursor: added || loading ? 'default' : 'pointer', minHeight: 26, whiteSpace: 'nowrap', flexShrink: 0, padding: '3px 8px', fontSize: 10, fontWeight: 600,
       opacity: loading ? 0.6 : 1,
     }}
   >

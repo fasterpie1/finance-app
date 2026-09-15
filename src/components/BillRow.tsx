@@ -221,6 +221,11 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete,
             </>
           )}
         </div>
+        {onCalendarReminder && !bill.isPaid && (
+          <div style={{ marginTop: 2, alignSelf: 'flex-start' }}>
+            <CalendarReminderButton added={Boolean(bill.calendarEventId)} loading={calendarReminderLoading} onClick={onCalendarReminder} />
+          </div>
+        )}
       </div>
 
       {/* Valor */}
@@ -233,10 +238,6 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete,
         <span onClick={() => startEdit('amount')} style={{ fontSize: 14, fontWeight: 700, color: hideValues ? '#1a1a1a' : (bill.isPaid ? '#10b981' : '#d4d4d4'), flexShrink: 0, cursor: 'text', letterSpacing: '-0.01em', transition: 'color 0.2s' }}>
           {hideValues ? 'R$ ••••' : formatCurrency(bill.amount)}
         </span>
-      )}
-
-      {onCalendarReminder && !bill.isPaid && (
-        <CalendarReminderButton added={Boolean(bill.calendarEventId)} loading={calendarReminderLoading} onClick={onCalendarReminder} />
       )}
 
       {/* Deletar */}
