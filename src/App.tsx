@@ -867,16 +867,16 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
           <span style={{ fontSize: 14, fontWeight: 700, color: '#c0c0c0', letterSpacing: '-0.02em' }}>finança</span>
           <span style={{ fontSize: 9, color: '#3a3a3a', letterSpacing: '0.1em', fontWeight: 500 }}>PESSOAL</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {userId && (
             <>
               {db.syncNotice && <span style={{ fontSize: 10, color: '#4b8f73' }}>{db.syncNotice}</span>}
-              <button onClick={() => void refreshAppOrData(db.refreshData)} disabled={db.isRefreshing} title="Atualizar aplicativo e dados compartilhados" aria-label="Atualizar aplicativo e dados compartilhados" style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: db.isRefreshing ? '#3b82f6' : '#666', cursor: db.isRefreshing ? 'wait' : 'pointer', width: 32, height: 30, display: 'grid', placeItems: 'center' }}>
+              <button onClick={() => void refreshAppOrData(db.refreshData)} disabled={db.isRefreshing} title="Atualizar aplicativo e dados compartilhados" aria-label="Atualizar aplicativo e dados compartilhados" style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 7, color: db.isRefreshing ? '#3b82f6' : '#666', cursor: db.isRefreshing ? 'wait' : 'pointer', width: 40, height: 38, display: 'grid', placeItems: 'center' }}>
                 <IconRefresh spinning={db.isRefreshing} />
               </button>
             </>
           )}
-          <button onClick={() => setSettingsOpen(true)} title="Abrir configurações" aria-label="Abrir configurações" style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#666', cursor: 'pointer', width: 32, height: 30, display: 'grid', placeItems: 'center' }}><IconSettings /></button>
+          <button onClick={() => setSettingsOpen(true)} title="Abrir configurações" aria-label="Abrir configurações" style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 7, color: '#666', cursor: 'pointer', width: 40, height: 38, display: 'grid', placeItems: 'center' }}><IconSettings /></button>
         </div>
       </header>
 
