@@ -673,6 +673,60 @@ select {
 .google-calendar-status.is-connected { color: #4ade80; }
 .google-calendar-status.is-expired { color: #f59e0b; }
 
+.theme-category-row + .theme-category-row {
+  border-top: 1px solid #1d1d1d;
+}
+
+@media (max-width: 520px) {
+  .theme-card-invoice-preview {
+    display: grid !important;
+    grid-template-columns: 20px 8px minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    column-gap: 9px !important;
+    row-gap: 5px;
+    padding: 12px !important;
+  }
+
+  .theme-card-invoice-preview > button:first-child,
+  .theme-card-invoice-preview > div:nth-child(2) {
+    grid-row: 1 / span 2;
+    align-self: center;
+  }
+
+  .theme-card-invoice-preview > div:nth-child(3) {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .theme-card-invoice-amount {
+    grid-column: 4;
+    grid-row: 1;
+    font-size: 15px !important;
+  }
+
+  .theme-card-invoice-details {
+    grid-column: 3 / 5;
+    grid-row: 2;
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  .theme-card-details-link {
+    color: #60a5fa !important;
+    font-size: 11px !important;
+    font-weight: 600;
+  }
+
+  .theme-category-row {
+    min-height: 52px;
+    padding: 10px 8px !important;
+  }
+
+  .theme-category-row > div:last-child {
+    font-size: 15px !important;
+  }
+}
+
 body[data-theme='light'] .google-calendar-heading strong { color: #1e293b; }
 body[data-theme='light'] .google-calendar-heading small { color: #64748b; }
 

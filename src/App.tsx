@@ -741,7 +741,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                     <span style={{ fontSize: 11, color: '#444' }}>Lançar compra →</span>
                   </div>
                 ) : (
-                  <div style={{ background: '#131313', border: `1px solid ${allCardPaid ? '#10b98122' : '#1a1a1a'}`, borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12, opacity: allCardPaid ? 0.55 : 1, transition: 'all 0.15s' }}>
+                  <div className="theme-card-invoice-preview" style={{ background: '#131313', border: `1px solid ${allCardPaid ? '#10b98122' : '#1a1a1a'}`, borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12, opacity: allCardPaid ? 0.55 : 1, transition: 'all 0.15s' }}>
                     {/* Bolinha de pago — igual às contas */}
                     <button
                       onClick={(e) => {
@@ -773,7 +773,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                     {/* Info */}
                     <div onClick={() => setTab('cartao')} style={{ flex: 1, cursor: 'pointer', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
                       <span style={{ fontSize: 13, fontWeight: 600, color: allCardPaid ? '#555' : '#d4d4d4', textDecoration: allCardPaid ? 'line-through' : 'none' }}>Fatura do mês</span>
-                      <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+                      <div className="theme-card-invoice-details" style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
                         <span className="theme-card-count" style={{ fontSize: 10, color: '#444', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 6px' }}>
                           {db.creditCardBills.length} parcela{db.creditCardBills.length !== 1 ? 's' : ''}
                         </span>
@@ -786,12 +786,12 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                           </>
                         )}
                         <span style={{ fontSize: 10, color: '#2a2a2a' }}>·</span>
-                        <span style={{ fontSize: 10, color: '#444' }}>Detalhes →</span>
+                        <span className="theme-card-details-link" style={{ fontSize: 10, color: '#444' }}>Detalhes →</span>
                       </div>
                     </div>
 
                     {/* Valor */}
-                    <span style={{ fontSize: 14, fontWeight: 700, color: hideValues ? '#1a1a1a' : (allCardPaid ? '#10b981' : '#d4d4d4'), flexShrink: 0, letterSpacing: '-0.01em', transition: 'color 0.2s' }}>
+                    <span className="theme-card-invoice-amount" style={{ fontSize: 14, fontWeight: 700, color: hideValues ? '#1a1a1a' : (allCardPaid ? '#10b981' : '#d4d4d4'), flexShrink: 0, letterSpacing: '-0.01em', transition: 'color 0.2s' }}>
                       {hideValues ? masked : formatCurrency(creditCardTotal)}
                     </span>
                     {!allCardPaid && (

@@ -131,7 +131,7 @@ Deno.serve(async (request) => {
   try {
     const user = await currentUser(request);
     if (!user) return json({ error: 'Não autenticado.' }, 401, request);
-    const body = await request.json() as { action?: string; title?: string; description?: string; start?: string; end?: string; reminder_minutes?: number; event_id?: string };
+    const body = await request.json() as { action?: string; title?: string; description?: string; start?: string; end?: string; reminder_minutes?: number; event_id?: string; time_min?: string; time_max?: string; query?: string };
     if (body.action === 'start-oauth') {
       const state = randomToken();
       await admin.from('google_calendar_oauth_states').delete().lt('expires_at', new Date().toISOString());
@@ -155,6 +155,16 @@ Deno.serve(async (request) => {
       const response = await googleRequest(user.id, calendarUrl, { method: 'POST', body: JSON.stringify(event) });
       if (!response.ok) return json({ error: 'O Google não aceitou a criação do evento.' }, response.status, request);
       return json(await response.json(), 200, request);
+    }
+    if (body.action === 'list-events') {
+      const params = new URLSearchParams({ singleEvents: 'true', orderBy: 'startTime', maxResults: '100' });
+      if (body.time_min) params.set('timeMin', body.time_min);
+      if (body.time_max) params.set('timeMax', body.time_max);
+      if (body.query) params.set('q', body.query);
+      const response = await googleRequest(user.id, `${calendarUrl}?${params.toString()}`, { method: 'GET' });
+      if (!response.ok) return json({ error: 'Não foi possível consultar o Google Agenda.' }, response.status, request);
+      const data = await response.json() as { items?: unknown[] };
+      return json({ events: data.items ?? [] }, 200, request);
     }
     if (body.action === 'update-event' || body.action === 'delete-event') {
       if (!body.event_id) return json({ error: 'Evento inválido.' }, 400, request);

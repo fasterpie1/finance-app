@@ -69,13 +69,13 @@ export const CategoryChart: React.FC<Props> = ({ bills, hideValues }) => {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
         {data.map((d) => (
-          <div key={d.category} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderRadius: 6 }}>
+          <div className="theme-category-row" key={d.category} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', borderRadius: 6 }}>
             <div style={{ width: 3, height: 24, borderRadius: 2, background: d.color, flexShrink: 0 }} />
             <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-              <div style={{ fontSize: 12, color: '#b0b0b0', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.label}</div>
-              <div style={{ fontSize: 10, color: '#3a3a3a' }}>{d.pct.toFixed(1)}%</div>
+              <div style={{ fontSize: 13, color: '#c4c4c4', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.label}</div>
+              <div style={{ fontSize: 11, color: '#686868', marginTop: 2 }}>{d.pct.toFixed(1)}% do total</div>
             </div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: hideValues ? '#1a1a1a' : '#d4d4d4', flexShrink: 0, transition: 'color 0.2s' }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#e3e3e3', flexShrink: 0, transition: 'color 0.2s', fontVariantNumeric: 'tabular-nums' }}>
               {hideValues ? 'R$ ••••' : formatCurrency(d.amount)}
             </div>
           </div>
