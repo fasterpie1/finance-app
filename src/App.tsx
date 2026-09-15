@@ -804,15 +804,15 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                 <button className={`theme-switch ${theme === 'light' ? 'is-light' : ''}`} role="switch" aria-checked={theme === 'light'} aria-label="Alternar modo claro e escuro" onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}><span /></button>
               </div>
             </div>
-            <div className="settings-group">
-              <div className="settings-label">Conta</div>
-              <button className="settings-action" onClick={() => { setSettingsOpen(false); signOut(); }} disabled={!userId}><span>Sair da conta</span><span className="settings-action-arrow">→</span></button>
-            </div>
+            <GoogleCalendarSettings userId={userId} />
             <div className="settings-group">
               <div className="settings-label">Ajuda</div>
               <button className="settings-action" onClick={() => setHelpOpen(true)}><span>Como usar o app</span><span className="settings-action-arrow">→</span></button>
             </div>
-            <GoogleCalendarSettings userId={userId} />
+            <div className="settings-group">
+              <div className="settings-label">Conta</div>
+              <button className="settings-action" onClick={() => { setSettingsOpen(false); signOut(); }} disabled={!userId}><span>Sair da conta</span><span className="settings-action-arrow">→</span></button>
+            </div>
           </aside>
         </>
       )}
