@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { disconnectGoogleCalendar, getGoogleCalendarStatus, startGoogleCalendarOAuth, type GoogleCalendarStatus } from '../services/googleCalendar';
+import { readUserStorage, removeUserStorage, writeUserStorage } from '../services/userStorage';
 
 interface Props {
   userId: string | null;
@@ -12,9 +13,12 @@ const STATUS_COPY: Record<GoogleCalendarStatus, string> = {
   error: 'Não foi possível verificar a conexão agora. Tente novamente.',
 };
 
+const STATUS_STORAGE_KEY = 'google_calendar_status';
+
 export const GoogleCalendarSettings: React.FC<Props> = ({ userId }) => {
-  const [status, setStatus] = useState<GoogleCalendarStatus>('disconnected');
-  const [loading, setLoading] = useState(Boolean(userId));
+  const cachedStatus = userId ? readUserStorage(userId, STATUS_STORAGE_KEY) as GoogleCalendarStatus | null : null;
+  const [status, setStatus] = useState<GoogleCalendarStatus>(cachedStatus === 'connected' || cachedStatus === 'expired' ? cachedStatus : 'disconnected');
+  const [loading, setLoading] = useState(Boolean(userId) && !cachedStatus);
   const [working, setWorking] = useState(false);
 
   useEffect(() => {
@@ -22,7 +26,11 @@ export const GoogleCalendarSettings: React.FC<Props> = ({ userId }) => {
     const result = new URLSearchParams(window.location.search).get('google_calendar');
     if (result) window.history.replaceState({}, '', window.location.pathname + window.location.hash);
     void getGoogleCalendarStatus()
-      .then((nextStatus) => setStatus(result === 'error' ? 'error' : nextStatus))
+      .then((nextStatus) => {
+        const resolvedStatus = result === 'error' ? 'error' : nextStatus;
+        setStatus(resolvedStatus);
+        if (resolvedStatus === 'connected' || resolvedStatus === 'expired') writeUserStorage(userId, STATUS_STORAGE_KEY, resolvedStatus);
+      })
       .catch(() => setStatus('error'))
       .finally(() => setLoading(false));
   }, [userId]);
@@ -42,6 +50,7 @@ export const GoogleCalendarSettings: React.FC<Props> = ({ userId }) => {
     try {
       await disconnectGoogleCalendar();
       setStatus('disconnected');
+      removeUserStorage(userId, STATUS_STORAGE_KEY);
     } catch {
       setStatus('error');
     } finally {

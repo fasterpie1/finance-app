@@ -143,7 +143,13 @@ Deno.serve(async (request) => {
     if (body.action === 'status') {
       const { data } = await admin.from('user_calendar_integrations').select('token_expires_at').eq('user_id', user.id).maybeSingle();
       if (!data) return json({ status: 'disconnected' }, 200, request);
-      return json({ status: data.token_expires_at && new Date(data.token_expires_at).getTime() < Date.now() ? 'expired' : 'connected' }, 200, request);
+      try {
+        await getAccessToken(user.id);
+        return json({ status: 'connected' }, 200, request);
+      } catch (error) {
+        console.error('Google Calendar token refresh failed:', error instanceof Error ? error.message : 'unknown error');
+        return json({ status: 'expired' }, 200, request);
+      }
     }
     if (body.action === 'disconnect') {
       await admin.from('user_calendar_integrations').delete().eq('user_id', user.id);

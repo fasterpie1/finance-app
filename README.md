@@ -48,6 +48,8 @@ Para desenvolvimento, use o mesmo callback da função hospedada ou publique uma
 
 Para alterar o texto exibido na tela de consentimento do Google, abra **Google Cloud Console > Google Auth Platform > Branding** e defina o nome do app como `Finança Pessoal`. O domínio `*.supabase.co` continuará sendo o domínio técnico do redirect URI, mas não precisa aparecer como nome do aplicativo depois que o branding estiver configurado. Em **Audience**, mantenha os usuários de teste autorizados enquanto o app não estiver publicado.
 
+O app renova automaticamente o access token do Google usando o refresh token e a tela de configurações reaproveita o último status conhecido. Contudo, aplicativos externos em status **Teste** podem ter refresh tokens limitados a aproximadamente 7 dias pela política do Google. Para evitar nova autorização após esse período, publique o app ou conclua a verificação exigida pelo Google.
+
 Currently, two official plugins are available:
 
 - [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
