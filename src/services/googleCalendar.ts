@@ -26,10 +26,10 @@ async function invoke(body: Record<string, unknown>): Promise<FunctionResponse> 
   if (!first.error && !first.data?.error) return first.data as FunctionResponse;
   if (isUnauthorized(first.error)) {
     const refreshed = await supabase?.auth.refreshSession();
-    if (refreshed?.error || !refreshed?.data.session) throw new Error('A sessão do aplicativo expirou. Entre novamente para reconectar o Google Agenda.');
+    if (refreshed?.error || !refreshed?.data.session) throw new Error('A sessão do aplicativo expirou. Atualize a sessão da conta para reconectar o Google Agenda.');
     const retry = await invokeOnce(body);
     if (!retry.error && !retry.data?.error) return retry.data as FunctionResponse;
-    if (isUnauthorized(retry.error)) throw new Error('A sessão do aplicativo expirou. Entre novamente para reconectar o Google Agenda.');
+    if (isUnauthorized(retry.error)) throw new Error('A sessão do aplicativo expirou. Atualize a sessão da conta para reconectar o Google Agenda.');
     throw new Error(retry.data?.error ?? (retry.error as { message?: string } | null)?.message ?? 'Não foi possível acessar o Google Agenda.');
   }
   throw new Error(first.data?.error ?? (first.error as { message?: string } | null)?.message ?? 'Não foi possível acessar o Google Agenda.');
