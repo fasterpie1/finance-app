@@ -82,7 +82,7 @@ export const GoogleCalendarSettings: React.FC<Props> = ({ userId }) => {
         </button>
       ) : (
         <button className="settings-action" type="button" onClick={() => void connect()} disabled={loading || working}>
-          <span>{working ? 'Conectando...' : status === 'expired' ? 'Reconectar Google Agenda' : 'Conectar Google Agenda'}</span><span className="settings-action-arrow">→</span>
+          <span>{working ? 'Conectando...' : status === 'expired' || status === 'error' ? 'Reconectar Google Agenda' : 'Conectar Google Agenda'}</span><span className="settings-action-arrow">→</span>
         </button>
       )}
     </div>
