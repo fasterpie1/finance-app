@@ -5,6 +5,41 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+/* The chat owns the viewport so only its message history can scroll. */
+.app-shell-chat {
+  height: 100dvh;
+  min-height: 100dvh !important;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-shell-chat .app-header {
+  flex: 0 0 auto;
+}
+
+.app-content-chat {
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px)) !important;
+}
+
+.app-content-chat > .theme-chat-view {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+}
+
+.app-content-chat > .theme-chat-active {
+  height: auto !important;
+  overflow: hidden !important;
+}
+
+.app-shell-chat-keyboard .app-content-chat {
+  padding-bottom: 0 !important;
+}
+
 body {
   background: #0a0a0a;
   color: #e0e0e0;

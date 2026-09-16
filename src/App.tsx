@@ -241,7 +241,7 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
 
   useEffect(() => {
     monthButtonRefs.current[db.selectedMonthId]?.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'center' });
-  }, [db.selectedMonthId, db.months]);
+  }, [db.months]);
 
   useEffect(() => {
     const todayKey = getLocalDateKey();
@@ -852,7 +852,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
   };
 
   return (
-    <div className="app-shell" style={{ minHeight: '100vh', background: '#0a0a0a', color: '#e0e0e0', fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif" }}>
+    <div className={`app-shell${tab === 'chat' ? ' app-shell-chat' : ''}${tab === 'chat' && keyboardOpen ? ' app-shell-chat-keyboard' : ''}`} style={{ minHeight: '100vh', background: '#0a0a0a', color: '#e0e0e0', fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif" }}>
 
       {/* ─── Header (simples, com safe area) ─── */}
       <header className="app-header" style={{
@@ -974,10 +974,10 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
       )}
 
       {/* ─── Main ─── */}
-      <div className="app-content" style={{ maxWidth: 900, margin: '0 auto', padding: '16px 16px 80px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div className={`app-content${tab === 'chat' ? ' app-content-chat' : ''}`} style={{ maxWidth: 900, margin: '0 auto', padding: '16px 16px 80px', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
         {/* Month selector */}
-        <div className="theme-month-selector" style={{ display: 'flex', gap: 5, overflowX: 'auto', paddingBottom: 2, alignItems: 'center' }}>
+        {tab !== 'chat' && <div className="theme-month-selector" style={{ display: 'flex', gap: 5, overflowX: 'auto', paddingBottom: 2, alignItems: 'center' }}>
           {db.months.map((m) => (
             <button key={m.id} ref={(element) => { monthButtonRefs.current[m.id] = element; }} className={db.selectedMonthId === m.id ? 'theme-month-active' : undefined} onClick={() => db.selectMonth(m.id)} style={{
               background: db.selectedMonthId === m.id ? '#1a1a1a' : 'transparent',
@@ -989,7 +989,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
             </button>
           ))}
           <button onClick={db.addNextMonth} style={{ background: 'transparent', border: '1px dashed #1e1e1e', borderRadius: 6, color: '#333', cursor: 'pointer', padding: '5px 10px', fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 }} title="Adicionar mês">+</button>
-        </div>
+        </div>}
 
         {/* ──── DASHBOARD ──── */}
         {tab === 'dashboard' && (

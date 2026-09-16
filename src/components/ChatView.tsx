@@ -185,8 +185,8 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
   }
 
   return (
-    <div className="theme-chat-view" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 180px)', minHeight: 400, gap: 0 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+    <div className="theme-chat-view theme-chat-active" style={{ display: 'flex', flexDirection: 'column', flex: '1 1 auto', minHeight: 0, height: 'auto', overflow: 'hidden', gap: 0 }}>
+      <div className="theme-chat-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ width: 28, height: 28, borderRadius: 8, background: '#111520', border: '1px solid #1e2a3e', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#60a5fa' }}><IconAI /></div>
           <div>
@@ -206,7 +206,7 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
         </div>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingRight: 4, paddingBottom: 8 }}>
+      <div className="theme-chat-messages" style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingRight: 4, paddingBottom: 8 }}>
         {messages.length === 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 16 }}>
             <div style={{ textAlign: 'center', color: '#333', fontSize: 12 }}>Pergunte sobre seus gastos, peça dicas ou análises.</div>
@@ -241,12 +241,12 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
       </div>
 
       {messages.length > 0 && !loading && (
-        <div style={{ display: 'flex', gap: 5, overflowX: 'auto', padding: '6px 0', borderTop: '1px solid #141414' }}>
+        <div className="theme-chat-suggestions" style={{ display: 'flex', gap: 5, overflowX: 'auto', padding: '6px 0', borderTop: '1px solid #141414', flexShrink: 0 }}>
           {SUGGESTIONS.slice(0, 3).map((s) => (<button className="theme-ai-suggestion" key={s} onClick={() => sendMessage(s)} style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 5, color: '#555', cursor: 'pointer', padding: '4px 10px', fontSize: 10, whiteSpace: 'nowrap', flexShrink: 0 }}>{s}</button>))}
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', paddingTop: 8, borderTop: '1px solid #141414' }}>
+      <div className="theme-chat-composer" style={{ display: 'flex', gap: 8, alignItems: 'flex-end', paddingTop: 8, borderTop: '1px solid #141414', flexShrink: 0 }}>
         <textarea ref={inputRef} placeholder="Pergunte sobre seus gastos..." value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onKeyDown} rows={2} style={{ flex: 1, background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, color: '#e0e0e0', padding: '9px 12px', fontSize: 14, outline: 'none', fontFamily: 'inherit', resize: 'none', lineHeight: 1.5, transition: 'border-color 0.15s' }} onFocus={(e) => { e.currentTarget.style.borderColor = '#2a3a4a'; }} onBlur={(e) => { e.currentTarget.style.borderColor = '#1e1e1e'; }} />
         <button onClick={() => sendMessage()} disabled={!input.trim() || loading} style={{ background: input.trim() && !loading ? '#3b82f6' : '#151520', border: 'none', borderRadius: 8, color: input.trim() && !loading ? '#fff' : '#3a4a5a', cursor: input.trim() && !loading ? 'pointer' : 'not-allowed', padding: '9px 14px', transition: 'all 0.15s', alignSelf: 'stretch', display: 'flex', alignItems: 'center' }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
