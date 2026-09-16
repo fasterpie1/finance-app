@@ -4,7 +4,7 @@ import { supabase, isSupabaseConfigured } from '../services/supabase';
 const AUTH_REDIRECT_URL = 'https://finance-app-alpha-opal.vercel.app';
 
 interface Props {
-  children: (userId: string | null, signOut: () => void, reauthenticate: (email: string, password: string) => Promise<string | null>) => React.ReactNode;
+  children: (userId: string | null, signOut: () => void) => React.ReactNode;
 }
 
 export const AuthPanel: React.FC<Props> = ({ children }) => {
@@ -46,12 +46,6 @@ export const AuthPanel: React.FC<Props> = ({ children }) => {
     setLoading(false);
   };
 
-  const reauthenticate = async (nextEmail: string, nextPassword: string): Promise<string | null> => {
-    if (!supabase) return 'Supabase não está configurado.';
-    const { error } = await supabase.auth.signInWithPassword({ email: nextEmail.trim(), password: nextPassword });
-    return error?.message ?? null;
-  };
-
   const signUp = async () => {
     if (!supabase || !email.trim() || !password) return;
     setLoading(true); setMessage('');
@@ -71,9 +65,9 @@ export const AuthPanel: React.FC<Props> = ({ children }) => {
     void supabase?.auth.signOut();
   };
 
-  if (!isSupabaseConfigured) return <>{children(null, signOut, reauthenticate)}</>;
+  if (!isSupabaseConfigured) return <>{children(null, signOut)}</>;
   if (loading) return <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', color: '#777', background: '#0a0a0a' }}>Carregando...</div>;
-  if (userId) return <>{children(userId, signOut, reauthenticate)}</>;
+  if (userId) return <>{children(userId, signOut)}</>;
 
   return (
     <main style={{ minHeight: '100vh', background: '#0a0a0a', color: '#e0e0e0', display: 'grid', placeItems: 'center', padding: 20, fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif" }}>

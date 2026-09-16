@@ -212,7 +212,7 @@ function EmptyState({ label, action, onAction }: { label: string; action?: strin
 }
 
 /* ─── Main App ─── */
-function App({ userId, signOut, reauthenticate }: { userId: string | null; signOut: () => void; reauthenticate: (email: string, password: string) => Promise<string | null> }) {
+function App({ userId, signOut }: { userId: string | null; signOut: () => void }) {
   const db = useDashboard(userId);
   const [tab, setTab] = useState<Tab>('dashboard');
   const [addSection, setAddSection] = useState<AddSection>(null);
@@ -933,7 +933,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                 <button className={`theme-switch ${theme === 'light' ? 'is-light' : ''}`} role="switch" aria-checked={theme === 'light'} aria-label="Alternar modo claro e escuro" onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}><span /></button>
               </div>
             </div>
-            <GoogleCalendarSettings userId={userId} onReauthenticate={reauthenticate} />
+            <GoogleCalendarSettings userId={userId} />
             <div className="settings-group">
               <div className="settings-label">Ajuda</div>
               <button className="settings-action" onClick={() => setHelpOpen(true)}><span>Como usar o app</span><span className="settings-action-arrow">→</span></button>
@@ -1172,5 +1172,5 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
 }
 
 export default function AppWithAuth() {
-  return <AuthPanel>{(userId, signOut, reauthenticate) => <App userId={userId} signOut={signOut} reauthenticate={reauthenticate} />}</AuthPanel>;
+  return <AuthPanel>{(userId, signOut) => <App userId={userId} signOut={signOut} />}</AuthPanel>;
 }

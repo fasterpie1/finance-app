@@ -4,7 +4,6 @@ import { readUserStorage, removeUserStorage, writeUserStorage } from '../service
 
 interface Props {
   userId: string | null;
-  onReauthenticate: (email: string, password: string) => Promise<string | null>;
 }
 
 const STATUS_COPY: Record<GoogleCalendarStatus, string> = {
@@ -16,15 +15,12 @@ const STATUS_COPY: Record<GoogleCalendarStatus, string> = {
 
 const STATUS_STORAGE_KEY = 'google_calendar_status';
 
-export const GoogleCalendarSettings: React.FC<Props> = ({ userId, onReauthenticate }) => {
+export const GoogleCalendarSettings: React.FC<Props> = ({ userId }) => {
   const cachedStatus = userId ? readUserStorage(userId, STATUS_STORAGE_KEY) as GoogleCalendarStatus | null : null;
   const [status, setStatus] = useState<GoogleCalendarStatus>(cachedStatus === 'connected' || cachedStatus === 'expired' ? cachedStatus : 'disconnected');
   const [loading, setLoading] = useState(Boolean(userId) && !cachedStatus);
   const [working, setWorking] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [reauthEmail, setReauthEmail] = useState('');
-  const [reauthPassword, setReauthPassword] = useState('');
-  const [reauthLoading, setReauthLoading] = useState(false);
 
   useEffect(() => {
     if (!userId) return;
@@ -69,26 +65,6 @@ export const GoogleCalendarSettings: React.FC<Props> = ({ userId, onReauthentica
     }
   };
 
-  const reauthenticate = async () => {
-    if (!reauthEmail.trim() || !reauthPassword) return;
-    setReauthLoading(true);
-    const error = await onReauthenticate(reauthEmail, reauthPassword);
-    if (error) setErrorMessage(error);
-    else {
-      setErrorMessage(null);
-      setStatus('expired');
-      setReauthPassword('');
-      try {
-        const nextStatus = await getGoogleCalendarStatus();
-        setStatus(nextStatus);
-        if (nextStatus === 'connected' || nextStatus === 'expired') writeUserStorage(userId, STATUS_STORAGE_KEY, nextStatus);
-      } catch (statusError) {
-        setErrorMessage(statusError instanceof Error ? statusError.message : 'Sessão renovada. Tente reconectar o Google Agenda.');
-      }
-    }
-    setReauthLoading(false);
-  };
-
   return (
     <div className="settings-group google-calendar-settings">
       <div className="settings-label">Integrações</div>
@@ -100,13 +76,6 @@ export const GoogleCalendarSettings: React.FC<Props> = ({ userId, onReauthentica
         {status === 'connected' && <span className="google-calendar-status is-connected">✓ Conectado</span>}
         {status === 'expired' && <span className="google-calendar-status is-expired">⚠ Expirada</span>}
       </div>
-      {errorMessage?.includes('sessão do aplicativo') && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12, padding: 10, background: '#111520', border: '1px solid #1e2a3e', borderRadius: 7 }}>
-          <input type="email" value={reauthEmail} onChange={(event) => setReauthEmail(event.target.value)} placeholder="E-mail da conta" aria-label="E-mail para renovar sessão" style={{ background: '#0e0e0e', border: '1px solid #252525', borderRadius: 5, color: '#e0e0e0', padding: '8px 10px', fontSize: 12 }} />
-          <input type="password" value={reauthPassword} onChange={(event) => setReauthPassword(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void reauthenticate(); }} placeholder="Senha da conta" aria-label="Senha para renovar sessão" style={{ background: '#0e0e0e', border: '1px solid #252525', borderRadius: 5, color: '#e0e0e0', padding: '8px 10px', fontSize: 12 }} />
-          <button type="button" onClick={() => void reauthenticate()} disabled={reauthLoading || !reauthEmail.trim() || !reauthPassword} className="settings-action" style={{ cursor: reauthLoading ? 'wait' : 'pointer' }}>{reauthLoading ? 'Renovando sessão...' : 'Renovar sessão do app'}</button>
-        </div>
-      )}
       {status === 'connected' ? (
         <button className="settings-action" type="button" onClick={() => void disconnect()} disabled={working}>
           <span>{working ? 'Desconectando...' : 'Desconectar Google Agenda'}</span><span className="settings-action-arrow">→</span>
