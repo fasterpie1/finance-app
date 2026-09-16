@@ -40,10 +40,13 @@ export async function getGoogleCalendarStatus(): Promise<GoogleCalendarStatus> {
   return data.status ?? 'error';
 }
 
-export async function startGoogleCalendarOAuth(): Promise<void> {
+export async function startGoogleCalendarOAuth(popup?: Window | null): Promise<Window | null> {
+  const target = popup ?? window.open('', 'google-calendar-oauth', 'popup,width=520,height=720');
+  if (!target) return null;
   const data = await invoke({ action: 'start-oauth' });
   if (!data.authorization_url) throw new Error('Não foi possível iniciar a conexão com o Google.');
-  window.location.assign(data.authorization_url);
+  target.location.href = data.authorization_url;
+  return target;
 }
 
 export async function disconnectGoogleCalendar(): Promise<void> {

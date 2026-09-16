@@ -25,6 +25,11 @@ export const GoogleCalendarSettings: React.FC<Props> = ({ userId }) => {
   useEffect(() => {
     if (!userId) return;
     const result = new URLSearchParams(window.location.search).get('google_calendar');
+    if (window.opener && result) {
+      window.opener.postMessage({ type: 'google-calendar-oauth', status: result }, '*');
+      window.close();
+      return;
+    }
     if (result) window.history.replaceState({}, '', window.location.pathname + window.location.hash);
     void getGoogleCalendarStatus()
       .then((nextStatus) => {
@@ -42,12 +47,36 @@ export const GoogleCalendarSettings: React.FC<Props> = ({ userId }) => {
 
   const connect = async () => {
     setWorking(true);
+    let popup: Window | null = null;
+    let pollId: number | undefined;
+    const cleanup = () => {
+      window.removeEventListener('message', onMessage);
+      if (pollId !== undefined) window.clearInterval(pollId);
+      setWorking(false);
+    };
+    const onMessage = (event: MessageEvent<{ type?: string; status?: string }>) => {
+      const allowedOrigins = new Set([window.location.origin, 'https://finance-app-alpha-opal.vercel.app']);
+      if (!allowedOrigins.has(event.origin) || event.data?.type !== 'google-calendar-oauth') return;
+      const nextStatus = event.data.status === 'connected' ? 'connected' : 'error';
+      setStatus(nextStatus);
+      setErrorMessage(nextStatus === 'error' ? 'Não foi possível concluir a conexão com o Google Agenda.' : null);
+      if (nextStatus === 'connected') writeUserStorage(userId, STATUS_STORAGE_KEY, nextStatus);
+      cleanup();
+    };
     try {
-      await startGoogleCalendarOAuth();
+      popup = window.open('', 'google-calendar-oauth', 'popup,width=520,height=720');
+      if (!popup) throw new Error('O navegador bloqueou a janela de autorização do Google. Permita popups para este site e tente novamente.');
+      await startGoogleCalendarOAuth(popup);
+      if (!popup) throw new Error('O navegador bloqueou a janela de autorização do Google. Permita popups para este site e tente novamente.');
+      window.addEventListener('message', onMessage);
+      pollId = window.setInterval(() => {
+        if (popup?.closed) cleanup();
+      }, 500);
     } catch (error) {
+      popup?.close();
       setStatus('error');
       setErrorMessage(error instanceof Error ? error.message : 'Não foi possível iniciar a conexão.');
-      setWorking(false);
+      cleanup();
     }
   };
 
@@ -77,9 +106,14 @@ export const GoogleCalendarSettings: React.FC<Props> = ({ userId }) => {
         {status === 'expired' && <span className="google-calendar-status is-expired">⚠ Expirada</span>}
       </div>
       {status === 'connected' ? (
-        <button className="settings-action" type="button" onClick={() => void disconnect()} disabled={working}>
-          <span>{working ? 'Desconectando...' : 'Desconectar Google Agenda'}</span><span className="settings-action-arrow">→</span>
-        </button>
+        <>
+          <button className="settings-action" type="button" onClick={() => void connect()} disabled={working}>
+            <span>{working ? 'Reconectando...' : 'Reconectar Google Agenda'}</span><span className="settings-action-arrow">→</span>
+          </button>
+          <button className="settings-action" type="button" onClick={() => void disconnect()} disabled={working}>
+            <span>{working ? 'Desconectando...' : 'Desconectar Google Agenda'}</span><span className="settings-action-arrow">→</span>
+          </button>
+        </>
       ) : (
         <button className="settings-action" type="button" onClick={() => void connect()} disabled={loading || working}>
           <span>{working ? 'Conectando...' : status === 'expired' || status === 'error' ? 'Reconectar Google Agenda' : 'Conectar Google Agenda'}</span><span className="settings-action-arrow">→</span>
