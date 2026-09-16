@@ -10,11 +10,29 @@ interface FunctionResponse {
   events?: CalendarEvent[];
 }
 
-async function invoke(body: Record<string, unknown>): Promise<FunctionResponse> {
+async function invokeOnce(body: Record<string, unknown>): Promise<{ data: FunctionResponse | null; error: unknown }> {
   if (!supabase) throw new Error('Supabase não está configurado.');
-  const { data, error } = await supabase.functions.invoke('google-calendar', { body });
-  if (error || data?.error) throw new Error(data?.error ?? error?.message ?? 'Não foi possível acessar o Google Agenda.');
-  return data as FunctionResponse;
+  return supabase.functions.invoke('google-calendar', { body });
+}
+
+function isUnauthorized(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const context = (error as { context?: { status?: number } }).context;
+  return context?.status === 401;
+}
+
+async function invoke(body: Record<string, unknown>): Promise<FunctionResponse> {
+  const first = await invokeOnce(body);
+  if (!first.error && !first.data?.error) return first.data as FunctionResponse;
+  if (isUnauthorized(first.error)) {
+    const refreshed = await supabase?.auth.refreshSession();
+    if (refreshed?.error || !refreshed?.data.session) throw new Error('A sessão do aplicativo expirou. Entre novamente para reconectar o Google Agenda.');
+    const retry = await invokeOnce(body);
+    if (!retry.error && !retry.data?.error) return retry.data as FunctionResponse;
+    if (isUnauthorized(retry.error)) throw new Error('A sessão do aplicativo expirou. Entre novamente para reconectar o Google Agenda.');
+    throw new Error(retry.data?.error ?? (retry.error as { message?: string } | null)?.message ?? 'Não foi possível acessar o Google Agenda.');
+  }
+  throw new Error(first.data?.error ?? (first.error as { message?: string } | null)?.message ?? 'Não foi possível acessar o Google Agenda.');
 }
 
 export async function getGoogleCalendarStatus(): Promise<GoogleCalendarStatus> {

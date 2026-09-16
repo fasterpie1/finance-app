@@ -20,6 +20,7 @@ export const GoogleCalendarSettings: React.FC<Props> = ({ userId }) => {
   const [status, setStatus] = useState<GoogleCalendarStatus>(cachedStatus === 'connected' || cachedStatus === 'expired' ? cachedStatus : 'disconnected');
   const [loading, setLoading] = useState(Boolean(userId) && !cachedStatus);
   const [working, setWorking] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!userId) return;
@@ -29,9 +30,13 @@ export const GoogleCalendarSettings: React.FC<Props> = ({ userId }) => {
       .then((nextStatus) => {
         const resolvedStatus = result === 'error' ? 'error' : nextStatus;
         setStatus(resolvedStatus);
+        setErrorMessage(null);
         if (resolvedStatus === 'connected' || resolvedStatus === 'expired') writeUserStorage(userId, STATUS_STORAGE_KEY, resolvedStatus);
       })
-      .catch(() => setStatus('error'))
+      .catch((error: unknown) => {
+        setStatus('error');
+        setErrorMessage(error instanceof Error ? error.message : 'Não foi possível verificar a conexão agora.');
+      })
       .finally(() => setLoading(false));
   }, [userId]);
 
@@ -39,8 +44,9 @@ export const GoogleCalendarSettings: React.FC<Props> = ({ userId }) => {
     setWorking(true);
     try {
       await startGoogleCalendarOAuth();
-    } catch {
+    } catch (error) {
       setStatus('error');
+      setErrorMessage(error instanceof Error ? error.message : 'Não foi possível iniciar a conexão.');
       setWorking(false);
     }
   };
@@ -51,8 +57,9 @@ export const GoogleCalendarSettings: React.FC<Props> = ({ userId }) => {
       await disconnectGoogleCalendar();
       setStatus('disconnected');
       removeUserStorage(userId, STATUS_STORAGE_KEY);
-    } catch {
+    } catch (error) {
       setStatus('error');
+      setErrorMessage(error instanceof Error ? error.message : 'Não foi possível desconectar o Google Agenda.');
     } finally {
       setWorking(false);
     }
@@ -64,7 +71,7 @@ export const GoogleCalendarSettings: React.FC<Props> = ({ userId }) => {
       <div className="google-calendar-heading">
         <div>
           <strong>Google Agenda</strong>
-          <small>{loading ? 'Verificando conexão...' : STATUS_COPY[status]}</small>
+          <small>{loading ? 'Verificando conexão...' : errorMessage ?? STATUS_COPY[status]}</small>
         </div>
         {status === 'connected' && <span className="google-calendar-status is-connected">✓ Conectado</span>}
         {status === 'expired' && <span className="google-calendar-status is-expired">⚠ Expirada</span>}
