@@ -21,6 +21,39 @@ export type BillCategory =
 
 export type BillType = 'mensal' | 'parcela' | 'fixa' | 'variavel';
 export type CardPaymentMethod = 'credito' | 'debito_pix';
+export type CardTransactionType = 'PURCHASE' | 'INSTALLMENT' | 'REFUND' | 'PAYMENT' | 'FEE' | 'OTHER';
+export type ExpenseOwner = 'ME' | 'THIRD_PARTY' | 'SHARED' | 'UNCLASSIFIED';
+
+export interface CreditCardTransaction {
+  id: string;
+  invoiceId: string;
+  merchant: string;
+  amountCents: number;
+  type: CardTransactionType;
+  owner: ExpenseOwner;
+  cardLast4?: string;
+  cardName?: string;
+  date?: string;
+  personalAmountCents?: number;
+  thirdPartyName?: string;
+  category?: BillCategory;
+  installmentCurrent?: number;
+  installmentTotal?: number;
+  installmentGroupId?: string;
+  linkedTransactionId?: string;
+  source?: 'MANUAL' | 'IMPORT';
+}
+
+export interface CreditCardInvoice {
+  id: string;
+  month: string;
+  year: number;
+  dueDate?: string;
+  closingDate?: string;
+  statementTotalCents?: number;
+  isPaid?: boolean;
+  transactions: CreditCardTransaction[];
+}
 
 export const BILL_CATEGORY_LABELS: Record<BillCategory, string> = {
   luz: 'Luz',
@@ -101,6 +134,8 @@ export interface BudgetMonth {
   year: number;
   income: number;
   bills: Bill[];
+  /** Faturas importadas do cartão, separadas das contas do orçamento. */
+  creditCardInvoices?: CreditCardInvoice[];
   savingsGoal?: number;
   savingsGoalMode?: 'auto' | 'manual';
   savedAmount?: number;

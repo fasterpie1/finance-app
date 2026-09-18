@@ -1,22 +1,62 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { type Bill, type BudgetMonth, type BillCategory, type CardPaymentMethod, MONTH_NAMES, getMonthIndex, formatCurrency } from '../types';
+import { type Bill, type BudgetMonth, type BillCategory, type CardPaymentMethod, type CreditCardInvoice, type CreditCardTransaction, MONTH_NAMES, getMonthIndex, formatCurrency } from '../types';
 import { sampleMonths } from '../data/sampleData';
 import { supabase } from '../services/supabase';
 import { readUserStorage, removeUserStorage, writeUserStorage } from '../services/userStorage';
+import { centsToAmount, getInvoicePersonalTotalCents } from '../services/cardTransactions';
 
 const STORAGE_KEY = 'financa_months_v1';
 const SELECTED_KEY = 'financa_selected_v1';
 
 /** Migra dados antigos (sem year) para o novo formato */
+function migrateLegacyCardBills(months: BudgetMonth[]): BudgetMonth[] {
+  return months.map((month) => {
+    const legacyCardBills = month.bills.filter((bill) => (
+      (bill.type === 'parcela' && bill.category !== 'financiamento' && bill.cardPaymentMethod !== 'debito_pix')
+      || (bill.isOnCreditCard === true && bill.cardPaymentMethod !== 'debito_pix')
+    ));
+    if (legacyCardBills.length === 0) return month;
+
+    const invoiceId = `legacy-invoice-${month.id}`;
+    const transactions: CreditCardTransaction[] = legacyCardBills.map((bill) => ({
+      id: `legacy-card-transaction-${bill.id}`,
+      invoiceId,
+      merchant: bill.name,
+      amountCents: Math.round(bill.amount * 100),
+      type: bill.installmentTotal && bill.installmentTotal > 1 ? 'INSTALLMENT' : 'PURCHASE',
+      owner: 'ME',
+      category: bill.category,
+      installmentCurrent: bill.installmentCurrent,
+      installmentTotal: bill.installmentTotal,
+      source: 'MANUAL',
+    }));
+    const invoice: CreditCardInvoice = {
+      id: invoiceId,
+      month: month.name,
+      year: month.year,
+      isPaid: legacyCardBills.every((bill) => bill.isPaid),
+      transactions,
+    };
+
+    return {
+      ...month,
+      bills: month.bills.filter((bill) => !legacyCardBills.includes(bill)),
+      creditCardInvoices: [...(month.creditCardInvoices ?? []).filter((item) => item.id !== invoiceId), invoice],
+    };
+  });
+}
+
 function migrateMonths(months: BudgetMonth[]): BudgetMonth[] {
   const currentYear = new Date().getFullYear();
-  return months.map((m) => ({
+  const migrated = months.map((m) => ({
     ...m,
     year: m.year || currentYear,
     savingsGoal: m.savingsGoal ?? 0,
     savingsGoalMode: m.savingsGoalMode ?? (m.savingsGoal && m.savingsGoal > 0 ? 'manual' : 'auto'),
     savedAmount: m.savedAmount ?? 0,
+    creditCardInvoices: m.creditCardInvoices ?? [],
   }));
+  return migrateLegacyCardBills(migrated);
 }
 
 function loadMonths(userId: string | null): BudgetMonth[] {
@@ -143,6 +183,9 @@ export interface CreditCardPurchase {
   installmentCurrent: number;
   installmentTotal: number;
   paymentMethod?: CardPaymentMethod;
+  owner?: 'ME' | 'THIRD_PARTY' | 'SHARED' | 'UNCLASSIFIED';
+  personalAmountCents?: number;
+  thirdPartyName?: string;
 }
 
 export function useDashboard(userId: string | null = null) {
@@ -250,8 +293,14 @@ export function useDashboard(userId: string | null = null) {
   );
   const variableBills = billsSorted.filter((b) => b.type === 'variavel' && b.cardPaymentMethod !== 'debito_pix');
 
-  const totalPlanned = selectedMonth.bills.reduce((s, b) => s + b.amount, 0);
-  const totalPaid = selectedMonth.bills.filter((b) => b.isPaid || b.cardPaymentMethod === 'debito_pix').reduce((s, b) => s + b.amount, 0);
+  const invoicePersonalTotal = (selectedMonth.creditCardInvoices ?? []).reduce(
+    (total, invoice) => total + centsToAmount(getInvoicePersonalTotalCents(invoice)), 0
+  );
+  const invoicePersonalPaid = (selectedMonth.creditCardInvoices ?? [])
+    .filter((invoice) => invoice.isPaid)
+    .reduce((total, invoice) => total + centsToAmount(getInvoicePersonalTotalCents(invoice)), 0);
+  const totalPlanned = selectedMonth.bills.reduce((s, b) => s + b.amount, 0) + invoicePersonalTotal;
+  const totalPaid = selectedMonth.bills.filter((b) => b.isPaid || b.cardPaymentMethod === 'debito_pix').reduce((s, b) => s + b.amount, 0) + invoicePersonalPaid;
   const remaining = selectedMonth.income - totalPlanned;
 
   const selectMonth = useCallback((id: string) => setSelectedMonthId(id), []);
@@ -446,20 +495,20 @@ export function useDashboard(userId: string | null = null) {
 
     monthInfos.forEach((mi, i) => {
       const installmentNum = purchase.installmentCurrent + i;
+      const isDebitPix = purchase.paymentMethod === 'debito_pix';
       const bill: Bill = {
-        id: uuid(),
-        name: purchase.name,
-        category: purchase.category,
-        amount: purchase.amount,
-        dueDay: purchase.dueDay ?? 1,
-        type: purchase.paymentMethod === 'debito_pix' ? 'variavel' : 'parcela',
-        isPaid: false,
-        month: mi.name,
-        note: 'Cartão de crédito',
-        isOnCreditCard: purchase.paymentMethod === 'debito_pix',
-        cardPaymentMethod: purchase.paymentMethod ?? 'credito',
-        installmentCurrent: installmentNum,
-        installmentTotal: purchase.installmentTotal,
+        id: uuid(), name: purchase.name, category: purchase.category, amount: purchase.amount,
+        dueDay: purchase.dueDay ?? 1, type: 'variavel', isPaid: false, month: mi.name,
+        note: 'Débito/Pix', isOnCreditCard: true, cardPaymentMethod: 'debito_pix',
+        installmentCurrent: 1, installmentTotal: 1,
+      };
+      const invoiceId = `manual-invoice-${mi.year}-${mi.name}`;
+      const transaction: CreditCardTransaction = {
+        id: uuid(), invoiceId, merchant: purchase.name, amountCents: Math.round(purchase.amount * 100),
+        type: purchase.installmentTotal > 1 ? 'INSTALLMENT' : 'PURCHASE',
+        owner: purchase.owner ?? 'ME', personalAmountCents: purchase.personalAmountCents, thirdPartyName: purchase.thirdPartyName,
+        category: purchase.category, installmentCurrent: installmentNum,
+        installmentTotal: purchase.installmentTotal, source: 'MANUAL',
       };
       const mIdx = updated.findIndex(
         (m) => m.name.toLowerCase() === mi.name.toLowerCase() && m.year === mi.year
@@ -472,13 +521,23 @@ export function useDashboard(userId: string | null = null) {
             name: mi.name,
             year: mi.year,
             income: updated[updated.length - 1]?.income ?? 8000,
-            bills: [bill],
+            bills: isDebitPix ? [bill] : [],
             savingsGoal: 0,
+            creditCardInvoices: isDebitPix ? [] : [{ id: invoiceId, month: mi.name, year: mi.year, transactions: [transaction] }],
           },
         ];
       } else {
         updated = updated.map((m, idx) =>
-          idx === mIdx ? { ...m, bills: [...m.bills, bill] } : m
+          idx === mIdx
+            ? isDebitPix
+              ? { ...m, bills: [...m.bills, bill] }
+              : {
+                ...m,
+                creditCardInvoices: (m.creditCardInvoices ?? []).some((invoice) => invoice.id === invoiceId)
+                  ? (m.creditCardInvoices ?? []).map((invoice) => invoice.id === invoiceId ? { ...invoice, transactions: [...invoice.transactions, transaction] } : invoice)
+                  : [...(m.creditCardInvoices ?? []), { id: invoiceId, month: mi.name, year: mi.year, transactions: [transaction] }],
+              }
+            : m
         );
       }
     });
@@ -523,6 +582,7 @@ export function useDashboard(userId: string | null = null) {
         if (m.id !== selectedMonthId) return m;
         return {
           ...m,
+          creditCardInvoices: (m.creditCardInvoices ?? []).map((invoice) => ({ ...invoice, isPaid: true })),
           bills: m.bills.map((b) => {
             // Marca parcelas do cartão como pagas
             const isCreditCardBill = b.type === 'parcela' && b.category !== 'financiamento' && b.cardPaymentMethod !== 'debito_pix';
@@ -545,6 +605,7 @@ export function useDashboard(userId: string | null = null) {
         if (m.id !== selectedMonthId) return m;
         return {
           ...m,
+          creditCardInvoices: (m.creditCardInvoices ?? []).map((invoice) => ({ ...invoice, isPaid: false })),
           bills: m.bills.map((b) => {
             const isCreditCardBill = b.type === 'parcela' && b.category !== 'financiamento' && b.cardPaymentMethod !== 'debito_pix';
             const isLinkedFixed = b.isOnCreditCard === true;
@@ -556,6 +617,22 @@ export function useDashboard(userId: string | null = null) {
         };
       })
     );
+  }, [selectedMonthId]);
+
+  const addCreditCardInvoice = useCallback((invoice: CreditCardInvoice) => {
+    setMonths((prev) => prev.map((month) => (
+      month.id === selectedMonthId
+        ? { ...month, creditCardInvoices: [...(month.creditCardInvoices ?? []), invoice] }
+        : month
+    )));
+  }, [selectedMonthId]);
+
+  const updateCreditCardInvoice = useCallback((invoice: CreditCardInvoice) => {
+    setMonths((prev) => prev.map((month) => (
+      month.id === selectedMonthId
+        ? { ...month, creditCardInvoices: (month.creditCardInvoices ?? []).map((item) => item.id === invoice.id ? invoice : item) }
+        : month
+    )));
   }, [selectedMonthId]);
 
   const resetData = useCallback(() => {
@@ -637,6 +714,8 @@ export function useDashboard(userId: string | null = null) {
     updateCreditCardCalendarEventId,
     payCreditCard,
     unpayCreditCard,
+    addCreditCardInvoice,
+    updateCreditCardInvoice,
     resetData,
     exportData,
     importData,

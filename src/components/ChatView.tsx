@@ -24,7 +24,7 @@ export interface CalendarAssistantActions {
 
 const STORAGE_KEY_CHAT = 'finance_chat_history';
 const STORAGE_KEY_GROQ_STATUS = 'groq_configured';
-const CHAT_MODEL = 'groq/compound-mini';
+const CHAT_MODEL = 'openai/gpt-oss-20b';
 const MAX_CONTEXT_MESSAGES = 12;
 
 const SUGGESTIONS = [
@@ -124,7 +124,7 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
     try {
       const today = new Date().toISOString().slice(0, 10);
       const commandInstructions = `\n\nVocê também pode controlar o Google Agenda. Hoje é ${today}. Para qualquer pedido de agenda, responda SOMENTE um JSON válido, sem markdown, com este formato: {"action":"...","response":"..."}. Ações disponíveis: create_bill_reminder com billName para uma conta do mês atual (o lembrete usa automaticamente 9h no dia anterior ao vencimento); create_invoice_reminder para a fatura do mês atual (também usa 9h); create_event com title, date YYYY-MM-DD, time HH:mm, durationMinutes e description; list_events com date YYYY-MM-DD (omita para hoje); update_event com eventId ou query e os campos a alterar; delete_event com query ou eventId. Para create_event, NUNCA invente nem assuma título, data ou horário: se algum desses três campos faltar, use action none e escreva em response uma pergunta objetiva dizendo exatamente o que falta. Para perguntas normais use action none e coloque a resposta em response. Não invente IDs nem contas.\n`;
-      const rawContent = await sendGroqChat({ model: CHAT_MODEL, messages: [{ role: 'system', content: financialContext + commandInstructions }, ...history.map((m) => ({ role: m.role === 'error' ? 'user' : m.role, content: m.content }))], response_format: { type: 'json_object' }, max_tokens: 1200, temperature: 0.5 });
+      const rawContent = await sendGroqChat({ model: CHAT_MODEL, messages: [{ role: 'system', content: financialContext + commandInstructions }, ...history.map((m) => ({ role: m.role === 'error' ? 'user' : m.role, content: m.content }))], max_completion_tokens: 1200 });
       const command = parseAssistantCommand(rawContent);
       if (!command || !command.action || command.action === 'none' || !calendarActions) {
         setMessages((prev) => [...prev, { role: 'assistant', content: command?.response ?? rawContent }]);
@@ -176,7 +176,7 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
               <li>Clique em <strong style={{ color: '#c0c0c0' }}>Create API Key</strong></li>
               <li>Cole a chave aqui (começa com <code style={{ color: '#f59e0b', background: '#1a1a0a', padding: '1px 4px', borderRadius: 2 }}>gsk_</code>)</li>
             </ol>
-            <div style={{ fontSize: 10, color: '#3a3a3a', marginTop: 8 }}>Gratuito · Sem cartão · Modelo Compound Mini</div>
+            <div style={{ fontSize: 10, color: '#3a3a3a', marginTop: 8 }}>Groq · GPT OSS 20B</div>
           </div>
           <button onClick={saveKey} disabled={keyLoading || !apiKeyInput.startsWith('gsk_')} style={{ background: apiKeyInput.startsWith('gsk_') && !keyLoading ? '#3b82f6' : '#151520', border: 'none', borderRadius: 6, color: apiKeyInput.startsWith('gsk_') && !keyLoading ? '#fff' : '#3a4a5a', cursor: apiKeyInput.startsWith('gsk_') && !keyLoading ? 'pointer' : 'not-allowed', padding: '10px', fontSize: 13, fontWeight: 600 }}>{keyLoading ? 'Salvando...' : 'Salvar e começar'}</button>
         </div>
@@ -191,7 +191,7 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
           <div style={{ width: 28, height: 28, borderRadius: 8, background: '#111520', border: '1px solid #1e2a3e', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#60a5fa' }}><IconAI /></div>
           <div>
             <div style={{ fontSize: 13, fontWeight: 600, color: '#c0c0c0' }}>Assistente Financeiro</div>
-            <div style={{ fontSize: 10, color: '#3a3a3a' }}>Groq · Compound Mini</div>
+            <div style={{ fontSize: 10, color: '#3a3a3a' }}>Groq · GPT OSS 20B</div>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>

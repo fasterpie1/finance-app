@@ -15,6 +15,7 @@ import { getBillNotifications, type BillNotification } from './store/useDashboar
 import { createCalendarEvent, deleteCalendarEvent, listCalendarEvents, updateCalendarEvent } from './services/googleCalendar';
 import { billReminderInput, invoiceReminderInput } from './services/calendarReminders';
 import { type Bill, formatCurrency, parseBRL, formatMonthShort, BILL_CATEGORY_LABELS, getMonthIndex } from './types';
+import { centsToAmount, getInvoicePersonalTotalCents, getInvoiceTotalCents } from './services/cardTransactions';
 
 type Tab = 'dashboard' | 'cartao' | 'chat';
 type AddSection = 'fixed' | 'variable' | null;
@@ -430,6 +431,9 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
   const fixedTotal = db.fixedBills.reduce((s, b) => s + b.amount, 0);
   const fixedPaidTotal = db.fixedBills.filter((b) => b.isPaid).reduce((s, b) => s + b.amount, 0);
   const pendingAmount = db.totalPlanned - db.totalPaid;
+  const selectedInvoices = db.selectedMonth.creditCardInvoices ?? [];
+  const invoiceTotal = selectedInvoices.reduce((total, invoice) => total + centsToAmount(getInvoiceTotalCents(invoice)), 0);
+  const invoicePersonalTotal = selectedInvoices.reduce((total, invoice) => total + centsToAmount(getInvoicePersonalTotalCents(invoice)), 0);
   const savingsGoalIsManual = db.selectedMonth.savingsGoalMode === 'manual';
   const predictedSavings = Math.max(db.remaining, 0);
   const savingsGoal = savingsGoalIsManual ? (db.selectedMonth.savingsGoal ?? 0) : predictedSavings;
@@ -464,6 +468,8 @@ Total já pago: ${formatCurrency(db.totalPaid)}
 Total pendente: ${formatCurrency(db.totalPlanned - db.totalPaid)}
 Saldo que sobra: ${formatCurrency(db.remaining)}
 Contas pagas: ${paidCount} de ${totalCount}
+Fatura do cartão: ${formatCurrency(invoiceTotal)}
+Impacto pessoal da fatura: ${formatCurrency(invoicePersonalTotal)}
 
 Contas do mês:
 ${db.billsSorted.map((b) => `- ${b.name} (${BILL_CATEGORY_LABELS[b.category]}) — ${formatCurrency(b.amount)} — Dia ${b.dueDay}${b.installmentCurrent ? ` — Parcela ${b.installmentCurrent}/${b.installmentTotal}` : ''} — ${b.isPaid ? 'Pago' : 'Pendente'}`).join('\n')}
@@ -475,8 +481,14 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
   const hasFixedBills = db.fixedBills.length > 0;
   const masked = 'R$ ••••';
   const linkedFixedBills = db.fixedBills.filter((b) => b.isOnCreditCard);
-  const creditCardTotal = db.creditCardBills.reduce((s, b) => s + b.amount, 0) + linkedFixedBills.reduce((s, b) => s + b.amount, 0);
-  const allCardPaid = db.creditCardBills.length > 0 && db.creditCardBills.every((b) => b.isPaid) && linkedFixedBills.every((b) => b.isPaid);
+  const creditCardTotal = db.creditCardBills.reduce((s, b) => s + b.amount, 0)
+    + linkedFixedBills.reduce((s, b) => s + b.amount, 0)
+    + (db.selectedMonth.creditCardInvoices ?? []).reduce((total, invoice) => total + centsToAmount(getInvoiceTotalCents(invoice)), 0);
+  const hasCardItems = db.creditCardBills.length > 0 || linkedFixedBills.length > 0 || (db.selectedMonth.creditCardInvoices ?? []).length > 0;
+  const allCardPaid = hasCardItems
+    && db.creditCardBills.every((b) => b.isPaid)
+    && linkedFixedBills.every((b) => b.isPaid)
+    && (db.selectedMonth.creditCardInvoices ?? []).every((invoice) => invoice.isPaid);
 
   const removeCalendarEvent = async (eventId: string): Promise<boolean> => {
     try { await deleteCalendarEvent(eventId); return true; } catch (error) { setCalendarError(error instanceof Error ? error.message : 'Não foi possível atualizar o Google Agenda.'); return false; }
@@ -825,7 +837,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
           <CollapsibleSection key="chart" title="Visualizações dos gastos" isOpen={isSectionOpen('chart_v2', true)} onToggle={() => toggleSection('chart_v2')} hideValues={hideValues} editMode={editMode}>
             <CardSpendingChart months={db.months} selectedMonthName={db.selectedMonth.name} selectedMonthYear={db.selectedMonth.year} hideValues={hideValues} />
             <div style={{ height: 1, background: '#1a1a1a', margin: '18px 0' }} />
-            <CategoryChart bills={db.selectedMonth.bills} hideValues={hideValues} />
+            <CategoryChart bills={db.selectedMonth.bills} invoices={db.selectedMonth.creditCardInvoices} hideValues={hideValues} />
           </CollapsibleSection>
         );
 
@@ -1156,10 +1168,11 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
           <CreditCardView
             userId={userId}
             selectedMonthName={db.selectedMonth.name} selectedMonthYear={db.selectedMonth.year}
-            creditCardBills={db.creditCardBills} linkedFixedBills={linkedFixedBills} allMonths={db.months}
+            creditCardBills={db.creditCardBills} creditCardInvoices={db.selectedMonth.creditCardInvoices ?? []} linkedFixedBills={linkedFixedBills} allMonths={db.months}
             debitPixBills={db.debitPixBills}
             onTogglePaid={db.togglePaid} onSaveBill={db.saveBill} onDeleteBill={db.deleteBill}
-            onAddPurchase={db.addCreditCardPurchase} onImportBatch={db.addCreditCardPurchasesBatch} getAffectedMonths={db.getAffectedMonths}
+            onAddPurchase={db.addCreditCardPurchase} getAffectedMonths={db.getAffectedMonths}
+            onImportInvoice={db.addCreditCardInvoice} onUpdateInvoice={db.updateCreditCardInvoice}
             onPayCreditCard={payCreditCardWithCalendar} onUnpayCreditCard={db.unpayCreditCard}
             creditCardDueDay={db.selectedMonth.creditCardDueDay} onUpdateCreditCardDueDay={updateInvoiceDueDayWithCalendar}
             invoiceCalendarEventId={db.selectedMonth.creditCardCalendarEventId} onInvoiceCalendarReminder={() => void addInvoiceReminder()} invoiceCalendarReminderLoading={calendarWorkingId === `invoice:${db.selectedMonth.id}`}

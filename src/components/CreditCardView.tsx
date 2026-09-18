@@ -1,12 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   type BillCategory,
+  type CreditCardInvoice,
+  type ExpenseOwner,
   BILL_CATEGORY_LABELS,
   formatCurrency,
   formatMonthShort,
   parseBRL,
 } from '../types';
 import { type CreditCardPurchase, type MonthInfo } from '../store/useDashboard';
+import { centsToAmount, getInvoicePersonalTotalCents, getInvoiceThirdPartyTotalCents, getInvoiceUnclassifiedTotalCents, getInvoiceTotalCents, getOwnerLabel } from '../services/cardTransactions';
+import { findDuplicateTransaction } from '../services/transactionDuplicates';
 import { BillRow } from './BillRow';
 import { StatementImportPanel } from './StatementImportPanel';
 import { type Bill } from '../types';
@@ -17,6 +21,7 @@ interface Props {
   selectedMonthName: string;
   selectedMonthYear: number;
   creditCardBills: Bill[];
+  creditCardInvoices: CreditCardInvoice[];
   debitPixBills: Bill[];
   linkedFixedBills: Bill[];
   allMonths: { id: string; name: string; year: number; bills: Bill[] }[];
@@ -24,7 +29,8 @@ interface Props {
   onSaveBill: (bill: Bill) => void;
   onDeleteBill: (id: string) => void;
   onAddPurchase: (p: CreditCardPurchase) => void;
-  onImportBatch: (purchases: CreditCardPurchase[]) => void;
+  onImportInvoice: (invoice: CreditCardInvoice) => void;
+  onUpdateInvoice: (invoice: CreditCardInvoice) => void;
   getAffectedMonths: (cur: number, total: number) => MonthInfo[];
   onPayCreditCard: () => void;
   onUnpayCreditCard: () => void;
@@ -43,15 +49,121 @@ const labelStyle: React.CSSProperties = {
   fontSize: 10, color: '#555', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4, display: 'block',
 };
 
+const ownerOptions: Array<{ value: ExpenseOwner; label: string }> = [
+  { value: 'ME', label: 'Eu' },
+  { value: 'THIRD_PARTY', label: 'Terceiro' },
+  { value: 'SHARED', label: 'Compartilhado' },
+  { value: 'UNCLASSIFIED', label: 'Não classificado' },
+];
+
+function InvoiceTransactions({ invoices, onUpdate, hideValues }: { invoices: CreditCardInvoice[]; onUpdate: (invoice: CreditCardInvoice) => void; hideValues?: boolean }) {
+  const [filter, setFilter] = useState<'ALL' | ExpenseOwner>('ALL');
+  const summaryRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef({ active: false, startX: 0, scrollLeft: 0 });
+  const transactions = invoices.flatMap((invoice) => invoice.transactions).filter((transaction) => filter === 'ALL' || transaction.owner === filter);
+  const updateTransaction = (id: string, patch: Partial<CreditCardInvoice['transactions'][number]>, remove = false) => {
+    const invoice = invoices.find((item) => item.transactions.some((transaction) => transaction.id === id));
+    if (!invoice) return;
+    onUpdate({ ...invoice, transactions: remove
+      ? invoice.transactions.filter((transaction) => transaction.id !== id)
+      : invoice.transactions.map((transaction) => transaction.id === id ? { ...transaction, ...patch } : transaction) });
+  };
+  const totals = invoices.reduce((summary, invoice) => ({
+    total: summary.total + getInvoiceTotalCents(invoice),
+    personal: summary.personal + getInvoicePersonalTotalCents(invoice),
+    thirdParty: summary.thirdParty + getInvoiceThirdPartyTotalCents(invoice),
+    unclassified: summary.unclassified + getInvoiceUnclassifiedTotalCents(invoice),
+  }), { total: 0, personal: 0, thirdParty: 0, unclassified: 0 });
+
+  return (
+    <section style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div
+        ref={summaryRef}
+        className="theme-invoice-summary"
+        onPointerDown={(event) => {
+          if (!summaryRef.current) return;
+          dragRef.current = { active: true, startX: event.clientX, scrollLeft: summaryRef.current.scrollLeft };
+          summaryRef.current.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          if (!dragRef.current.active || !summaryRef.current) return;
+          summaryRef.current.scrollLeft = dragRef.current.scrollLeft - (event.clientX - dragRef.current.startX);
+        }}
+        onPointerUp={(event) => {
+          dragRef.current.active = false;
+          summaryRef.current?.releasePointerCapture(event.pointerId);
+        }}
+        onPointerCancel={() => { dragRef.current.active = false; }}
+        style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2, cursor: 'grab', touchAction: 'pan-x', userSelect: 'none' }}
+      >
+        {[
+          ['Fatura', totals.total],
+          ['Meu gasto', totals.personal],
+          ['Terceiros', totals.thirdParty],
+          ['Não classificados', totals.unclassified],
+        ].map(([label, cents]) => (
+          <div key={String(label)} style={{ minWidth: 126, flex: '0 0 126px', background: '#131313', border: '1px solid #1e1e1e', borderRadius: 10, padding: '12px 14px' }}>
+            <div style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</div>
+            <div style={{ marginTop: 5, fontSize: 16, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#e8e8e8' }}>{hideValues ? 'R$ ••••' : formatCurrency(centsToAmount(Number(cents)))}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {([{ value: 'ALL', label: 'Todos' }, ...ownerOptions] as Array<{ value: 'ALL' | ExpenseOwner; label: string }>).map((option) => (
+          <button key={option.value} type="button" onClick={() => setFilter(option.value)} style={{ background: filter === option.value ? '#1e2a3e' : '#151515', border: `1px solid ${filter === option.value ? '#3b82f6' : '#242424'}`, borderRadius: 5, color: filter === option.value ? '#93c5fd' : '#666', cursor: 'pointer', padding: '6px 9px', fontSize: 11 }}>{option.label}</button>
+        ))}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {transactions.map((transaction) => (
+          <div key={transaction.id} style={{ background: '#131313', border: `1px solid ${transaction.owner === 'UNCLASSIFIED' ? '#3a2a12' : '#1e1e1e'}`, borderRadius: 10, padding: '11px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <strong style={{ fontSize: 13, color: '#d4d4d4' }}>{transaction.merchant}</strong>
+                {transaction.installmentCurrent && transaction.installmentTotal && transaction.installmentTotal > 1 && <span style={{ fontSize: 10, color: '#777' }}>Parcela {transaction.installmentCurrent}/{transaction.installmentTotal}</span>}
+                <span style={{ fontSize: 10, color: '#777' }}>{transaction.type}</span>
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 5, flexWrap: 'wrap' }}>
+                <select value={transaction.owner} onChange={(event) => updateTransaction(transaction.id, { owner: event.target.value as ExpenseOwner, personalAmountCents: event.target.value === 'SHARED' ? transaction.personalAmountCents : undefined })} style={{ ...fieldStyle, width: 150, padding: '5px 8px', fontSize: 11 }}>
+                  {ownerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+                {transaction.owner === 'THIRD_PARTY' && <input value={transaction.thirdPartyName ?? ''} onChange={(event) => updateTransaction(transaction.id, { thirdPartyName: event.target.value })} placeholder="Quem?" style={{ ...fieldStyle, width: 130, padding: '5px 8px', fontSize: 11 }} />}
+                {transaction.owner === 'SHARED' && <input inputMode="decimal" value={transaction.personalAmountCents == null ? '' : (transaction.personalAmountCents / 100).toFixed(2).replace('.', ',')} onChange={(event) => updateTransaction(transaction.id, { personalAmountCents: Math.round(parseBRL(event.target.value) * 100) })} placeholder="Minha parte" style={{ ...fieldStyle, width: 110, padding: '5px 8px', fontSize: 11 }} />}
+                <span style={{ fontSize: 10, color: transaction.owner === 'UNCLASSIFIED' ? '#f59e0b' : '#555' }}>{getOwnerLabel(transaction.owner)}</span>
+              </div>
+            </div>
+            <strong style={{ fontSize: 14, color: transaction.type === 'REFUND' ? '#10b981' : '#d4d4d4', whiteSpace: 'nowrap' }}>{hideValues ? 'R$ ••••' : formatCurrency(centsToAmount(transaction.amountCents))}</strong>
+            <button
+              type="button"
+              title="Remover lançamento"
+              aria-label={`Remover lançamento ${transaction.merchant}`}
+              onClick={() => {
+                if (window.confirm(`Remover ${transaction.merchant} da fatura?`)) {
+                  updateTransaction(transaction.id, {}, true);
+                }
+              }}
+              style={{ background: 'transparent', border: '1px solid #2a1a1a', borderRadius: 6, color: '#a55', cursor: 'pointer', width: 28, height: 28, fontSize: 16, lineHeight: 1 }}
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export const CreditCardView: React.FC<Props> = ({
-  userId, selectedMonthName, selectedMonthYear, creditCardBills, debitPixBills, linkedFixedBills, allMonths,
-  onTogglePaid, onSaveBill, onDeleteBill, onAddPurchase, onImportBatch, getAffectedMonths, onPayCreditCard, onUnpayCreditCard, creditCardDueDay, onUpdateCreditCardDueDay, hideValues,
+  userId, selectedMonthName, selectedMonthYear, creditCardBills, creditCardInvoices, debitPixBills, linkedFixedBills, allMonths,
+  onTogglePaid, onSaveBill, onDeleteBill, onAddPurchase, onImportInvoice, onUpdateInvoice, getAffectedMonths, onPayCreditCard, onUnpayCreditCard, creditCardDueDay, onUpdateCreditCardDueDay, hideValues,
   invoiceCalendarEventId, onInvoiceCalendarReminder, invoiceCalendarReminderLoading,
 }) => {
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState<BillCategory>('compras');
   const [paymentMethod, setPaymentMethod] = useState<'credito' | 'debito_pix'>('credito');
+  const [owner, setOwner] = useState<ExpenseOwner>('ME');
+  const [personalAmount, setPersonalAmount] = useState('');
+  const [thirdPartyName, setThirdPartyName] = useState('');
   const [curInstallment, setCurInstallment] = useState('1');
   const [totalInstallment, setTotalInstallment] = useState('1');
   const [invoiceDueDayInput, setInvoiceDueDayInput] = useState(String(creditCardDueDay ?? ''));
@@ -77,20 +189,34 @@ export const CreditCardView: React.FC<Props> = ({
   const cur = parseInt(curInstallment) || 1;
   const total = parseInt(totalInstallment) || 1;
   const affected = getAffectedMonths(Math.min(cur, total), Math.max(cur, total));
+  const manualDuplicate = name.trim() && amount
+    ? findDuplicateTransaction({
+      amountCents: Math.round(parseBRL(amount) * 100),
+      type: total > 1 ? 'INSTALLMENT' : 'PURCHASE',
+      installmentCurrent: paymentMethod === 'debito_pix' ? 1 : cur,
+      installmentTotal: paymentMethod === 'debito_pix' ? 1 : total,
+    }, creditCardInvoices.flatMap((invoice) => invoice.transactions))
+    : undefined;
 
   const totalDebt = allMonths.reduce((sum, m) => sum + m.bills.filter((b) => b.type === 'parcela' && b.category !== 'financiamento' && !b.isPaid).reduce((s, b) => s + b.amount, 0), 0);
   const monthlyFromCard = creditCardBills.reduce((s, b) => s + b.amount, 0);
   const linkedTotal = linkedFixedBills.reduce((s, b) => s + b.amount, 0);
-  const faturaTotal = monthlyFromCard + linkedTotal;
-  const allCardPaid = creditCardBills.length > 0 && creditCardBills.every((b) => b.isPaid) && linkedFixedBills.every((b) => b.isPaid);
+  const importedInvoiceTotal = creditCardInvoices.reduce((total, invoice) => total + centsToAmount(getInvoiceTotalCents(invoice)), 0);
+  const faturaTotal = monthlyFromCard + linkedTotal + importedInvoiceTotal;
+  const hasCardItems = creditCardBills.length > 0 || linkedFixedBills.length > 0 || creditCardInvoices.length > 0;
+  const allCardPaid = hasCardItems
+    && creditCardBills.every((b) => b.isPaid)
+    && linkedFixedBills.every((b) => b.isPaid)
+    && creditCardInvoices.every((invoice) => invoice.isPaid);
 
   const handleAdd = () => {
     const trimmed = name.trim();
     if (!trimmed || !amount) return;
     const c = Math.max(1, Math.min(cur, total));
     const t = Math.max(c, total);
-    onAddPurchase({ name: trimmed, amount: parseBRL(amount), category, installmentCurrent: paymentMethod === 'debito_pix' ? 1 : c, installmentTotal: paymentMethod === 'debito_pix' ? 1 : t, paymentMethod });
-    setName(''); setAmount(''); setCurInstallment('1'); setTotalInstallment('1'); setPaymentMethod('credito');
+    const amountCents = Math.round(parseBRL(amount) * 100);
+    onAddPurchase({ name: trimmed, amount: parseBRL(amount), category, installmentCurrent: paymentMethod === 'debito_pix' ? 1 : c, installmentTotal: paymentMethod === 'debito_pix' ? 1 : t, paymentMethod, owner: paymentMethod === 'debito_pix' ? 'ME' : owner, personalAmountCents: owner === 'SHARED' ? Math.min(amountCents, Math.max(0, Math.round(parseBRL(personalAmount) * 100))) : undefined, thirdPartyName: owner === 'THIRD_PARTY' ? thirdPartyName.trim() || undefined : undefined });
+    setName(''); setAmount(''); setCurInstallment('1'); setTotalInstallment('1'); setPaymentMethod('credito'); setOwner('ME'); setPersonalAmount(''); setThirdPartyName('');
   };
 
   const masked = 'R$ ••••';
@@ -183,6 +309,13 @@ export const CreditCardView: React.FC<Props> = ({
               <div><label style={labelStyle}>Categoria</label><select style={fieldStyle} value={category} onChange={(e) => setCategory(e.target.value as BillCategory)}>{(Object.keys(BILL_CATEGORY_LABELS) as BillCategory[]).map((c) => (<option key={c} value={c}>{BILL_CATEGORY_LABELS[c]}</option>))}</select></div>
             </div>
             <div><label style={labelStyle}>Forma de pagamento</label><select style={fieldStyle} value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as 'credito' | 'debito_pix')}><option value="credito">Cartão de crédito</option><option value="debito_pix">Débito/Pix</option></select></div>
+            {paymentMethod === 'credito' && (
+              <>
+                <div><label style={labelStyle}>Responsabilidade</label><select style={fieldStyle} value={owner} onChange={(e) => setOwner(e.target.value as ExpenseOwner)}><option value="ME">Eu</option><option value="THIRD_PARTY">Terceiro</option><option value="SHARED">Compartilhado</option><option value="UNCLASSIFIED">Não classificado</option></select></div>
+                {owner === 'THIRD_PARTY' && <div><label style={labelStyle}>Terceiro (opcional)</label><input style={fieldStyle} placeholder="Nome da pessoa" value={thirdPartyName} onChange={(e) => setThirdPartyName(e.target.value)} /></div>}
+                {owner === 'SHARED' && <div><label style={labelStyle}>Minha parte</label><input style={fieldStyle} inputMode="decimal" placeholder="0,00" value={personalAmount} onChange={(e) => setPersonalAmount(e.target.value.replace(/[^0-9.,]/g, ''))} /></div>}
+              </>
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, opacity: paymentMethod === 'debito_pix' ? 0.45 : 1 }}>
               <div><label style={labelStyle}>Valor da parcela</label><input style={fieldStyle} inputMode="decimal" pattern="[0-9.,]*" placeholder="211,00" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.,]/g, ''))} onKeyDown={(e) => e.key === 'Enter' && handleAdd()} /></div>
               <div><label style={labelStyle}>Parcela atual</label><input disabled={paymentMethod === 'debito_pix'} style={fieldStyle} inputMode="numeric" pattern="[0-9]*" value={paymentMethod === 'debito_pix' ? '1' : curInstallment} onChange={(e) => setCurInstallment(e.target.value.replace(/[^0-9]/g, ''))} /></div>
@@ -202,6 +335,12 @@ export const CreditCardView: React.FC<Props> = ({
               </div>
             )}
 
+            {manualDuplicate && (
+              <div style={{ background: '#241a0b', border: '1px solid #5a3b12', borderRadius: 6, padding: '8px 10px', color: '#f59e0b', fontSize: 11 }}>
+                Possível duplicado: já existe um lançamento com o mesmo valor, tipo e parcela. Confirme antes de salvar.
+              </div>
+            )}
+
             <button onClick={handleAdd} disabled={!name.trim() || !amount} style={{ background: name.trim() && amount ? '#3b82f6' : '#151520', border: 'none', borderRadius: 6, color: name.trim() && amount ? '#fff' : '#3a4a5a', cursor: name.trim() && amount ? 'pointer' : 'not-allowed', padding: '10px 20px', fontSize: 13, fontWeight: 600, alignSelf: 'flex-start', transition: 'all 0.15s' }}>
               Lançar {affected.length > 1 ? `nos ${affected.length} meses` : 'no mês'}
             </button>
@@ -210,7 +349,9 @@ export const CreditCardView: React.FC<Props> = ({
       </div>
 
       {/* Importar da fatura */}
-      <StatementImportPanel userId={userId} onImport={onImportBatch} />
+      <StatementImportPanel userId={userId} month={selectedMonthName} year={selectedMonthYear} existingTransactions={creditCardInvoices.flatMap((invoice) => invoice.transactions)} onImport={onImportInvoice} />
+
+      {creditCardInvoices.length > 0 && <InvoiceTransactions invoices={creditCardInvoices} onUpdate={onUpdateInvoice} hideValues={hideValues} />}
 
       {/* Parcelas do mês */}
       <div>

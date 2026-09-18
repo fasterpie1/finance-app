@@ -4,17 +4,33 @@ const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
 const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const encryptionSecret = Deno.env.get('GROQ_KEY_ENCRYPTION_SECRET')!;
 const groqUrl = 'https://api.groq.com/openai/v1/chat/completions';
-const allowedOrigin = Deno.env.get('APP_ORIGIN') ?? '*';
+const configuredOrigins = (Deno.env.get('APP_ORIGIN') ?? '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const allowedOrigins = new Set([
+  ...configuredOrigins,
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+]);
 const admin = createClient(supabaseUrl, serviceRoleKey);
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': allowedOrigin,
   'Access-Control-Allow-Headers': 'authorization, content-type, apikey, x-client-info',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+function headersFor(request: Request): HeadersInit {
+  const origin = request.headers.get('Origin');
+  return {
+    ...corsHeaders,
+    'Access-Control-Allow-Origin': origin && allowedOrigins.has(origin) ? origin : (configuredOrigins[0] ?? '*'),
+    Vary: 'Origin',
+  };
+}
+
+function json(body: unknown, request: Request, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: { ...headersFor(request), 'Content-Type': 'application/json' } });
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -70,34 +86,34 @@ async function callGroq(apiKey: string, body: Record<string, unknown>): Promise<
 }
 
 Deno.serve(async (request) => {
-  if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  if (request.method === 'OPTIONS') return new Response('ok', { headers: headersFor(request) });
   try {
     const user = await currentUser(request);
-    if (!user) return json({ error: 'Não autenticado.' }, 401);
+    if (!user) return json({ error: 'Não autenticado.' }, request, 401);
     const body = await request.json() as { action?: string; key?: string; request?: Record<string, unknown> };
 
     if (body.action === 'save-key') {
-      if (!body.key || !/^gsk_[A-Za-z0-9_-]+$/.test(body.key)) return json({ error: 'Chave Groq inválida.' }, 400);
+      if (!body.key || !/^gsk_[A-Za-z0-9_-]+$/.test(body.key)) return json({ error: 'Chave Groq inválida.' }, request, 400);
       const { error } = await admin.from('user_groq_keys').upsert({ user_id: user.id, encrypted_key: await encrypt(body.key), updated_at: new Date().toISOString() });
       if (error) throw error;
-      return json({ configured: true });
+      return json({ configured: true }, request);
     }
     if (body.action === 'delete-key') {
       const { error } = await admin.from('user_groq_keys').delete().eq('user_id', user.id);
       if (error) throw error;
-      return json({ configured: false });
+      return json({ configured: false }, request);
     }
-    if (body.action === 'status') return json({ configured: Boolean(await loadGroqKey(user.id)) });
+    if (body.action === 'status') return json({ configured: Boolean(await loadGroqKey(user.id)) }, request);
     if (body.action === 'chat' || body.action === 'extract') {
       const apiKey = await loadGroqKey(user.id);
-      if (!apiKey) return json({ error: 'Configure sua chave Groq no Assistente.' }, 400);
+      if (!apiKey) return json({ error: 'Configure sua chave Groq no Assistente.' }, request, 400);
       const result = await callGroq(apiKey, body.request ?? {});
-      if (typeof result === 'object' && result !== null && 'error' in result) return json(result, (result as { status?: number }).status ?? 502);
-      return json(result);
+      if (typeof result === 'object' && result !== null && 'error' in result) return json(result, request, (result as { status?: number }).status ?? 502);
+      return json(result, request);
     }
-    return json({ error: 'Ação inválida.' }, 400);
+    return json({ error: 'Ação inválida.' }, request, 400);
   } catch (error) {
     console.error(error);
-    return json({ error: error instanceof Error ? error.message : 'Erro interno.' }, 500);
+    return json({ error: error instanceof Error ? error.message : 'Erro interno.' }, request, 500);
   }
 });

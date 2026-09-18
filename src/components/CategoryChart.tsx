@@ -2,13 +2,16 @@ import React from 'react';
 import {
   type Bill,
   type BillCategory,
+  type CreditCardInvoice,
   BILL_CATEGORY_LABELS,
   BILL_CATEGORY_COLORS,
   formatCurrency,
 } from '../types';
+import { getTransactionCategoryImpactCents } from '../services/cardTransactions';
 
 interface Props {
   bills: Bill[];
+  invoices?: CreditCardInvoice[];
   hideValues?: boolean;
 }
 
@@ -20,9 +23,14 @@ interface CategoryData {
   pct: number;
 }
 
-export const CategoryChart: React.FC<Props> = ({ bills, hideValues }) => {
+export const CategoryChart: React.FC<Props> = ({ bills, invoices = [], hideValues }) => {
   const map = new Map<BillCategory, number>();
   bills.forEach((b) => { map.set(b.category, (map.get(b.category) || 0) + b.amount); });
+  invoices.flatMap((invoice) => invoice.transactions).forEach((transaction) => {
+    if (!transaction.category) return;
+    const impact = getTransactionCategoryImpactCents(transaction);
+    map.set(transaction.category, (map.get(transaction.category) || 0) + impact / 100);
+  });
 
   const total = bills.reduce((s, b) => s + b.amount, 0);
   if (total === 0) return <div style={{ textAlign: 'center', color: '#333', fontSize: 12, padding: 20 }}>Nenhum gasto para exibir.</div>;

@@ -5,7 +5,7 @@ import {
   formatCurrency,
   parseBRL,
 } from '../types';
-import { type CreditCardPurchase } from '../store/useDashboard';
+import { type CreditCardInvoice, type CreditCardTransaction, type ExpenseOwner } from '../types';
 import {
   type ExtractedPurchase,
   extractPurchasesFromImage,
@@ -13,12 +13,17 @@ import {
   fileToBase64,
   pdfToText,
 } from '../services/statementImport';
+import { extractStatementTotalCents } from '../services/statementTotals';
+import { findDuplicateTransaction } from '../services/transactionDuplicates';
 import { hasGroqKey } from '../services/groq';
 import { readUserStorage, writeUserStorage } from '../services/userStorage';
 
 interface Props {
-  onImport: (purchases: CreditCardPurchase[]) => void;
+  onImport: (invoice: CreditCardInvoice) => void;
   userId: string | null;
+  month: string;
+  year: number;
+  existingTransactions: CreditCardTransaction[];
 }
 
 const fieldStyle: React.CSSProperties = {
@@ -31,7 +36,7 @@ function makeId(): string {
 
 const STORAGE_KEY_GROQ_STATUS = 'groq_configured';
 
-export const StatementImportPanel: React.FC<Props> = ({ onImport, userId }) => {
+export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month, year, existingTransactions }) => {
   const fileRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -39,17 +44,20 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId }) => {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewIsPdf, setPreviewIsPdf] = useState(false);
   const [items, setItems] = useState<ExtractedPurchase[]>([]);
+  const [statementTotalCents, setStatementTotalCents] = useState<number | undefined>();
 
   const hasCachedKeyStatus = readUserStorage(userId, STORAGE_KEY_GROQ_STATUS) === 'true';
   const [apiKeyConfigured, setApiKeyConfigured] = useState(hasCachedKeyStatus);
   const [checkingKey, setCheckingKey] = useState(!hasCachedKeyStatus);
   const selectedCount = items.filter((i) => i.selected).length;
   const selectedTotal = items.filter((i) => i.selected).reduce((s, i) => s + i.amount, 0);
+  const displayedTotal = statementTotalCents != null ? statementTotalCents / 100 : selectedTotal;
 
   const handleFile = async (file: File) => {
     setError('');
     setLoading(true);
     setItems([]);
+    setStatementTotalCents(undefined);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(URL.createObjectURL(file));
     setPreviewIsPdf(file.type === 'application/pdf');
@@ -57,13 +65,20 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId }) => {
     try {
       if (!apiKeyConfigured) throw new Error('Configure sua chave Groq na aba Assistente antes de importar.');
       const extracted = file.type === 'application/pdf'
-        ? await extractPurchasesFromText(await pdfToText(file))
+        ? await (async () => {
+          const text = await pdfToText(file);
+          setStatementTotalCents(extractStatementTotalCents(text));
+          return extractPurchasesFromText(text);
+        })()
         : await (async () => {
           const { base64, mimeType } = await fileToBase64(file);
           return extractPurchasesFromImage(base64, mimeType);
         })();
       if (extracted.length === 0) throw new Error(file.type === 'application/pdf' ? 'Nenhuma compra encontrada no PDF. Se ele for escaneado, envie uma imagem ou um PDF com texto selecionável.' : 'Nenhuma compra encontrada na imagem. Verifique se a fatura está legível e tente novamente.');
-      setItems(extracted.map((p) => ({ ...p, id: makeId(), selected: true })));
+      setItems(extracted.map((p) => {
+        const duplicate = findDuplicateTransaction({ ...p, amountCents: Math.round(p.amount * 100) }, existingTransactions);
+        return { ...p, id: makeId(), selected: true, duplicateConfidence: duplicate?.confidence };
+      }));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao processar arquivo');
     } finally {
@@ -76,21 +91,38 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId }) => {
   };
 
   const handleConfirm = () => {
-    const purchases: CreditCardPurchase[] = items
+    const transactions: CreditCardTransaction[] = items
       .filter((i) => i.selected && i.name.trim() && i.amount > 0)
       .map((i) => ({
-        name: i.name.trim(),
-        amount: i.amount,
+        id: makeId(),
+        invoiceId: '',
+        merchant: i.name.trim(),
+        amountCents: Math.round(i.amount * 100),
+        type: i.type,
+        owner: i.owner,
+        personalAmountCents: i.owner === 'SHARED' ? Math.min(Math.round(i.amount * 100), Math.max(0, i.personalAmountCents ?? 0)) : undefined,
+        thirdPartyName: i.owner === 'THIRD_PARTY' ? i.thirdPartyName?.trim() || undefined : undefined,
+        cardLast4: i.cardLast4,
+        date: i.date,
         category: i.category,
         installmentCurrent: Math.max(1, Math.min(i.installmentCurrent, i.installmentTotal)),
         installmentTotal: Math.max(i.installmentCurrent, i.installmentTotal),
+        source: 'IMPORT',
       }));
-    if (purchases.length === 0) return;
-    onImport(purchases);
+    if (transactions.length === 0) return;
+    const invoiceId = makeId();
+    onImport({
+      id: invoiceId,
+      month,
+      year,
+      statementTotalCents,
+      transactions: transactions.map((transaction) => ({ ...transaction, invoiceId })),
+    });
     setItems([]);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(null);
     setPreviewIsPdf(false);
+    setStatementTotalCents(undefined);
     setOpen(false);
   };
 
@@ -102,6 +134,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId }) => {
         if (previewUrl) URL.revokeObjectURL(previewUrl);
         setPreviewUrl(null);
         setPreviewIsPdf(false);
+        setStatementTotalCents(undefined);
       }
       return !prev;
     });
@@ -223,11 +256,16 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId }) => {
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 320, overflowY: 'auto' }}>
                 {items.map((item) => (
-                  <div key={item.id} style={{ background: '#0e0e0e', border: `1px solid ${item.selected ? '#1e2a3e' : '#1a1a1a'}`, borderRadius: 8, padding: '10px 12px', opacity: item.selected ? 1 : 0.5 }}>
+                  <div key={item.id} style={{ background: '#0e0e0e', border: `1px solid ${item.duplicateConfidence ? '#5a3b12' : item.selected ? '#1e2a3e' : '#1a1a1a'}`, borderRadius: 8, padding: '10px 12px', opacity: item.selected ? 1 : 0.5 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                       <input type="checkbox" checked={item.selected} onChange={(e) => updateItem(item.id, { selected: e.target.checked })} style={{ accentColor: '#3b82f6', width: 16, height: 16 }} />
                       <input style={{ ...fieldStyle, flex: 1 }} value={item.name} onChange={(e) => updateItem(item.id, { name: e.target.value })} placeholder="Nome" />
                     </div>
+                    {item.duplicateConfidence && (
+                      <div style={{ background: '#241a0b', border: '1px solid #5a3b12', borderRadius: 6, padding: '7px 9px', marginBottom: 8, color: '#f59e0b', fontSize: 11 }}>
+                        {item.duplicateConfidence === 'high' ? 'Possível duplicado: valor, parcela e identificadores coincidem.' : 'Possível duplicado: valor, tipo e parcela coincidem; confirme antes de lançar.'}
+                      </div>
+                    )}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 6 }}>
                       <div>
                         <div style={{ fontSize: 9, color: '#444', marginBottom: 2 }}>Valor</div>
@@ -255,13 +293,36 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId }) => {
                         Parcela {item.installmentCurrent}/{item.installmentTotal} · {formatCurrency(item.amount)}/mês
                       </div>
                     )}
+                    <div style={{ display: 'grid', gridTemplateColumns: item.owner === 'SHARED' || item.owner === 'THIRD_PARTY' ? '1fr 1fr' : '1fr', gap: 6, marginTop: 8 }}>
+                      <div>
+                        <div style={{ fontSize: 9, color: '#444', marginBottom: 2 }}>Responsabilidade</div>
+                        <select style={fieldStyle} value={item.owner} onChange={(e) => updateItem(item.id, { owner: e.target.value as ExpenseOwner })}>
+                          <option value="ME">Eu</option>
+                          <option value="THIRD_PARTY">Terceiro</option>
+                          <option value="SHARED">Compartilhado</option>
+                          <option value="UNCLASSIFIED">Não classificado</option>
+                        </select>
+                      </div>
+                      {item.owner === 'THIRD_PARTY' && (
+                        <div>
+                          <div style={{ fontSize: 9, color: '#444', marginBottom: 2 }}>Terceiro</div>
+                          <input style={fieldStyle} value={item.thirdPartyName ?? ''} onChange={(e) => updateItem(item.id, { thirdPartyName: e.target.value })} placeholder="Nome (opcional)" />
+                        </div>
+                      )}
+                      {item.owner === 'SHARED' && (
+                        <div>
+                          <div style={{ fontSize: 9, color: '#444', marginBottom: 2 }}>Minha parte</div>
+                          <input style={fieldStyle} inputMode="decimal" value={item.personalAmountCents == null ? '' : (item.personalAmountCents / 100).toFixed(2).replace('.', ',')} onChange={(e) => updateItem(item.id, { personalAmountCents: Math.round(parseBRL(e.target.value) * 100) })} placeholder="0,00" />
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                 <span style={{ fontSize: 12, color: '#777' }}>
-                  {selectedCount} selecionada{selectedCount !== 1 ? 's' : ''} · <strong style={{ color: '#c0c0c0' }}>{formatCurrency(selectedTotal)}</strong>
+                  {selectedCount} lançamento{selectedCount !== 1 ? 's' : ''} · Total da fatura: <strong style={{ color: '#c0c0c0' }}>{formatCurrency(displayedTotal)}</strong>
                 </span>
                 <button
                   onClick={handleConfirm}

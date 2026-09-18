@@ -1,7 +1,8 @@
-import { type BillCategory, BILL_CATEGORY_LABELS } from '../types';
+import { type BillCategory, type CardTransactionType, type ExpenseOwner, BILL_CATEGORY_LABELS } from '../types';
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { extractWithGroq } from './groq';
+export { extractStatementTotalCents } from './statementTotals';
 
 export interface ExtractedPurchase {
   id: string;
@@ -11,6 +12,13 @@ export interface ExtractedPurchase {
   installmentTotal: number;
   category: BillCategory;
   selected: boolean;
+  type: CardTransactionType;
+  owner: ExpenseOwner;
+  personalAmountCents?: number;
+  thirdPartyName?: string;
+  duplicateConfidence?: 'high' | 'possible';
+  cardLast4?: string;
+  date?: string;
 }
 
 const VALID_CATEGORIES = Object.keys(BILL_CATEGORY_LABELS) as BillCategory[];
@@ -23,23 +31,28 @@ Cada item do array:
 - installmentCurrent: number — parcela atual (1 se à vista)
 - installmentTotal: number — total de parcelas (1 se compra à vista, sem parcelamento)
 - category: string — uma de: ${VALID_CATEGORIES.join(', ')}
+- type: string — PURCHASE, INSTALLMENT, REFUND, PAYMENT, FEE ou OTHER
+- cardLast4: string opcional — últimos quatro dígitos do cartão
+- date: string opcional — data original do lançamento
 
 Regras:
-- Ignore totais da fatura, juros, IOF, multas, pagamentos, saldo anterior, encargos
-- Extraia apenas lançamentos/compras individuais
+- Ignore totais da fatura, juros, IOF, multas, saldo anterior e encargos
+- Extraia todos os lançamentos individuais, inclusive pagamentos, estornos, créditos, tarifas e anuidades
+- Não trate pagamentos como compras ou despesa: classifique como PAYMENT e preserve apenas como lançamento informativo da fatura
+- Não descarte anuidade, tarifa ou estorno: classifique como FEE ou REFUND; eles fazem parte do histórico da fatura, mas não devem ser confundidos com compras pessoais
 - Existem quatro formatos possíveis: tabela Itaú em preto e branco; lista C6 em PDF; lista do app com status "Em processamento"; e lista do app com "Parcela X de Y".
 - Em tabelas Itaú, "beautyglam 08/09 56,36" significa nome=beautyglam, parcela=8/9, valor=56.36. O mesmo vale para "AMAZON BR 07/12 31,59".
 - Em listas C6, "PONTO CERTO - Parcela 7/10 163,90" significa nome=PONTO CERTO, parcela=7/10, valor=163.90.
 - Em prints do app, "O001 DI SANTINNI ROD6", "Parcela 2 de 2" e "R$ 249,99" pertencem à mesma compra.
 - Se aparecer "3/12", "Parc 3 de 12" ou "Parcela 3 de 12", use installmentCurrent=3 e installmentTotal=12.
 - Nunca use como nome: "Em processamento", "Cartão final 6852", "Cartão final 8649", cidades, "Subtotal", menus ou cabeçalhos.
-- Ignore pagamentos, inclusive valores negativos, como "Inclusão de Pagamento".
+- Classifique "Inclusão de Pagamento" como PAYMENT e estornos/créditos como REFUND.
 - Compras à vista ou sem indicação de parcelas: installmentCurrent=1, installmentTotal=1
 - Valores brasileiros: R$ 1.234,56 → amount=1234.56
 - Responda SOMENTE com o objeto JSON. Não use markdown, explicações ou texto antes/depois do JSON.`;
 
-const VISION_MODELS = ['qwen/qwen3.6-27b', 'qwen/qwen3.8-27b'] as const;
-const TEXT_MODEL = 'groq/compound-mini';
+const VISION_MODELS = ['qwen/qwen3.8-27b'] as const;
+const TEXT_MODEL = 'openai/gpt-oss-20b';
 const MAX_OUTPUT_TOKENS = 700;
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
@@ -54,9 +67,16 @@ function normalizeCategory(raw: unknown): BillCategory {
 
 function normalizePurchase(raw: Record<string, unknown>): Omit<ExtractedPurchase, 'id' | 'selected'> | null {
   let name = typeof raw.name === 'string' ? raw.name.trim() : '';
-  const amount = typeof raw.amount === 'number' ? raw.amount : parseFloat(String(raw.amount ?? ''));
-  const aggregateName = /compras?\s+(nacionais?|internacionais?)|total\s+(a\s+pagar|da\s+fatura)|valor\s+da\s+fatura|saldo\s+(obriga|rotativo)|pagamento\s+(total|mínimo)|gastos\s+desta\s+fatura|em\s+processamento|cart[aã]o\s+final|inclus[aã]o\s+de\s+pagamento|subtotal/i;
-  if (!name || aggregateName.test(name) || !amount || amount <= 0 || isNaN(amount)) return null;
+  const rawAmount = typeof raw.amount === 'number' ? raw.amount : parseFloat(String(raw.amount ?? ''));
+  const aggregateName = /compras?\s+(nacionais?|internacionais?)|total\s+(a\s+pagar|da\s+fatura)|valor\s+da\s+fatura|saldo\s+(obriga|rotativo)|pagamento\s+(total|mínimo)|gastos\s+desta\s+fatura|em\s+processamento|cart[aã]o\s+final|subtotal/i;
+  if (!name || aggregateName.test(name) || !rawAmount || isNaN(rawAmount)) return null;
+  const normalizedType = String(raw.type ?? '').toUpperCase();
+  const type: CardTransactionType = ['PURCHASE', 'INSTALLMENT', 'REFUND', 'PAYMENT', 'FEE', 'OTHER'].includes(normalizedType)
+    ? normalizedType as CardTransactionType
+    : /pagamento|inclus[aã]o/i.test(name) ? 'PAYMENT'
+      : /estorno|cr[eé]dito/i.test(name) || rawAmount < 0 ? 'REFUND'
+        : /tarifa|anuidade|taxa/i.test(name) ? 'FEE' : 'PURCHASE';
+  const amount = Math.abs(rawAmount);
 
   const installmentText = `${String(raw.installmentCurrent ?? '')} ${String(raw.installmentTotal ?? '')} ${name}`;
   const installmentMatch = installmentText.match(/(?:parcela\s*)?(\d{1,2})\s*(?:\/|de)\s*(\d{1,2})/i);
@@ -75,6 +95,10 @@ function normalizePurchase(raw: Record<string, unknown>): Omit<ExtractedPurchase
     installmentCurrent: cur,
     installmentTotal: total,
     category: normalizeCategory(raw.category),
+    type,
+    owner: 'ME',
+    cardLast4: typeof raw.cardLast4 === 'string' ? raw.cardLast4.slice(-4) : undefined,
+    date: typeof raw.date === 'string' ? raw.date : undefined,
   };
 }
 
@@ -100,23 +124,29 @@ export function parseExtractedPurchases(content: string): Omit<ExtractedPurchase
     .filter((p): p is Omit<ExtractedPurchase, 'id' | 'selected'> => p !== null);
 }
 
+
 function parsePdfTransactionFallback(statementText: string): Omit<ExtractedPurchase, 'id' | 'selected'>[] {
   const purchases: Omit<ExtractedPurchase, 'id' | 'selected'>[] = [];
-  const transactionPattern = /^\s*(\d{1,2}\s+(?:jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez))\s+(.+?)\s+(\d{1,3}(?:\.\d{3})*,\d{2})\s*$/i;
-  const ignoredTerms = /pagamento|estorno|tarifa|juros|iof|multa|anuidade|saldo|encargos|crédito/i;
+  const transactionPattern = /^\s*(\d{1,2}\s+(?:jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez))\s+(.+?)\s+(-?\d{1,3}(?:\.\d{3})*,\d{2})\s*$/i;
 
   statementText.split(/\r?\n/).forEach((line) => {
     const match = line.match(transactionPattern);
-    if (!match || ignoredTerms.test(match[2])) return;
-    const amount = parseFloat(match[3].replace(/\./g, '').replace(',', '.'));
-    if (!amount || amount <= 0) return;
+    if (!match) return;
+    const rawAmount = parseFloat(match[3].replace(/\./g, '').replace(',', '.'));
+    if (!rawAmount) return;
+    const amount = Math.abs(rawAmount);
     const installment = match[2].match(/parcela\s+(\d+)\/(\d+)/i);
+    const type: CardTransactionType = /pagamento|inclus[aã]o/i.test(match[2]) ? 'PAYMENT'
+      : /estorno|cr[eé]dito/i.test(match[2]) || rawAmount < 0 ? 'REFUND'
+        : /tarifa|anuidade|taxa/i.test(match[2]) ? 'FEE' : 'PURCHASE';
     purchases.push({
       name: match[2].trim(),
       amount: Math.round(amount * 100) / 100,
       installmentCurrent: installment ? Number(installment[1]) : 1,
       installmentTotal: installment ? Number(installment[2]) : 1,
       category: 'compras',
+      type,
+      owner: 'ME',
     });
   });
   return purchases;
@@ -154,7 +184,7 @@ export async function extractPurchasesFromImage(
 export async function extractPurchasesFromText(
   statementText: string,
 ): Promise<Omit<ExtractedPurchase, 'id' | 'selected'>[]> {
-  const content = await extractWithGroq({ model: TEXT_MODEL, messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: `Extraia somente as compras e parcelas individuais das seções de transações desta fatura. NUNCA transforme em compra valores de resumo como "Compras nacionais", "Total a pagar", "Valor da fatura", subtotais de cartão ou saldo de obrigações. Ignore pagamentos, estornos, tarifas, anuidade, juros, IOF, saldos e totais. Os lançamentos aparecem em linhas com data, descrição e valor.\n\n${statementText.slice(0, 120000)}` }], response_format: { type: 'json_object' }, max_tokens: MAX_OUTPUT_TOKENS, temperature: 0.1 });
+  const content = await extractWithGroq({ model: TEXT_MODEL, messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: `Extraia todos os lançamentos individuais das seções de transações desta fatura e classifique cada um como PURCHASE, INSTALLMENT, REFUND, PAYMENT, FEE ou OTHER. Não transforme valores de resumo como "Compras nacionais", "Total a pagar", "Valor da fatura", subtotais de cartão ou saldo de obrigações em lançamentos. Pagamentos, estornos, tarifas e anuidades devem ser preservados como lançamentos tipados, nunca como compras. O total oficial da fatura é informado separadamente como "Total a pagar" e não deve ser somado novamente. Os lançamentos aparecem em linhas com data, descrição e valor.\n\n${statementText.slice(0, 120000)}` }], max_completion_tokens: MAX_OUTPUT_TOKENS });
   const extracted = parseExtractedPurchases(content);
   return extracted.length > 0 ? extracted : parsePdfTransactionFallback(statementText);
 }

@@ -2,17 +2,20 @@ import React, { useMemo, useState } from 'react';
 import {
   type Bill,
   type BillCategory,
+  type CreditCardInvoice,
   BILL_CATEGORY_COLORS,
   BILL_CATEGORY_LABELS,
   formatCurrency,
   formatMonthShort,
 } from '../types';
+import { getTransactionCategoryImpactCents } from '../services/cardTransactions';
 
 interface MonthData {
   id: string;
   name: string;
   year: number;
   bills: Bill[];
+  creditCardInvoices?: CreditCardInvoice[];
 }
 
 interface Props {
@@ -42,10 +45,20 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
   const cardBills = (month: MonthData) => month.bills.filter((bill) =>
     (bill.type === 'parcela' && bill.category !== 'financiamento') || bill.isOnCreditCard === true
   );
+  const cardAmountByCategory = (month: MonthData, category: BillCategory) => {
+    const billAmount = cardBills(month).filter((bill) => bill.category === category).reduce((total, bill) => total + bill.amount, 0);
+    const invoiceAmount = (month.creditCardInvoices ?? []).flatMap((invoice) => invoice.transactions)
+      .filter((transaction) => transaction.category === category)
+      .reduce((total, transaction) => total + getTransactionCategoryImpactCents(transaction) / 100, 0);
+    return billAmount + invoiceAmount;
+  };
 
   const availableCategories = useMemo(() => {
     const categories = new Set<BillCategory>();
-    months.forEach((month) => cardBills(month).forEach((bill) => categories.add(bill.category)));
+    months.forEach((month) => {
+      cardBills(month).forEach((bill) => categories.add(bill.category));
+      (month.creditCardInvoices ?? []).flatMap((invoice) => invoice.transactions).forEach((transaction) => { if (transaction.category) categories.add(transaction.category); });
+    });
     return Array.from(categories).sort((a, b) => BILL_CATEGORY_LABELS[a].localeCompare(BILL_CATEGORY_LABELS[b], 'pt-BR'));
   }, [months]);
   const [selectedCategories, setSelectedCategories] = useState<BillCategory[]>(() => loadCategories(availableCategories));
@@ -64,7 +77,7 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
   const monthsUntilSelected = months.slice(0, selectedIndex >= 0 ? selectedIndex + 1 : months.length);
   const chartMonths = monthsUntilSelected.slice(-4);
   const values = selectedCategories.flatMap((category) => chartMonths.map((month) =>
-    cardBills(month).filter((bill) => bill.category === category).reduce((total, bill) => total + bill.amount, 0)
+    cardAmountByCategory(month, category)
   ));
   const maxValue = Math.max(...values, 0);
   const plotWidth = CHART_WIDTH - PADDING.left - PADDING.right;
@@ -74,7 +87,7 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
   const series = selectedCategories.map((category) => ({
     category,
     points: chartMonths.map((month, index) => {
-      const value = cardBills(month).filter((bill) => bill.category === category).reduce((total, bill) => total + bill.amount, 0);
+      const value = cardAmountByCategory(month, category);
       return { x: xFor(index), y: yFor(value), value };
     }),
   }));
