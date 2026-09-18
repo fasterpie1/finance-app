@@ -5,6 +5,20 @@ interface GroqResponse {
   error?: string;
 }
 
+async function functionErrorMessage(error: unknown, fallback: string): Promise<string> {
+  if (!(error instanceof Error)) return fallback;
+  const context = (error as Error & { context?: unknown }).context;
+  if (context instanceof Response) {
+    try {
+      const body = await context.clone().json() as { error?: string; message?: string };
+      if (body.error || body.message) return body.error ?? body.message ?? fallback;
+    } catch {
+      // Keep the SDK message when the response is not JSON.
+    }
+  }
+  return error.message || fallback;
+}
+
 export async function saveGroqKey(key: string): Promise<void> {
   if (!supabase) throw new Error('Supabase não está configurado.');
   const { data, error } = await supabase.functions.invoke('groq-proxy', { body: { action: 'save-key', key } });
@@ -27,7 +41,8 @@ export async function hasGroqKey(): Promise<boolean> {
 async function invokeGroq(action: 'chat' | 'extract', request: Record<string, unknown>): Promise<GroqResponse> {
   if (!supabase) throw new Error('Supabase não está configurado.');
   const { data, error } = await supabase.functions.invoke('groq-proxy', { body: { action, request } });
-  if (error || data?.error) throw new Error(data?.error ?? error?.message ?? 'Não foi possível consultar a IA.');
+  if (error) throw new Error(await functionErrorMessage(error, 'Não foi possível consultar a IA.'));
+  if (data?.error) throw new Error(data.error);
   return data as GroqResponse;
 }
 
