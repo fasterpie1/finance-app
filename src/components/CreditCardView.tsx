@@ -56,11 +56,12 @@ const ownerOptions: Array<{ value: ExpenseOwner; label: string }> = [
   { value: 'UNCLASSIFIED', label: 'Não classificado' },
 ];
 
-function InvoiceTransactions({ invoices, onUpdate, hideValues }: { invoices: CreditCardInvoice[]; onUpdate: (invoice: CreditCardInvoice) => void; hideValues?: boolean }) {
+function InvoiceTransactions({ invoices, creditCardBills, onUpdate, onTogglePaid, onSaveBill, onDeleteBill, hideValues }: { invoices: CreditCardInvoice[]; creditCardBills: Bill[]; onUpdate: (invoice: CreditCardInvoice) => void; onTogglePaid: (id: string) => void; onSaveBill: (bill: Bill) => void; onDeleteBill: (id: string) => void; hideValues?: boolean }) {
   const [filter, setFilter] = useState<'ALL' | ExpenseOwner>('ALL');
   const summaryRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef({ active: false, startX: 0, scrollLeft: 0 });
   const transactions = invoices.flatMap((invoice) => invoice.transactions).filter((transaction) => filter === 'ALL' || transaction.owner === filter);
+  const visibleCreditCardBills = filter === 'ALL' ? creditCardBills : [];
   const updateTransaction = (id: string, patch: Partial<CreditCardInvoice['transactions'][number]>, remove = false) => {
     const invoice = invoices.find((item) => item.transactions.some((transaction) => transaction.id === id));
     if (!invoice) return;
@@ -113,6 +114,10 @@ function InvoiceTransactions({ invoices, onUpdate, hideValues }: { invoices: Cre
           <button key={option.value} type="button" onClick={() => setFilter(option.value)} style={{ background: filter === option.value ? '#1e2a3e' : '#151515', border: `1px solid ${filter === option.value ? '#3b82f6' : '#242424'}`, borderRadius: 5, color: filter === option.value ? '#93c5fd' : '#666', cursor: 'pointer', padding: '6px 9px', fontSize: 11 }}>{option.label}</button>
         ))}
       </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: -6 }}>
+        <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Lançamentos da fatura</h3>
+        <span className="theme-card-count" style={{ fontSize: 10, color: '#444', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 7px', fontWeight: 600 }}>{transactions.length + visibleCreditCardBills.length}</span>
+      </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {transactions.map((transaction) => (
           <div key={transaction.id} style={{ background: '#131313', border: `1px solid ${transaction.owner === 'UNCLASSIFIED' ? '#3a2a12' : '#1e1e1e'}`, borderRadius: 10, padding: '11px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -146,6 +151,9 @@ function InvoiceTransactions({ invoices, onUpdate, hideValues }: { invoices: Cre
               ×
             </button>
           </div>
+        ))}
+        {visibleCreditCardBills.map((bill) => (
+          <BillRow key={`legacy-card-bill-${bill.id}`} bill={bill} onTogglePaid={() => onTogglePaid(bill.id)} onSave={onSaveBill} onDelete={() => onDeleteBill(bill.id)} hideValues={hideValues} showPaidToggle={false} />
         ))}
       </div>
     </section>
@@ -354,22 +362,7 @@ export const CreditCardView: React.FC<Props> = ({
       {/* Importar da fatura */}
       <StatementImportPanel userId={userId} month={selectedMonthName} year={selectedMonthYear} existingTransactions={creditCardInvoices.flatMap((invoice) => invoice.transactions)} onImport={onImportInvoice} />
 
-      {creditCardInvoices.length > 0 && <InvoiceTransactions invoices={creditCardInvoices} onUpdate={onUpdateInvoice} hideValues={hideValues} />}
-
-      {/* Parcelas do mês */}
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-          <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Parcelas em {selectedMonthName}</h3>
-          <span className="theme-card-count" style={{ fontSize: 10, color: '#444', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 7px', fontWeight: 600 }}>{creditCardBills.length}</span>
-        </div>
-        {creditCardBills.length === 0 ? (
-          <div style={{ background: '#111', border: '1px dashed #1e1e1e', borderRadius: 10, padding: 24, textAlign: 'center', color: '#333', fontSize: 12 }}>Nenhuma parcela neste mês.</div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {creditCardBills.map((bill) => (<BillRow key={bill.id} bill={bill} onTogglePaid={() => onTogglePaid(bill.id)} onSave={onSaveBill} onDelete={() => onDeleteBill(bill.id)} hideValues={hideValues} showPaidToggle={false} />))}
-          </div>
-        )}
-      </div>
+      {(creditCardInvoices.length > 0 || creditCardBills.length > 0) && <InvoiceTransactions invoices={creditCardInvoices} creditCardBills={creditCardBills} onUpdate={onUpdateInvoice} onTogglePaid={onTogglePaid} onSaveBill={onSaveBill} onDeleteBill={onDeleteBill} hideValues={hideValues} />}
 
       {/* Contas fixas vinculadas ao cartão */}
       {linkedFixedBills.length > 0 && (

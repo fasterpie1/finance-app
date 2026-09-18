@@ -4,6 +4,7 @@ import { getBillNotifications, getMonthsFrom } from './store/useDashboard';
 import type { BudgetMonth } from './types';
 import { getInvoicePersonalTotalCents, getPersonalImpactCents } from './services/cardTransactions';
 import { extractStatementTotalCents } from './services/statementTotals';
+import { parsePdfTransactionFallback } from './services/statementParser';
 import { findDuplicateTransaction } from './services/transactionDuplicates';
 import type { CreditCardInvoice, CreditCardTransaction } from './types';
 
@@ -33,6 +34,29 @@ describe('financial helpers', () => {
 
   it('extracts the official statement total instead of summing payments', () => {
     expect(extractStatementTotalCents('Inclusao de Pagamento 3.455,09\nTotal a pagar R$ 3.251,16')).toBe(325116);
+  });
+
+  it('prefers the official invoice total over financing offer totals', () => {
+    expect(extractStatementTotalCents(`
+      Total desta fatura 2.351,61
+      Total a pagar: R$ 2.270,73
+      O total da sua fatura é: R$ 2.351,61
+    `)).toBe(235161);
+  });
+
+  it('extracts Itaú numeric-date transactions without importing future summaries', () => {
+    const parsed = parsePdfTransactionFallback(`
+      Lançamentos: compras e saques
+      25/01 beautyglam 08/09 56,36
+      09/02 AMAZON BR 07/12 31,59
+      01/08 DL*UberRidesSao PauloBR 38,72
+      Compras parceladas - próximas faturas
+      25/01 beautyglam 09/09 56,36
+      Próxima fatura 289,06
+    `);
+    expect(parsed).toHaveLength(3);
+    expect(parsed[0]).toMatchObject({ name: 'beautyglam', amount: 56.36, installmentCurrent: 8, installmentTotal: 9 });
+    expect(parsed[2].name).toBe('DL*UberRidesSao PauloBR');
   });
 
   it('identifies duplicate transactions without relying on the merchant name', () => {
