@@ -9,7 +9,7 @@ import {
   parseBRL,
 } from '../types';
 import { type CreditCardPurchase, type MonthInfo } from '../store/useDashboard';
-import { centsToAmount, getInvoicePersonalTotalCents, getInvoiceThirdPartyTotalCents, getInvoiceUnclassifiedTotalCents, getInvoiceTotalCents, getOwnerLabel } from '../services/cardTransactions';
+import { centsToAmount, getInvoiceChargeTotalCents, getInvoicePersonalTotalCents, getInvoiceThirdPartyTotalCents, getInvoiceUnclassifiedTotalCents, getInvoiceTotalCents, getOwnerLabel } from '../services/cardTransactions';
 import { findDuplicateTransaction } from '../services/transactionDuplicates';
 import { BillRow } from './BillRow';
 import { StatementImportPanel } from './StatementImportPanel';
@@ -24,7 +24,7 @@ interface Props {
   creditCardInvoices: CreditCardInvoice[];
   debitPixBills: Bill[];
   linkedFixedBills: Bill[];
-  allMonths: { id: string; name: string; year: number; bills: Bill[] }[];
+  allMonths: { id: string; name: string; year: number; bills: Bill[]; creditCardInvoices?: CreditCardInvoice[] }[];
   onTogglePaid: (id: string) => void;
   onSaveBill: (bill: Bill) => void;
   onDeleteBill: (id: string) => void;
@@ -198,8 +198,11 @@ export const CreditCardView: React.FC<Props> = ({
     }, creditCardInvoices.flatMap((invoice) => invoice.transactions))
     : undefined;
 
-  const totalDebt = allMonths.reduce((sum, m) => sum + m.bills.filter((b) => b.type === 'parcela' && b.category !== 'financiamento' && !b.isPaid).reduce((s, b) => s + b.amount, 0), 0);
-  const monthlyFromCard = creditCardBills.reduce((s, b) => s + b.amount, 0);
+  const totalDebt = allMonths.reduce((sum, m) => sum
+    + m.bills.filter((b) => b.type === 'parcela' && b.category !== 'financiamento' && !b.isPaid).reduce((s, b) => s + b.amount, 0)
+    + (m.creditCardInvoices ?? []).filter((invoice) => !invoice.isPaid).reduce((s, invoice) => s + centsToAmount(getInvoiceChargeTotalCents(invoice)), 0), 0);
+  const importedMonthlyTotal = creditCardInvoices.reduce((sum, invoice) => sum + centsToAmount(getInvoiceChargeTotalCents(invoice)), 0);
+  const monthlyFromCard = creditCardBills.reduce((s, b) => s + b.amount, 0) + importedMonthlyTotal;
   const linkedTotal = linkedFixedBills.reduce((s, b) => s + b.amount, 0);
   const importedInvoiceTotal = creditCardInvoices.reduce((total, invoice) => total + centsToAmount(getInvoiceTotalCents(invoice)), 0);
   const faturaTotal = monthlyFromCard + linkedTotal + importedInvoiceTotal;
@@ -283,7 +286,7 @@ export const CreditCardView: React.FC<Props> = ({
           <div style={{ position: 'absolute', top: 0, left: 0, width: 3, height: '100%', background: '#ef4444', borderRadius: '12px 0 0 12px' }} />
           <div style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, marginBottom: 6 }}>Parcelas</div>
           <div style={{ fontSize: 20, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#e8e8e8', transition: 'color 0.2s' }}>{hideValues ? masked : formatCurrency(monthlyFromCard)}</div>
-          <div style={{ fontSize: 11, color: '#3a3a3a', marginTop: 4 }}>{creditCardBills.length} parcela(s)</div>
+          <div style={{ fontSize: 11, color: '#3a3a3a', marginTop: 4 }}>{creditCardBills.length + creditCardInvoices.flatMap((invoice) => invoice.transactions).filter((transaction) => transaction.type !== 'PAYMENT').length} lançamento(s)</div>
         </div>
         <div style={{ background: '#131313', border: '1px solid #1e1e1e', borderRadius: 12, padding: '16px 18px', position: 'relative', overflow: 'hidden' }}>
           <div style={{ position: 'absolute', top: 0, left: 0, width: 3, height: '100%', background: '#f59e0b', borderRadius: '12px 0 0 12px' }} />

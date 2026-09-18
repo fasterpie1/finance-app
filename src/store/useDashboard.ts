@@ -12,8 +12,9 @@ const SELECTED_KEY = 'financa_selected_v1';
 function migrateLegacyCardBills(months: BudgetMonth[]): BudgetMonth[] {
   return months.map((month) => {
     const legacyCardBills = month.bills.filter((bill) => (
-      (bill.type === 'parcela' && bill.category !== 'financiamento' && bill.cardPaymentMethod !== 'debito_pix')
-      || (bill.isOnCreditCard === true && bill.cardPaymentMethod !== 'debito_pix')
+      bill.type === 'parcela'
+      && bill.category !== 'financiamento'
+      && bill.cardPaymentMethod !== 'debito_pix'
     ));
     if (legacyCardBills.length === 0) return month;
 

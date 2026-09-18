@@ -50,3 +50,10 @@ export function getOwnerLabel(owner: ExpenseOwner): string {
 export function getTransactionCategoryImpactCents(transaction: CreditCardTransaction): number {
   return transaction.category ? getPersonalImpactCents(transaction) : 0;
 }
+
+export function getInvoiceChargeTotalCents(invoice: CreditCardInvoice): number {
+  return invoice.transactions.reduce((total, transaction) => {
+    if (transaction.type === 'PAYMENT') return total;
+    return total + (transaction.type === 'REFUND' ? -transaction.amountCents : transaction.amountCents);
+  }, 0);
+}

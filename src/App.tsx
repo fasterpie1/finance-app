@@ -484,7 +484,8 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
   const creditCardTotal = db.creditCardBills.reduce((s, b) => s + b.amount, 0)
     + linkedFixedBills.reduce((s, b) => s + b.amount, 0)
     + (db.selectedMonth.creditCardInvoices ?? []).reduce((total, invoice) => total + centsToAmount(getInvoiceTotalCents(invoice)), 0);
-  const hasCardItems = db.creditCardBills.length > 0 || linkedFixedBills.length > 0 || (db.selectedMonth.creditCardInvoices ?? []).length > 0;
+  const importedCardTransactions = (db.selectedMonth.creditCardInvoices ?? []).flatMap((invoice) => invoice.transactions).filter((transaction) => transaction.type !== 'PAYMENT');
+  const hasCardItems = db.creditCardBills.length > 0 || linkedFixedBills.length > 0 || importedCardTransactions.length > 0;
   const allCardPaid = hasCardItems
     && db.creditCardBills.every((b) => b.isPaid)
     && linkedFixedBills.every((b) => b.isPaid)
@@ -747,7 +748,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                   <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Cartão de crédito</h3>
                   <button onClick={() => setTab('cartao')} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#555', cursor: 'pointer', fontSize: 10, padding: '3px 10px' }}>Ver detalhes</button>
                 </div>
-                {db.creditCardBills.length === 0 && linkedFixedBills.length === 0 ? (
+                {db.creditCardBills.length === 0 && linkedFixedBills.length === 0 && importedCardTransactions.length === 0 ? (
                   <div onClick={() => setTab('cartao')} style={{ background: '#111', border: '1px dashed #1e1e1e', borderRadius: 10, padding: '18px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
                     <span style={{ fontSize: 12, color: '#333' }}>Nenhuma parcela em {db.selectedMonth.name}</span>
                     <span style={{ fontSize: 11, color: '#444' }}>Lançar compra →</span>
@@ -787,7 +788,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                       <span style={{ fontSize: 13, fontWeight: 600, color: allCardPaid ? '#555' : '#d4d4d4', textDecoration: allCardPaid ? 'line-through' : 'none' }}>Fatura do mês</span>
                       <div className="theme-card-invoice-details" style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
                         <span className="theme-card-count" style={{ fontSize: 10, color: '#444', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 6px' }}>
-                          {db.creditCardBills.length} parcela{db.creditCardBills.length !== 1 ? 's' : ''}
+                          {db.creditCardBills.length + importedCardTransactions.length} lançamento{db.creditCardBills.length + importedCardTransactions.length !== 1 ? 's' : ''}
                         </span>
                         {linkedFixedBills.length > 0 && (
                           <>
