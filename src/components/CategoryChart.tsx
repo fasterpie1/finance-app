@@ -3,10 +3,9 @@ import {
   type Bill,
   type BillCategory,
   type CreditCardInvoice,
-  BILL_CATEGORY_LABELS,
   BILL_CATEGORY_COLORS,
-  formatCurrency,
 } from '../types';
+import { usePreferences } from '../i18n';
 import { getTransactionCategoryImpactCents } from '../services/cardTransactions';
 
 interface Props {
@@ -24,6 +23,7 @@ interface CategoryData {
 }
 
 export const CategoryChart: React.FC<Props> = ({ bills, invoices = [], hideValues }) => {
+  const { formatMoney, categoryLabel, t } = usePreferences();
   const map = new Map<BillCategory, number>();
   bills.forEach((b) => { map.set(b.category, (map.get(b.category) || 0) + b.amount); });
   invoices.flatMap((invoice) => invoice.transactions).forEach((transaction) => {
@@ -33,10 +33,10 @@ export const CategoryChart: React.FC<Props> = ({ bills, invoices = [], hideValue
   });
 
   const total = bills.reduce((s, b) => s + b.amount, 0);
-  if (total === 0) return <div style={{ textAlign: 'center', color: '#333', fontSize: 12, padding: 20 }}>Nenhum gasto para exibir.</div>;
+  if (total === 0) return <div style={{ textAlign: 'center', color: '#333', fontSize: 12, padding: 20 }}>{t('noExpenses')}</div>;
 
   const data: CategoryData[] = Array.from(map.entries())
-    .map(([category, amount]) => ({ category, label: BILL_CATEGORY_LABELS[category], color: BILL_CATEGORY_COLORS[category], amount, pct: (amount / total) * 100 }))
+    .map(([category, amount]) => ({ category, label: categoryLabel(category), color: BILL_CATEGORY_COLORS[category], amount, pct: (amount / total) * 100 }))
     .sort((a, b) => b.amount - a.amount);
 
   const size = 130;
@@ -70,7 +70,7 @@ export const CategoryChart: React.FC<Props> = ({ bills, invoices = [], hideValue
           </svg>
           <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center' }}>
             <div style={{ fontSize: 9, color: '#444', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Total</div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#d4d4d4', marginTop: 1, transition: 'color 0.2s' }}>{hideValues ? 'R$ ••••' : formatCurrency(total)}</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#d4d4d4', marginTop: 1, transition: 'color 0.2s' }}>{hideValues ? '••••' : formatMoney(total)}</div>
           </div>
         </div>
       </div>
@@ -84,7 +84,7 @@ export const CategoryChart: React.FC<Props> = ({ bills, invoices = [], hideValue
               <div style={{ fontSize: 11, color: '#686868', marginTop: 2 }}>{d.pct.toFixed(1)}% do total</div>
             </div>
             <div style={{ fontSize: 14, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#e3e3e3', flexShrink: 0, transition: 'color 0.2s', fontVariantNumeric: 'tabular-nums' }}>
-              {hideValues ? 'R$ ••••' : formatCurrency(d.amount)}
+              {hideValues ? '••••' : formatMoney(d.amount)}
             </div>
           </div>
         ))}

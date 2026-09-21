@@ -6,10 +6,9 @@ import {
   BILL_CATEGORY_LABELS,
   BILL_CATEGORY_COLORS,
   BILL_TYPE_LABELS,
-  formatCurrency,
-  parseBRL,
 } from '../types';
 import { CalendarReminderButton } from './CalendarReminderButton';
+import { usePreferences } from '../i18n';
 
 interface Props {
   bill: Bill;
@@ -39,6 +38,7 @@ const editInputStyle: React.CSSProperties = {
 };
 
 export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete, hideValues, showPaidToggle = true, showCreditCardToggle = false, onCalendarReminder, calendarReminderLoading = false }) => {
+  const { formatMoney, parseAmount, categoryLabel, typeLabel, t } = usePreferences();
   const [editField, setEditField] = useState<EditField>(null);
   const [editStr, setEditStr] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -62,7 +62,7 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete,
     if (!editField) return;
     let updated = { ...bill };
     if (editField === 'name') updated = { ...updated, name: editStr.trim() || bill.name };
-    else if (editField === 'amount') updated = { ...updated, amount: parseBRL(editStr) };
+    else if (editField === 'amount') updated = { ...updated, amount: parseAmount(editStr) };
     else if (editField === 'dueDay') updated = { ...updated, dueDay: Math.max(1, Math.min(31, parseInt(editStr) || 1)) };
     onSave(updated);
     setEditField(null);
@@ -154,12 +154,12 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete,
           {editField === 'category' ? (
             <select autoFocus value={bill.category} onChange={(e) => { onSave({ ...bill, category: e.target.value as BillCategory }); setEditField(null); }} onBlur={() => setEditField(null)} style={{ ...editInputStyle, fontSize: 11, padding: '1px 5px' }}>
               {(Object.keys(BILL_CATEGORY_LABELS) as BillCategory[]).map((c) => (
-                <option key={c} value={c}>{BILL_CATEGORY_LABELS[c]}</option>
+                <option key={c} value={c}>{categoryLabel(c)}</option>
               ))}
             </select>
           ) : (
             <span className="theme-category-pill" onClick={() => setEditField('category')} style={{ fontSize: 10, color: '#444', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 6px', cursor: 'pointer' }}>
-              {BILL_CATEGORY_LABELS[bill.category]}
+              {categoryLabel(bill.category)}
             </span>
           )}
 
@@ -170,7 +170,7 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete,
                 <input ref={inputRef} inputMode="numeric" pattern="[0-9]*" value={editStr} onChange={(e) => setEditStr(e.target.value.replace(/[^0-9]/g, ''))} onBlur={commit} onKeyDown={onKeyDown} style={{ ...editInputStyle, width: 48, fontSize: 11 }} />
               ) : (
                 <span onClick={() => startEdit('dueDay')} style={{ fontSize: 10, color: '#444', cursor: 'text' }}>
-                  Dia {bill.dueDay}
+                  {t('dueDate')} {bill.dueDay}
                 </span>
               )}
               <span style={{ fontSize: 10, color: '#2a2a2a' }}>·</span>
@@ -179,13 +179,13 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete,
 
           {editField === 'type' ? (
             <select autoFocus value={bill.type} onChange={(e) => { onSave({ ...bill, type: e.target.value as BillType }); setEditField(null); }} onBlur={() => setEditField(null)} style={{ ...editInputStyle, fontSize: 11, padding: '1px 5px' }}>
-              {(Object.keys(BILL_TYPE_LABELS) as BillType[]).map((t) => (
-                <option key={t} value={t}>{BILL_TYPE_LABELS[t]}</option>
+              {(Object.keys(BILL_TYPE_LABELS) as BillType[]).map((type) => (
+                <option key={type} value={type}>{typeLabel(type)}</option>
               ))}
             </select>
           ) : (
             <span onClick={() => setEditField('type')} style={{ fontSize: 10, color: '#444', cursor: 'pointer' }}>
-              {BILL_TYPE_LABELS[bill.type]}
+              {typeLabel(bill.type)}
             </span>
           )}
 
@@ -236,7 +236,7 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete,
         </div>
       ) : (
         <span onClick={() => startEdit('amount')} style={{ fontSize: 14, fontWeight: 700, color: hideValues ? '#1a1a1a' : (bill.isPaid ? '#10b981' : '#d4d4d4'), flexShrink: 0, cursor: 'text', letterSpacing: '-0.01em', transition: 'color 0.2s' }}>
-          {hideValues ? 'R$ ••••' : formatCurrency(bill.amount)}
+          {hideValues ? '••••' : formatMoney(bill.amount)}
         </span>
       )}
 

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { deleteGroqKey, hasGroqKey, saveGroqKey, sendGroqChat } from '../services/groq';
 import { readUserStorage, removeUserStorage, writeUserStorage } from '../services/userStorage';
+import { usePreferences } from '../i18n';
 
 interface Message {
   role: 'user' | 'assistant' | 'error';
@@ -75,6 +76,7 @@ const IconAI = () => (
 );
 
 export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarActions }) => {
+  const { t } = usePreferences();
   const [messages, setMessages] = useState<Message[]>(() => loadChat(userId));
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -109,8 +111,8 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
     }).catch(() => setShowKeySetup(true)).finally(() => setKeyLoading(false));
   }, [userId]);
 
-  const saveKey = async () => { const k = apiKeyInput.trim(); if (!k.startsWith('gsk_')) return; setKeyLoading(true); try { await saveGroqKey(k); writeUserStorage(userId, STORAGE_KEY_GROQ_STATUS, 'true'); setShowKeySetup(false); setApiKeyInput(''); } catch (err) { setMessages((prev) => [...prev, { role: 'error', content: err instanceof Error ? err.message : 'Não foi possível salvar a chave.' }]); } finally { setKeyLoading(false); } };
-  const removeKey = async () => { setKeyLoading(true); try { await deleteGroqKey(); removeUserStorage(userId, STORAGE_KEY_GROQ_STATUS); setShowKeySetup(true); } catch (err) { setMessages((prev) => [...prev, { role: 'error', content: err instanceof Error ? err.message : 'Não foi possível remover a chave.' }]); } finally { setKeyLoading(false); } };
+  const saveKey = async () => { const k = apiKeyInput.trim(); if (!k.startsWith('gsk_')) return; setKeyLoading(true); try { await saveGroqKey(k); writeUserStorage(userId, STORAGE_KEY_GROQ_STATUS, 'true'); setShowKeySetup(false); setApiKeyInput(''); } catch (err) { setMessages((prev) => [...prev, { role: 'error', content: err instanceof Error ? err.message : t('googleErrorDescription') }]); } finally { setKeyLoading(false); } };
+  const removeKey = async () => { setKeyLoading(true); try { await deleteGroqKey(); removeUserStorage(userId, STORAGE_KEY_GROQ_STATUS); setShowKeySetup(true); } catch (err) { setMessages((prev) => [...prev, { role: 'error', content: err instanceof Error ? err.message : t('googleErrorDescription') }]); } finally { setKeyLoading(false); } };
   const clearChat = () => { setMessages([]); removeUserStorage(userId, STORAGE_KEY_CHAT); };
 
   const sendMessage = async (text?: string) => {
@@ -148,7 +150,7 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
   if (keyLoading) {
     return (
       <div className="theme-chat-view" style={{ display: 'grid', placeItems: 'center', minHeight: 400, color: '#555', fontSize: 12 }}>
-        Verificando o Assistente...
+        {t('checkingAssistant')}
       </div>
     );
   }
@@ -160,16 +162,16 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
           <div className="theme-ai-icon" style={{ width: 48, height: 48, borderRadius: 12, background: '#111520', border: '1px solid #1e2a3e', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', color: '#60a5fa' }}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a4 4 0 014 4v1h2a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V9a2 2 0 012-2h2V6a4 4 0 014-4z" /><circle cx="9" cy="13" r="1" fill="currentColor" /><circle cx="15" cy="13" r="1" fill="currentColor" /></svg>
           </div>
-          <h2 style={{ margin: '0 0 8px', fontSize: 18, fontWeight: 700, color: '#e0e0e0' }}>Assistente Financeiro</h2>
-          <p style={{ margin: 0, fontSize: 13, color: '#555', maxWidth: 360 }}>IA gratuita para analisar seus gastos e dar dicas personalizadas.</p>
+          <h2 style={{ margin: '0 0 8px', fontSize: 18, fontWeight: 700, color: '#e0e0e0' }}>{t('financialAssistant')}</h2>
+          <p style={{ margin: 0, fontSize: 13, color: '#555', maxWidth: 360 }}>{t('freeAi')}</p>
         </div>
         <div className="theme-ai-setup" style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 12, padding: 20, width: '100%', maxWidth: 420, display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label style={{ fontSize: 10, color: '#555', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 6 }}>Chave API Groq</label>
+            <label style={{ fontSize: 10, color: '#555', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 6 }}>{t('groqKey')}</label>
             <input autoFocus type="password" placeholder="gsk_..." value={apiKeyInput} onChange={(e) => setApiKeyInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && saveKey()} style={{ width: '100%', background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 6, color: '#e0e0e0', padding: '10px 14px', fontSize: 14, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
           </div>
           <div className="theme-ai-info" style={{ background: '#0a1a0a', border: '1px solid #152515', borderRadius: 8, padding: '12px 14px' }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#4ade80', marginBottom: 8 }}>Como configurar</div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#4ade80', marginBottom: 8 }}>{t('setup')}</div>
             <ol style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: '#777', lineHeight: 1.8 }}>
               <li>Acesse <a href="https://console.groq.com/keys" target="_blank" rel="noreferrer" style={{ color: '#60a5fa', textDecoration: 'none' }}>console.groq.com/keys</a></li>
               <li>Crie conta com Google</li>
@@ -178,7 +180,7 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
             </ol>
             <div style={{ fontSize: 10, color: '#3a3a3a', marginTop: 8 }}>Groq · GPT OSS 20B</div>
           </div>
-          <button onClick={saveKey} disabled={keyLoading || !apiKeyInput.startsWith('gsk_')} style={{ background: apiKeyInput.startsWith('gsk_') && !keyLoading ? '#3b82f6' : '#151520', border: 'none', borderRadius: 6, color: apiKeyInput.startsWith('gsk_') && !keyLoading ? '#fff' : '#3a4a5a', cursor: apiKeyInput.startsWith('gsk_') && !keyLoading ? 'pointer' : 'not-allowed', padding: '10px', fontSize: 13, fontWeight: 600 }}>{keyLoading ? 'Salvando...' : 'Salvar e começar'}</button>
+          <button onClick={saveKey} disabled={keyLoading || !apiKeyInput.startsWith('gsk_')} style={{ background: apiKeyInput.startsWith('gsk_') && !keyLoading ? '#3b82f6' : '#151520', border: 'none', borderRadius: 6, color: apiKeyInput.startsWith('gsk_') && !keyLoading ? '#fff' : '#3a4a5a', cursor: apiKeyInput.startsWith('gsk_') && !keyLoading ? 'pointer' : 'not-allowed', padding: '10px', fontSize: 13, fontWeight: 600 }}>{keyLoading ? t('saving') : t('saveAndStart')}</button>
         </div>
       </div>
     );
@@ -190,17 +192,17 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ width: 28, height: 28, borderRadius: 8, background: '#111520', border: '1px solid #1e2a3e', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#60a5fa' }}><IconAI /></div>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#c0c0c0' }}>Assistente Financeiro</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#c0c0c0' }}>{t('financialAssistant')}</div>
             <div style={{ fontSize: 10, color: '#3a3a3a' }}>Groq · GPT OSS 20B</div>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           {messages.length > 0 && (
-            <button onClick={clearChat} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#444', cursor: 'pointer', fontSize: 11, padding: '4px 8px' }} title="Limpar conversa">
+            <button onClick={clearChat} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#444', cursor: 'pointer', fontSize: 11, padding: '4px 8px' }} title={t('clearConversation')}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>
             </button>
           )}
-          <button onClick={removeKey} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#444', cursor: 'pointer', fontSize: 11, padding: '4px 8px' }} title="Trocar chave">
+          <button onClick={removeKey} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#444', cursor: 'pointer', fontSize: 11, padding: '4px 8px' }} title={t('changeKey')}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" /></svg>
             </button>
         </div>
@@ -209,7 +211,7 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
       <div className="theme-chat-messages" style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingRight: 4, paddingBottom: 8 }}>
         {messages.length === 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 16 }}>
-            <div style={{ textAlign: 'center', color: '#333', fontSize: 12 }}>Pergunte sobre seus gastos, peça dicas ou análises.</div>
+            <div style={{ textAlign: 'center', color: '#333', fontSize: 12 }}>{t('askAboutSpending')}</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center' }}>
               {SUGGESTIONS.map((s) => (<button className="theme-ai-suggestion" key={s} onClick={() => sendMessage(s)} style={{ background: '#111', border: '1px solid #1e1e1e', borderRadius: 6, color: '#777', cursor: 'pointer', padding: '7px 12px', fontSize: 11, transition: 'all 0.15s', textAlign: 'left' }}>{s}</button>))}
             </div>
@@ -247,7 +249,7 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
       )}
 
       <div className="theme-chat-composer" style={{ display: 'flex', gap: 8, alignItems: 'flex-end', paddingTop: 8, borderTop: '1px solid #141414', flexShrink: 0 }}>
-        <textarea ref={inputRef} placeholder="Pergunte sobre seus gastos..." value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onKeyDown} rows={2} style={{ flex: 1, background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, color: '#e0e0e0', padding: '9px 12px', fontSize: 14, outline: 'none', fontFamily: 'inherit', resize: 'none', lineHeight: 1.5, transition: 'border-color 0.15s' }} onFocus={(e) => { e.currentTarget.style.borderColor = '#2a3a4a'; }} onBlur={(e) => { e.currentTarget.style.borderColor = '#1e1e1e'; }} />
+        <textarea ref={inputRef} placeholder={t('askAboutExpenses')} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onKeyDown} rows={2} style={{ flex: 1, background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, color: '#e0e0e0', padding: '9px 12px', fontSize: 14, outline: 'none', fontFamily: 'inherit', resize: 'none', lineHeight: 1.5, transition: 'border-color 0.15s' }} onFocus={(e) => { e.currentTarget.style.borderColor = '#2a3a4a'; }} onBlur={(e) => { e.currentTarget.style.borderColor = '#1e1e1e'; }} />
         <button onClick={() => sendMessage()} disabled={!input.trim() || loading} style={{ background: input.trim() && !loading ? '#3b82f6' : '#151520', border: 'none', borderRadius: 8, color: input.trim() && !loading ? '#fff' : '#3a4a5a', cursor: input.trim() && !loading ? 'pointer' : 'not-allowed', padding: '9px 14px', transition: 'all 0.15s', alignSelf: 'stretch', display: 'flex', alignItems: 'center' }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
         </button>

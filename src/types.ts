@@ -153,17 +153,26 @@ export const MONTH_SHORT = [
   'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez',
 ];
 
+export const MONTH_NAMES_EN = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+export const MONTH_SHORT_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
 export function getMonthIndex(name: string): number {
   return MONTH_NAMES.findIndex((m) => m.toLowerCase() === name.toLowerCase());
 }
 
-export function formatMonthShort(name: string, year: number): string {
+export function formatMonthShort(name: string, year: number, locale: 'pt-BR' | 'en' = 'pt-BR'): string {
   const idx = getMonthIndex(name);
-  return idx >= 0 ? `${MONTH_SHORT[idx]} ${String(year).slice(-2)}` : `${name} ${String(year).slice(-2)}`;
+  const labels = locale === 'en' ? MONTH_SHORT_EN : MONTH_SHORT;
+  return idx >= 0 ? `${labels[idx]} ${String(year).slice(-2)}` : `${name} ${String(year).slice(-2)}`;
 }
 
-export function formatMonthFull(name: string, year: number): string {
-  return `${name} ${year}`;
+export function formatMonthFull(name: string, year: number, locale: 'pt-BR' | 'en' = 'pt-BR'): string {
+  const idx = getMonthIndex(name);
+  return `${idx >= 0 && locale === 'en' ? MONTH_NAMES_EN[idx] : name} ${year}`;
 }
 
 export function getBillReminderStart(monthName: string, year: number, dueDay: number): Date {
@@ -171,8 +180,8 @@ export function getBillReminderStart(monthName: string, year: number, dueDay: nu
   return new Date(year, monthIndex + 1, dueDay - 1, 9);
 }
 
-export function formatCurrency(value: number): string {
-  return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+export function formatCurrency(value: number, currency = 'BRL', locale: string = 'pt-BR'): string {
+  return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value);
 }
 
 /** Converte string com vírgula brasileira para número (ex: "137,50" → 137.5) */

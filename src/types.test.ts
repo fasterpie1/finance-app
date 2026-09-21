@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { formatCurrency, getBillReminderStart, getMonthIndex, parseBRL } from './types';
+import { formatCurrency, formatMonthShort, getBillReminderStart, getMonthIndex, parseBRL } from './types';
+import { normalizePreferences } from './i18n';
 import { getBillNotifications, getMonthsFrom } from './store/useDashboard';
 import type { BudgetMonth } from './types';
 import { getInvoicePersonalTotalCents, getPersonalImpactCents } from './services/cardTransactions';
@@ -93,6 +94,21 @@ describe('financial helpers', () => {
   it('formats currency in Brazilian locale', () => {
     expect(formatCurrency(1234.56)).toContain('1.234,56');
     expect(getMonthIndex('Setembro')).toBe(8);
+  });
+
+  it('formats display currency without changing the stored numeric value', () => {
+    const storedValue = 1234.56;
+    expect(formatCurrency(storedValue, 'BRL', 'pt-BR')).toContain('R$');
+    expect(formatCurrency(storedValue, 'USD', 'en-US')).toContain('$1,234.56');
+    expect(formatCurrency(storedValue, 'EUR', 'en-US')).toContain('€1,234.56');
+    expect(storedValue).toBe(1234.56);
+    expect(formatMonthShort('Setembro', 2026, 'en')).toBe('Sep 26');
+  });
+
+  it('normalizes and falls back language and currency preferences', () => {
+    expect(normalizePreferences({})).toEqual({ locale: 'pt-BR', currency: 'BRL' });
+    expect(normalizePreferences({ locale: 'en', currency: 'USD' })).toEqual({ locale: 'en', currency: 'USD' });
+    expect(normalizePreferences({ locale: 'fr' as 'en', currency: 'GBP' as 'USD' })).toEqual({ locale: 'pt-BR', currency: 'BRL' });
   });
 
   it('calculates the reminder on the previous day of the following month', () => {

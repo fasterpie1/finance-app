@@ -68,7 +68,7 @@ export const SummaryCard: React.FC<Props> = ({ title, value, accent = 'default',
           transition: 'color 0.2s',
         }}
       >
-        {hidden ? 'R$ ••••' : value}
+        {hidden ? '••••' : value}
       </div>
       {subtitle && (
         <div style={{ fontSize: 11, color: '#444' }}>{subtitle}</div>

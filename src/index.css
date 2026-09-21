@@ -572,6 +572,30 @@ select {
   border-bottom: 1px solid #1e1e1e;
 }
 
+.settings-form-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #687282;
+  font-size: 11px;
+}
+
+.settings-field select {
+  width: 100%;
+  border: 1px solid #292929;
+  border-radius: 7px;
+  background: #0e0e0e;
+  color: #d4d4d4;
+  padding: 9px 10px;
+  font: inherit;
+}
+
 .settings-label {
   margin-bottom: 12px;
 }

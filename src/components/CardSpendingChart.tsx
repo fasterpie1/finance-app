@@ -4,10 +4,8 @@ import {
   type BillCategory,
   type CreditCardInvoice,
   BILL_CATEGORY_COLORS,
-  BILL_CATEGORY_LABELS,
-  formatCurrency,
-  formatMonthShort,
 } from '../types';
+import { usePreferences } from '../i18n';
 import { getTransactionCategoryImpactCents } from '../services/cardTransactions';
 
 interface MonthData {
@@ -42,6 +40,7 @@ function loadCategories(available: BillCategory[]): BillCategory[] {
 }
 
 export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, selectedMonthYear, hideValues }) => {
+  const { formatMoney, formatMonthShort, categoryLabel, locale } = usePreferences();
   const cardBills = (month: MonthData) => month.bills.filter((bill) =>
     (bill.type === 'parcela' && bill.category !== 'financiamento') || bill.isOnCreditCard === true
   );
@@ -59,8 +58,8 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
       cardBills(month).forEach((bill) => categories.add(bill.category));
       (month.creditCardInvoices ?? []).flatMap((invoice) => invoice.transactions).forEach((transaction) => { if (transaction.category) categories.add(transaction.category); });
     });
-    return Array.from(categories).sort((a, b) => BILL_CATEGORY_LABELS[a].localeCompare(BILL_CATEGORY_LABELS[b], 'pt-BR'));
-  }, [months]);
+    return Array.from(categories).sort((a, b) => categoryLabel(a).localeCompare(categoryLabel(b), locale === 'en' ? 'en-US' : 'pt-BR'));
+  }, [months, categoryLabel, locale]);
   const [selectedCategories, setSelectedCategories] = useState<BillCategory[]>(() => loadCategories(availableCategories));
 
   const toggleCategory = (category: BillCategory) => {
@@ -107,7 +106,7 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
             return (
               <button className={`theme-chart-toggle ${selected ? 'is-selected' : ''}`} key={category} type="button" onClick={() => toggleCategory(category)} disabled={limitReached} style={{ display: 'flex', alignItems: 'center', gap: 7, border: `1px solid ${selected ? BILL_CATEGORY_COLORS[category] : '#242424'}`, background: selected ? `${BILL_CATEGORY_COLORS[category]}18` : '#151515', borderRadius: 5, color: selected ? '#d4d4d4' : '#666', cursor: limitReached ? 'not-allowed' : 'pointer', opacity: limitReached ? 0.45 : 1, padding: '7px 9px', fontSize: 11, transition: 'all 0.15s' }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: BILL_CATEGORY_COLORS[category], flexShrink: 0 }} />
-                {BILL_CATEGORY_LABELS[category]}
+                {categoryLabel(category)}
               </button>
             );
           })}
@@ -126,7 +125,7 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
               return (
                 <g key={value}>
                   <line x1={PADDING.left} x2={CHART_WIDTH - PADDING.right} y1={y} y2={y} stroke="#202020" strokeDasharray="3 5" />
-                  <text x={PADDING.left - 10} y={y + 5} textAnchor="end" fill="#666" fontSize="14">{hideValues ? '•••' : formatCurrency(value).replace('R$', '').trim()}</text>
+                  <text x={PADDING.left - 10} y={y + 5} textAnchor="end" fill="#666" fontSize="14">{hideValues ? '•••' : formatMoney(value).replace(/^(R\$|US\$|€)\s?/, '').trim()}</text>
                 </g>
               );
             })}
@@ -142,7 +141,7 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
                 {points.map((point, index) => (
                   <g key={`${category}-${index}`}>
                     <text x={point.x} y={Math.max(18, point.y - 16 - seriesIndex * 20)} textAnchor={index === 0 ? 'start' : index === points.length - 1 ? 'end' : 'middle'} fill={BILL_CATEGORY_COLORS[category]} fontSize="14" fontWeight="700">
-                      {hideValues ? '•••' : formatCurrency(point.value)}
+                      {hideValues ? '•••' : formatMoney(point.value)}
                     </text>
                     <circle cx={point.x} cy={point.y} r="4.5" fill="#111" stroke={BILL_CATEGORY_COLORS[category]} strokeWidth="2" />
                   </g>

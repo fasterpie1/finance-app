@@ -1,21 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { disconnectGoogleCalendar, getGoogleCalendarStatus, startGoogleCalendarOAuth, type GoogleCalendarStatus } from '../services/googleCalendar';
 import { readUserStorage, removeUserStorage, writeUserStorage } from '../services/userStorage';
+import { usePreferences } from '../i18n';
 
 interface Props {
   userId: string | null;
 }
 
-const STATUS_COPY: Record<GoogleCalendarStatus, string> = {
-  disconnected: 'Conecte seu Google Agenda para receber lembretes de vencimentos e pagamentos.',
-  connected: 'O aplicativo pode criar e gerenciar eventos relacionados aos seus pagamentos.',
-  expired: 'A autorização expirou. Reconecte seu Google Agenda para continuar.',
-  error: 'Não foi possível verificar a conexão agora. Tente novamente.',
-};
-
 const STATUS_STORAGE_KEY = 'google_calendar_status';
 
 export const GoogleCalendarSettings: React.FC<Props> = ({ userId }) => {
+  const { t } = usePreferences();
   const cachedStatus = userId ? readUserStorage(userId, STATUS_STORAGE_KEY) as GoogleCalendarStatus | null : null;
   const [status, setStatus] = useState<GoogleCalendarStatus>(cachedStatus === 'connected' || cachedStatus === 'expired' ? cachedStatus : 'disconnected');
   const [loading, setLoading] = useState(Boolean(userId) && !cachedStatus);
@@ -40,10 +35,10 @@ export const GoogleCalendarSettings: React.FC<Props> = ({ userId }) => {
       })
       .catch((error: unknown) => {
         setStatus('error');
-        setErrorMessage(error instanceof Error ? error.message : 'Não foi possível verificar a conexão agora.');
+        setErrorMessage(error instanceof Error ? error.message : t('googleErrorDescription'));
       })
       .finally(() => setLoading(false));
-  }, [userId]);
+  }, [userId, t]);
 
   const connect = async () => {
     setWorking(true);
@@ -59,15 +54,15 @@ export const GoogleCalendarSettings: React.FC<Props> = ({ userId }) => {
       if (!allowedOrigins.has(event.origin) || event.data?.type !== 'google-calendar-oauth') return;
       const nextStatus = event.data.status === 'connected' ? 'connected' : 'error';
       setStatus(nextStatus);
-      setErrorMessage(nextStatus === 'error' ? 'Não foi possível concluir a conexão com o Google Agenda.' : null);
+      setErrorMessage(nextStatus === 'error' ? t('googleErrorDescription') : null);
       if (nextStatus === 'connected') writeUserStorage(userId, STATUS_STORAGE_KEY, nextStatus);
       cleanup();
     };
     try {
       popup = window.open('', 'google-calendar-oauth', 'popup,width=520,height=720');
-      if (!popup) throw new Error('O navegador bloqueou a janela de autorização do Google. Permita popups para este site e tente novamente.');
+      if (!popup) throw new Error(t('googleErrorDescription'));
       await startGoogleCalendarOAuth(popup);
-      if (!popup) throw new Error('O navegador bloqueou a janela de autorização do Google. Permita popups para este site e tente novamente.');
+      if (!popup) throw new Error(t('googleErrorDescription'));
       window.addEventListener('message', onMessage);
       pollId = window.setInterval(() => {
         if (popup?.closed) cleanup();
@@ -75,7 +70,7 @@ export const GoogleCalendarSettings: React.FC<Props> = ({ userId }) => {
     } catch (error) {
       popup?.close();
       setStatus('error');
-      setErrorMessage(error instanceof Error ? error.message : 'Não foi possível iniciar a conexão.');
+      setErrorMessage(error instanceof Error ? error.message : t('googleErrorDescription'));
       cleanup();
     }
   };
@@ -88,7 +83,7 @@ export const GoogleCalendarSettings: React.FC<Props> = ({ userId }) => {
       removeUserStorage(userId, STATUS_STORAGE_KEY);
     } catch (error) {
       setStatus('error');
-      setErrorMessage(error instanceof Error ? error.message : 'Não foi possível desconectar o Google Agenda.');
+      setErrorMessage(error instanceof Error ? error.message : t('googleErrorDescription'));
     } finally {
       setWorking(false);
     }
@@ -96,27 +91,27 @@ export const GoogleCalendarSettings: React.FC<Props> = ({ userId }) => {
 
   return (
     <div className="settings-group google-calendar-settings">
-      <div className="settings-label">Integrações</div>
+      <div className="settings-label">{t('integrations')}</div>
       <div className="google-calendar-heading">
         <div>
-          <strong>Google Agenda</strong>
-          <small>{loading ? 'Verificando conexão...' : errorMessage ?? STATUS_COPY[status]}</small>
+          <strong>{t('googleCalendar')}</strong>
+          <small>{loading ? t('checkingConnection') : errorMessage ?? (status === 'connected' ? t('googleConnectedDescription') : status === 'expired' ? t('googleExpiredDescription') : status === 'error' ? t('googleErrorDescription') : t('integrationsDescription'))}</small>
         </div>
-        {status === 'connected' && <span className="google-calendar-status is-connected">✓ Conectado</span>}
-        {status === 'expired' && <span className="google-calendar-status is-expired">⚠ Expirada</span>}
+        {status === 'connected' && <span className="google-calendar-status is-connected">✓ {t('connected')}</span>}
+        {status === 'expired' && <span className="google-calendar-status is-expired">⚠ {t('expired')}</span>}
       </div>
       {status === 'connected' ? (
         <>
           <button className="settings-action" type="button" onClick={() => void connect()} disabled={working}>
-            <span>{working ? 'Reconectando...' : 'Reconectar Google Agenda'}</span><span className="settings-action-arrow">→</span>
+            <span>{working ? t('reconnecting') : t('reconnectGoogle')}</span><span className="settings-action-arrow">→</span>
           </button>
           <button className="settings-action" type="button" onClick={() => void disconnect()} disabled={working}>
-            <span>{working ? 'Desconectando...' : 'Desconectar Google Agenda'}</span><span className="settings-action-arrow">→</span>
+            <span>{working ? t('disconnecting') : t('disconnectGoogle')}</span><span className="settings-action-arrow">→</span>
           </button>
         </>
       ) : (
         <button className="settings-action" type="button" onClick={() => void connect()} disabled={loading || working}>
-          <span>{working ? 'Conectando...' : status === 'expired' || status === 'error' ? 'Reconectar Google Agenda' : 'Conectar Google Agenda'}</span><span className="settings-action-arrow">→</span>
+          <span>{working ? t('connecting') : status === 'expired' || status === 'error' ? t('reconnectGoogle') : t('connectGoogle')}</span><span className="settings-action-arrow">→</span>
         </button>
       )}
     </div>

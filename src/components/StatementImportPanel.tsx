@@ -2,8 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   type BillCategory,
   BILL_CATEGORY_LABELS,
-  formatCurrency,
-  parseBRL,
 } from '../types';
 import { type CreditCardInvoice, type CreditCardTransaction, type ExpenseOwner } from '../types';
 import {
@@ -17,6 +15,7 @@ import { extractStatementTotalCents } from '../services/statementTotals';
 import { findDuplicateTransaction } from '../services/transactionDuplicates';
 import { hasGroqKey } from '../services/groq';
 import { readUserStorage, writeUserStorage } from '../services/userStorage';
+import { usePreferences } from '../i18n';
 
 interface Props {
   onImport: (invoice: CreditCardInvoice) => void;
@@ -37,6 +36,7 @@ function makeId(): string {
 const STORAGE_KEY_GROQ_STATUS = 'groq_configured';
 
 export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month, year, existingTransactions }) => {
+  const { formatMoney, parseAmount, t } = usePreferences();
   const fileRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -181,12 +181,12 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
 
           {!checkingKey && !apiKeyConfigured && (
             <div style={{ background: '#1a150a', border: '1px solid #2a2010', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#f59e0b' }}>
-              Configure sua chave Groq na aba <strong>Assistente</strong> para usar a importação por foto.
+              {t('configureGroq')}
             </div>
           )}
 
           <p style={{ margin: 0, fontSize: 12, color: '#555', lineHeight: 1.5 }}>
-            Selecione uma imagem, print ou arquivo PDF da fatura do cartão. A IA extrai as compras para você revisar antes de lançar.
+            {t('importInvoiceDescription')}
           </p>
 
           <input
@@ -222,7 +222,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
             {loading ? (
               <>
                 <span style={{ width: 14, height: 14, border: '2px solid #3b82f6', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite', display: 'inline-block' }} />
-                Analisando fatura...
+                {t('analyzingInvoice')}
               </>
             ) : (
               <>
@@ -230,7 +230,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
                   <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" />
                   <circle cx="12" cy="13" r="4" />
                 </svg>
-                Selecionar imagem ou PDF
+                {t('selectImagePdf')}
               </>
             )}
           </button>
@@ -239,7 +239,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
             <img src={previewUrl} alt="Preview da fatura" style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, border: '1px solid #1e1e1e' }} />
           )}
           {previewUrl && previewIsPdf && (
-            <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, padding: '14px', color: '#999', fontSize: 12 }}>PDF selecionado. O texto da fatura será analisado.</div>
+            <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, padding: '14px', color: '#999', fontSize: 12 }}>{t('pdfSelected')}</div>
           )}
 
           {error && (
@@ -250,7 +250,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
             <>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#4ade80', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                  {items.length} compra{items.length !== 1 ? 's' : ''} encontrada{items.length !== 1 ? 's' : ''}
+                  {items.length} {items.length !== 1 ? t('purchasesFound') : t('purchaseFound')}
                 </span>
               </div>
 
@@ -268,19 +268,19 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
                     )}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 6 }}>
                       <div>
-                        <div style={{ fontSize: 9, color: '#444', marginBottom: 2 }}>Valor</div>
-                        <input style={fieldStyle} inputMode="decimal" value={item.amount.toFixed(2).replace('.', ',')} onChange={(e) => updateItem(item.id, { amount: parseBRL(e.target.value) })} />
+                        <div style={{ fontSize: 9, color: '#444', marginBottom: 2 }}>{t('amount')}</div>
+                        <input style={fieldStyle} inputMode="decimal" value={item.amount.toFixed(2).replace('.', ',')} onChange={(e) => updateItem(item.id, { amount: parseAmount(e.target.value) })} />
                       </div>
                       <div>
-                        <div style={{ fontSize: 9, color: '#444', marginBottom: 2 }}>Parc.</div>
+                        <div style={{ fontSize: 9, color: '#444', marginBottom: 2 }}>{t('installmentShort')}</div>
                         <input style={fieldStyle} inputMode="numeric" value={String(item.installmentCurrent)} onChange={(e) => updateItem(item.id, { installmentCurrent: parseInt(e.target.value) || 1 })} />
                       </div>
                       <div>
-                        <div style={{ fontSize: 9, color: '#444', marginBottom: 2 }}>Total</div>
+                        <div style={{ fontSize: 9, color: '#444', marginBottom: 2 }}>{t('installmentTotal')}</div>
                         <input style={fieldStyle} inputMode="numeric" value={String(item.installmentTotal)} onChange={(e) => updateItem(item.id, { installmentTotal: parseInt(e.target.value) || 1 })} />
                       </div>
                       <div>
-                        <div style={{ fontSize: 9, color: '#444', marginBottom: 2 }}>Cat.</div>
+                        <div style={{ fontSize: 9, color: '#444', marginBottom: 2 }}>{t('category')}</div>
                         <select style={fieldStyle} value={item.category} onChange={(e) => updateItem(item.id, { category: e.target.value as BillCategory })}>
                           {(Object.keys(BILL_CATEGORY_LABELS) as BillCategory[]).map((c) => (
                             <option key={c} value={c}>{BILL_CATEGORY_LABELS[c]}</option>
@@ -290,29 +290,29 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
                     </div>
                     {item.installmentTotal > 1 && (
                       <div style={{ fontSize: 10, color: '#555', marginTop: 6 }}>
-                        Parcela {item.installmentCurrent}/{item.installmentTotal} · {formatCurrency(item.amount)}/mês
+                        Parcela {item.installmentCurrent}/{item.installmentTotal} · {formatMoney(item.amount)}/mês
                       </div>
                     )}
                     <div style={{ display: 'grid', gridTemplateColumns: item.owner === 'SHARED' || item.owner === 'THIRD_PARTY' ? '1fr 1fr' : '1fr', gap: 6, marginTop: 8 }}>
                       <div>
-                        <div style={{ fontSize: 9, color: '#444', marginBottom: 2 }}>Responsabilidade</div>
+                        <div style={{ fontSize: 9, color: '#444', marginBottom: 2 }}>{t('responsibility')}</div>
                         <select style={fieldStyle} value={item.owner} onChange={(e) => updateItem(item.id, { owner: e.target.value as ExpenseOwner })}>
                           <option value="ME">Eu</option>
-                          <option value="THIRD_PARTY">Terceiro</option>
-                          <option value="SHARED">Compartilhado</option>
-                          <option value="UNCLASSIFIED">Não classificado</option>
+                          <option value="THIRD_PARTY">{t('thirdParty')}</option>
+                          <option value="SHARED">{t('shared')}</option>
+                          <option value="UNCLASSIFIED">{t('unclassified')}</option>
                         </select>
                       </div>
                       {item.owner === 'THIRD_PARTY' && (
                         <div>
-                          <div style={{ fontSize: 9, color: '#444', marginBottom: 2 }}>Terceiro</div>
-                          <input style={fieldStyle} value={item.thirdPartyName ?? ''} onChange={(e) => updateItem(item.id, { thirdPartyName: e.target.value })} placeholder="Nome (opcional)" />
+                          <div style={{ fontSize: 9, color: '#444', marginBottom: 2 }}>{t('thirdParty')}</div>
+                          <input style={fieldStyle} value={item.thirdPartyName ?? ''} onChange={(e) => updateItem(item.id, { thirdPartyName: e.target.value })} placeholder={t('optionalName')} />
                         </div>
                       )}
                       {item.owner === 'SHARED' && (
                         <div>
-                          <div style={{ fontSize: 9, color: '#444', marginBottom: 2 }}>Minha parte</div>
-                          <input style={fieldStyle} inputMode="decimal" value={item.personalAmountCents == null ? '' : (item.personalAmountCents / 100).toFixed(2).replace('.', ',')} onChange={(e) => updateItem(item.id, { personalAmountCents: Math.round(parseBRL(e.target.value) * 100) })} placeholder="0,00" />
+                          <div style={{ fontSize: 9, color: '#444', marginBottom: 2 }}>{t('myShare')}</div>
+                          <input style={fieldStyle} inputMode="decimal" value={item.personalAmountCents == null ? '' : (item.personalAmountCents / 100).toFixed(2).replace('.', ',')} onChange={(e) => updateItem(item.id, { personalAmountCents: Math.round(parseAmount(e.target.value) * 100) })} placeholder="0,00" />
                         </div>
                       )}
                     </div>
@@ -322,7 +322,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                 <span style={{ fontSize: 12, color: '#777' }}>
-                  {selectedCount} lançamento{selectedCount !== 1 ? 's' : ''} · Total da fatura: <strong style={{ color: '#c0c0c0' }}>{formatCurrency(displayedTotal)}</strong>
+                  {selectedCount} · {t('invoiceTotal')}: <strong style={{ color: '#c0c0c0' }}>{formatMoney(displayedTotal)}</strong>
                 </span>
                 <button
                   onClick={handleConfirm}
@@ -338,7 +338,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
                     fontWeight: 600,
                   }}
                 >
-                  Lançar {selectedCount} compra{selectedCount !== 1 ? 's' : ''}
+                  {t('launchPurchases')} ({selectedCount})
                 </button>
               </div>
             </>

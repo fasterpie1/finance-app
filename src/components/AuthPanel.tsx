@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase, isSupabaseConfigured } from '../services/supabase';
+import { usePreferences } from '../i18n';
 
 const AUTH_REDIRECT_URL = 'https://finance-app-alpha-opal.vercel.app';
 
@@ -8,6 +9,7 @@ interface Props {
 }
 
 export const AuthPanel: React.FC<Props> = ({ children }) => {
+  const { t } = usePreferences();
   const [userId, setUserId] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -21,14 +23,14 @@ export const AuthPanel: React.FC<Props> = ({ children }) => {
       if (!active) return;
       if (error) {
         console.error('Falha ao restaurar a sessão do Supabase:', error);
-        setMessage('Não foi possível restaurar sua sessão. Entre novamente.');
+        setMessage(t('restoreSessionError'));
       }
       setUserId(data.session?.user.id ?? null);
       setLoading(false);
     }).catch((error: unknown) => {
       if (!active) return;
       console.error('Falha ao restaurar a sessão do Supabase:', error);
-      setMessage('Não foi possível restaurar sua sessão. Entre novamente.');
+      setMessage(t('restoreSessionError'));
       setLoading(false);
     });
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
@@ -36,7 +38,7 @@ export const AuthPanel: React.FC<Props> = ({ children }) => {
       setUserId(session?.user.id ?? null);
     });
     return () => { active = false; listener.subscription.unsubscribe(); };
-  }, []);
+  }, [t]);
 
   const signIn = async () => {
     if (!supabase || !email.trim() || !password) return;
@@ -66,20 +68,20 @@ export const AuthPanel: React.FC<Props> = ({ children }) => {
   };
 
   if (!isSupabaseConfigured) return <>{children(null, signOut)}</>;
-  if (loading) return <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', color: '#777', background: '#0a0a0a' }}>Carregando...</div>;
+  if (loading) return <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', color: '#777', background: '#0a0a0a' }}>{t('loading')}</div>;
   if (userId) return <>{children(userId, signOut)}</>;
 
   return (
     <main style={{ minHeight: '100vh', background: '#0a0a0a', color: '#e0e0e0', display: 'grid', placeItems: 'center', padding: 20, fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif" }}>
       <section style={{ width: '100%', maxWidth: 400, background: '#111', border: '1px solid #1a1a1a', borderRadius: 12, padding: 24 }}>
         <h1 style={{ margin: '0 0 8px', fontSize: 22 }}>Finança Pessoal</h1>
-        <p style={{ margin: '0 0 22px', color: '#666', fontSize: 13 }}>Entre para acessar seus dados financeiros.</p>
+        <p style={{ margin: '0 0 22px', color: '#666', fontSize: 13 }}>{t('loginDescription')}</p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <input type="email" placeholder="Seu e-mail" value={email} onChange={(event) => setEmail(event.target.value)} style={{ background: '#0e0e0e', border: '1px solid #292929', borderRadius: 6, color: '#eee', padding: 11, fontSize: 14 }} />
-          <input type="password" placeholder="Senha (mínimo 6 caracteres)" value={password} onChange={(event) => setPassword(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && signIn()} style={{ background: '#0e0e0e', border: '1px solid #292929', borderRadius: 6, color: '#eee', padding: 11, fontSize: 14 }} />
+          <input type="email" placeholder={t('email')} value={email} onChange={(event) => setEmail(event.target.value)} style={{ background: '#0e0e0e', border: '1px solid #292929', borderRadius: 6, color: '#eee', padding: 11, fontSize: 14 }} />
+          <input type="password" placeholder={t('password')} value={password} onChange={(event) => setPassword(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && signIn()} style={{ background: '#0e0e0e', border: '1px solid #292929', borderRadius: 6, color: '#eee', padding: 11, fontSize: 14 }} />
           {message && <div style={{ color: message.includes('criada') ? '#4ade80' : '#ef4444', fontSize: 12, lineHeight: 1.4 }}>{message}</div>}
-          <button onClick={signIn} disabled={loading || !email || !password} style={{ background: '#3b82f6', border: 0, borderRadius: 6, color: '#fff', padding: 11, fontWeight: 600, cursor: 'pointer' }}>Entrar</button>
-          <button onClick={signUp} disabled={loading || !email || password.length < 6} style={{ background: 'transparent', border: '1px solid #292929', borderRadius: 6, color: '#aaa', padding: 11, fontWeight: 600, cursor: 'pointer' }}>Criar conta</button>
+          <button onClick={signIn} disabled={loading || !email || !password} style={{ background: '#3b82f6', border: 0, borderRadius: 6, color: '#fff', padding: 11, fontWeight: 600, cursor: 'pointer' }}>{t('login')}</button>
+          <button onClick={signUp} disabled={loading || !email || password.length < 6} style={{ background: 'transparent', border: '1px solid #292929', borderRadius: 6, color: '#aaa', padding: 11, fontWeight: 600, cursor: 'pointer' }}>{t('createAccount')}</button>
         </div>
       </section>
     </main>

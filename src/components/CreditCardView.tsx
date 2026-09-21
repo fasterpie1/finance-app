@@ -4,9 +4,6 @@ import {
   type CreditCardInvoice,
   type ExpenseOwner,
   BILL_CATEGORY_LABELS,
-  formatCurrency,
-  formatMonthShort,
-  parseBRL,
 } from '../types';
 import { type CreditCardPurchase, type MonthInfo } from '../store/useDashboard';
 import { centsToAmount, getInvoiceChargeTotalCents, getInvoicePersonalTotalCents, getInvoiceThirdPartyTotalCents, getInvoiceUnclassifiedTotalCents, getInvoiceTotalCents, getOwnerLabel } from '../services/cardTransactions';
@@ -15,6 +12,7 @@ import { BillRow } from './BillRow';
 import { StatementImportPanel } from './StatementImportPanel';
 import { type Bill } from '../types';
 import { CalendarReminderButton } from './CalendarReminderButton';
+import { usePreferences } from '../i18n';
 
 interface Props {
   userId: string | null;
@@ -57,6 +55,7 @@ const ownerOptions: Array<{ value: ExpenseOwner; label: string }> = [
 ];
 
 function InvoiceTransactions({ invoices, creditCardBills, onUpdate, onTogglePaid, onSaveBill, onDeleteBill, hideValues }: { invoices: CreditCardInvoice[]; creditCardBills: Bill[]; onUpdate: (invoice: CreditCardInvoice) => void; onTogglePaid: (id: string) => void; onSaveBill: (bill: Bill) => void; onDeleteBill: (id: string) => void; hideValues?: boolean }) {
+  const { formatMoney, parseAmount, t } = usePreferences();
   const [filter, setFilter] = useState<'ALL' | ExpenseOwner>('ALL');
   const summaryRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef({ active: false, startX: 0, scrollLeft: 0 });
@@ -98,14 +97,14 @@ function InvoiceTransactions({ invoices, creditCardBills, onUpdate, onTogglePaid
         style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2, cursor: 'grab', touchAction: 'pan-x', userSelect: 'none' }}
       >
         {[
-          ['Fatura', totals.total],
-          ['Meu gasto', totals.personal],
-          ['Terceiros', totals.thirdParty],
-          ['Não classificados', totals.unclassified],
+          [t('invoice'), totals.total],
+          [t('mySpending'), totals.personal],
+          [t('thirdParty'), totals.thirdParty],
+          [t('unclassified'), totals.unclassified],
         ].map(([label, cents]) => (
           <div key={String(label)} style={{ minWidth: 126, flex: '0 0 126px', background: '#131313', border: '1px solid #1e1e1e', borderRadius: 10, padding: '12px 14px' }}>
             <div style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</div>
-            <div style={{ marginTop: 5, fontSize: 16, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#e8e8e8' }}>{hideValues ? 'R$ ••••' : formatCurrency(centsToAmount(Number(cents)))}</div>
+            <div style={{ marginTop: 5, fontSize: 16, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#e8e8e8' }}>{hideValues ? '••••' : formatMoney(centsToAmount(Number(cents)))}</div>
           </div>
         ))}
       </div>
@@ -132,11 +131,11 @@ function InvoiceTransactions({ invoices, creditCardBills, onUpdate, onTogglePaid
                   {ownerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
                 {transaction.owner === 'THIRD_PARTY' && <input value={transaction.thirdPartyName ?? ''} onChange={(event) => updateTransaction(transaction.id, { thirdPartyName: event.target.value })} placeholder="Quem?" style={{ ...fieldStyle, width: 130, padding: '5px 8px', fontSize: 11 }} />}
-                {transaction.owner === 'SHARED' && <input inputMode="decimal" value={transaction.personalAmountCents == null ? '' : (transaction.personalAmountCents / 100).toFixed(2).replace('.', ',')} onChange={(event) => updateTransaction(transaction.id, { personalAmountCents: Math.round(parseBRL(event.target.value) * 100) })} placeholder="Minha parte" style={{ ...fieldStyle, width: 110, padding: '5px 8px', fontSize: 11 }} />}
+                {transaction.owner === 'SHARED' && <input inputMode="decimal" value={transaction.personalAmountCents == null ? '' : (transaction.personalAmountCents / 100).toFixed(2).replace('.', ',')} onChange={(event) => updateTransaction(transaction.id, { personalAmountCents: Math.round(parseAmount(event.target.value) * 100) })} placeholder="Minha parte" style={{ ...fieldStyle, width: 110, padding: '5px 8px', fontSize: 11 }} />}
                 <span style={{ fontSize: 10, color: transaction.owner === 'UNCLASSIFIED' ? '#f59e0b' : '#555' }}>{getOwnerLabel(transaction.owner)}</span>
               </div>
             </div>
-            <strong style={{ fontSize: 14, color: transaction.type === 'REFUND' ? '#10b981' : '#d4d4d4', whiteSpace: 'nowrap' }}>{hideValues ? 'R$ ••••' : formatCurrency(centsToAmount(transaction.amountCents))}</strong>
+            <strong style={{ fontSize: 14, color: transaction.type === 'REFUND' ? '#10b981' : '#d4d4d4', whiteSpace: 'nowrap' }}>{hideValues ? '••••' : formatMoney(centsToAmount(transaction.amountCents))}</strong>
             <button
               type="button"
               title="Remover lançamento"
@@ -165,6 +164,7 @@ export const CreditCardView: React.FC<Props> = ({
   onTogglePaid, onSaveBill, onDeleteBill, onAddPurchase, onImportInvoice, onUpdateInvoice, getAffectedMonths, onPayCreditCard, onUnpayCreditCard, creditCardDueDay, onUpdateCreditCardDueDay, hideValues,
   invoiceCalendarEventId, onInvoiceCalendarReminder, invoiceCalendarReminderLoading,
 }) => {
+  const { formatMoney, formatMonthShort, parseAmount, categoryLabel, t } = usePreferences();
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState<BillCategory>('compras');
@@ -199,7 +199,7 @@ export const CreditCardView: React.FC<Props> = ({
   const affected = getAffectedMonths(Math.min(cur, total), Math.max(cur, total));
   const manualDuplicate = name.trim() && amount
     ? findDuplicateTransaction({
-      amountCents: Math.round(parseBRL(amount) * 100),
+      amountCents: Math.round(parseAmount(amount) * 100),
       type: total > 1 ? 'INSTALLMENT' : 'PURCHASE',
       installmentCurrent: paymentMethod === 'debito_pix' ? 1 : cur,
       installmentTotal: paymentMethod === 'debito_pix' ? 1 : total,
@@ -225,12 +225,13 @@ export const CreditCardView: React.FC<Props> = ({
     if (!trimmed || !amount) return;
     const c = Math.max(1, Math.min(cur, total));
     const t = Math.max(c, total);
-    const amountCents = Math.round(parseBRL(amount) * 100);
-    onAddPurchase({ name: trimmed, amount: parseBRL(amount), category, installmentCurrent: paymentMethod === 'debito_pix' ? 1 : c, installmentTotal: paymentMethod === 'debito_pix' ? 1 : t, paymentMethod, owner: paymentMethod === 'debito_pix' ? 'ME' : owner, personalAmountCents: owner === 'SHARED' ? Math.min(amountCents, Math.max(0, Math.round(parseBRL(personalAmount) * 100))) : undefined, thirdPartyName: owner === 'THIRD_PARTY' ? thirdPartyName.trim() || undefined : undefined });
+    const parsedAmount = parseAmount(amount);
+    const amountCents = Math.round(parsedAmount * 100);
+    onAddPurchase({ name: trimmed, amount: parsedAmount, category, installmentCurrent: paymentMethod === 'debito_pix' ? 1 : c, installmentTotal: paymentMethod === 'debito_pix' ? 1 : t, paymentMethod, owner: paymentMethod === 'debito_pix' ? 'ME' : owner, personalAmountCents: owner === 'SHARED' ? Math.min(amountCents, Math.max(0, Math.round(parseAmount(personalAmount) * 100))) : undefined, thirdPartyName: owner === 'THIRD_PARTY' ? thirdPartyName.trim() || undefined : undefined });
     setName(''); setAmount(''); setCurInstallment('1'); setTotalInstallment('1'); setPaymentMethod('credito'); setOwner('ME'); setPersonalAmount(''); setThirdPartyName('');
   };
 
-  const masked = 'R$ ••••';
+  const masked = '••••';
 
   return (
     <div className="theme-card-view" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -265,7 +266,7 @@ export const CreditCardView: React.FC<Props> = ({
             </div>
           </div>
           <span style={{ fontSize: 14, fontWeight: 700, color: hideValues ? '#1a1a1a' : (allCardPaid ? '#10b981' : '#d4d4d4'), flexShrink: 0, letterSpacing: '-0.01em', transition: 'color 0.2s' }}>
-            {hideValues ? masked : formatCurrency(faturaTotal)}
+            {hideValues ? masked : formatMoney(faturaTotal)}
           </span>
           {onInvoiceCalendarReminder && !allCardPaid && (
             <CalendarReminderButton added={Boolean(invoiceCalendarEventId)} loading={invoiceCalendarReminderLoading} onClick={onInvoiceCalendarReminder} />
@@ -293,13 +294,13 @@ export const CreditCardView: React.FC<Props> = ({
         <div style={{ background: '#131313', border: '1px solid #1e1e1e', borderRadius: 12, padding: '16px 18px', position: 'relative', overflow: 'hidden' }}>
           <div style={{ position: 'absolute', top: 0, left: 0, width: 3, height: '100%', background: '#ef4444', borderRadius: '12px 0 0 12px' }} />
           <div style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, marginBottom: 6 }}>Parcelas</div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#e8e8e8', transition: 'color 0.2s' }}>{hideValues ? masked : formatCurrency(monthlyFromCard)}</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#e8e8e8', transition: 'color 0.2s' }}>{hideValues ? masked : formatMoney(monthlyFromCard)}</div>
           <div style={{ fontSize: 11, color: '#3a3a3a', marginTop: 4 }}>{creditCardBills.length + creditCardInvoices.flatMap((invoice) => invoice.transactions).filter((transaction) => transaction.type !== 'PAYMENT').length} lançamento(s)</div>
         </div>
         <div style={{ background: '#131313', border: '1px solid #1e1e1e', borderRadius: 12, padding: '16px 18px', position: 'relative', overflow: 'hidden' }}>
           <div style={{ position: 'absolute', top: 0, left: 0, width: 3, height: '100%', background: '#f59e0b', borderRadius: '12px 0 0 12px' }} />
           <div style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, marginBottom: 6 }}>Dívida total</div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#e8e8e8', transition: 'color 0.2s' }}>{hideValues ? masked : formatCurrency(totalDebt)}</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#e8e8e8', transition: 'color 0.2s' }}>{hideValues ? masked : formatMoney(totalDebt)}</div>
           <div style={{ fontSize: 11, color: '#3a3a3a', marginTop: 4 }}>Parcelas em aberto</div>
         </div>
       </div>
@@ -317,7 +318,7 @@ export const CreditCardView: React.FC<Props> = ({
             <div style={{ height: 1, background: '#1a1a1a', marginBottom: 4 }} />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div><label style={labelStyle}>Nome da compra</label><input style={fieldStyle} placeholder="Ex: Tênis Nike" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdd()} /></div>
-              <div><label style={labelStyle}>Categoria</label><select style={fieldStyle} value={category} onChange={(e) => setCategory(e.target.value as BillCategory)}>{(Object.keys(BILL_CATEGORY_LABELS) as BillCategory[]).map((c) => (<option key={c} value={c}>{BILL_CATEGORY_LABELS[c]}</option>))}</select></div>
+              <div><label style={labelStyle}>{t('category')}</label><select style={fieldStyle} value={category} onChange={(e) => setCategory(e.target.value as BillCategory)}>{(Object.keys(BILL_CATEGORY_LABELS) as BillCategory[]).map((c) => (<option key={c} value={c}>{categoryLabel(c)}</option>))}</select></div>
             </div>
             <div><label style={labelStyle}>Forma de pagamento</label><select style={fieldStyle} value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as 'credito' | 'debito_pix')}><option value="credito">Cartão de crédito</option><option value="debito_pix">Débito/Pix</option></select></div>
             {paymentMethod === 'credito' && (
@@ -342,7 +343,7 @@ export const CreditCardView: React.FC<Props> = ({
                     </span>
                   ))}
                 </div>
-                <div style={{ fontSize: 11, color: '#333', marginTop: 8 }}>Total comprometido: <strong style={{ color: '#777' }}>{formatCurrency(parseBRL(amount) * affected.length)}</strong></div>
+                <div style={{ fontSize: 11, color: '#333', marginTop: 8 }}>Total comprometido: <strong style={{ color: '#777' }}>{formatMoney(parseAmount(amount) * affected.length)}</strong></div>
               </div>
             )}
 
@@ -407,7 +408,7 @@ export const CreditCardView: React.FC<Props> = ({
                   <div style={{ flex: 1, background: '#1a1a1a', borderRadius: 3, height: 4, overflow: 'hidden' }}>
                     <div style={{ width: `${pct}%`, height: '100%', background: '#10b981', borderRadius: 3, transition: 'width 0.3s' }} />
                   </div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#c0c0c0', minWidth: 85, textAlign: 'right', transition: 'color 0.2s' }}>{hideValues ? 'R$ ••••' : formatCurrency(totalAmt)}</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#c0c0c0', minWidth: 85, textAlign: 'right', transition: 'color 0.2s' }}>{hideValues ? '••••' : formatMoney(totalAmt)}</div>
                 </div>
               );
             })}
