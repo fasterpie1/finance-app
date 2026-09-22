@@ -7,6 +7,7 @@ import { CreditCardView } from './components/CreditCardView';
 import { ChatView } from './components/ChatView';
 import { CategoryChart } from './components/CategoryChart';
 import { CardSpendingChart } from './components/CardSpendingChart';
+import { IncomeSourcesModal } from './components/IncomeSourcesModal';
 import { AuthPanel } from './components/AuthPanel';
 import { DailyBillNotification } from './components/DailyBillNotification';
 import { GoogleCalendarSettings } from './components/GoogleCalendarSettings';
@@ -222,8 +223,7 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
   const db = useDashboard(userId);
   const [tab, setTab] = useState<Tab>('dashboard');
   const [addSection, setAddSection] = useState<AddSection>(null);
-  const [incomeEditing, setIncomeEditing] = useState(false);
-  const [incomeInput, setIncomeInput] = useState('');
+  const [incomeModalOpen, setIncomeModalOpen] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const keyboardOpen = useKeyboardOpen();
   const [theme, setTheme] = useState<'dark' | 'light'>(loadTheme);
@@ -971,6 +971,32 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
         </>
       )}
 
+      {incomeModalOpen && (
+        <IncomeSourcesModal
+          open={incomeModalOpen}
+          monthLabel={`${db.selectedMonth.name} ${db.selectedMonth.year}`}
+          income={db.selectedMonth.income}
+          sources={db.selectedMonth.incomeSources}
+          onClose={() => setIncomeModalOpen(false)}
+          onSave={db.updateIncomeSources}
+          formatCurrency={formatCurrency}
+          parseAmount={parseAmount}
+          closeIcon={<IconClose />}
+          labels={{
+            title: t('monthlyIncome'),
+            eyebrow: t('incomeSourcesEyebrow'),
+            description: t('incomeSourcesDescription'),
+            source: t('incomeSourceLabel'),
+            amount: t('amount'),
+            sourcePlaceholder: t('incomeSourcePlaceholder'),
+            add: t('addIncomeSource'),
+            remove: t('removeIncomeSource'),
+            total: t('incomeSourcesTotal'),
+            close: t('saveIncomeSources'),
+          }}
+        />
+      )}
+
       {helpOpen && (
         <div className="help-modal-backdrop" role="presentation">
           <article className="help-modal" role="dialog" aria-modal="true" aria-labelledby="help-modal-title">
@@ -1042,19 +1068,9 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
             {/* Summary cards 2×2 com olhinho no centro */}
             <div style={{ position: 'relative' }}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
-                {incomeEditing ? (
-                  <div className="theme-income-editor" style={{ background: '#131313', border: '1px solid #2a2a2a', borderRadius: 12, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <label style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>{t('monthlyIncome')}</label>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <input autoFocus inputMode="decimal" pattern="[0-9.,]*" value={incomeInput} onChange={(e) => setIncomeInput(e.target.value.replace(/[^0-9.,]/g, ''))} onKeyDown={(e) => { if (e.key === 'Enter') { db.updateIncome(parseAmount(incomeInput)); setIncomeEditing(false); } if (e.key === 'Escape') setIncomeEditing(false); }} style={{ background: '#0e0e0e', border: '1px solid #252525', borderRadius: 6, color: '#e0e0e0', padding: '6px 10px', fontSize: 16, fontWeight: 700, width: '100%', outline: 'none', fontFamily: 'inherit' }} />
-                        <button onClick={() => { db.updateIncome(parseAmount(incomeInput)); setIncomeEditing(false); }} style={{ background: '#10b981', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '6px 12px', fontSize: 12, fontWeight: 600 }}>OK</button>
-                    </div>
-                  </div>
-                ) : (
-                  <div onClick={() => { setIncomeInput(db.selectedMonth.income.toString()); setIncomeEditing(true); }} style={{ cursor: 'pointer' }}>
-                    <SummaryCard title={t('monthlyIncome')} value={formatCurrency(db.selectedMonth.income)} accent="green" subtitle={t('tapToEdit')} hidden={hideValues} />
-                  </div>
-                )}
+                <div onClick={() => setIncomeModalOpen(true)} style={{ cursor: 'pointer' }}>
+                  <SummaryCard title={t('monthlyIncome')} value={formatCurrency(db.selectedMonth.income)} accent="green" subtitle={t('tapToEdit')} hidden={hideValues} />
+                </div>
 
                 <SummaryCard title={t('billsToPay')} value={formatCurrency(pendingAmount)} accent="red" subtitle={`${totalCount - paidCount} ${t('pending').toLowerCase()}`} valueColor="#ef4444" hidden={hideValues} />
                 <SummaryCard title={t('totalPaid')} value={formatCurrency(db.totalPaid)} accent="green" subtitle={`${paidCount} ${t('of')} ${totalCount}`} valueColor="#10b981" hidden={hideValues} />

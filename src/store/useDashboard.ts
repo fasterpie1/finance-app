@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { type Bill, type BudgetMonth, type BillCategory, type CardPaymentMethod, type CreditCardInvoice, type CreditCardTransaction, MONTH_NAMES, getMonthIndex, formatCurrency } from '../types';
+import { type Bill, type BudgetMonth, type BillCategory, type CardPaymentMethod, type CreditCardInvoice, type CreditCardTransaction, type IncomeSource, MONTH_NAMES, getMonthIndex, formatCurrency } from '../types';
 import { sampleMonths } from '../data/sampleData';
 import { supabase } from '../services/supabase';
 import { readUserStorage, removeUserStorage, writeUserStorage } from '../services/userStorage';
@@ -56,6 +56,7 @@ function migrateMonths(months: BudgetMonth[]): BudgetMonth[] {
     savingsGoalMode: m.savingsGoalMode ?? (m.savingsGoal && m.savingsGoal > 0 ? 'manual' : 'auto'),
     savedAmount: m.savedAmount ?? 0,
     creditCardInvoices: m.creditCardInvoices ?? [],
+    incomeSources: m.incomeSources ?? [],
   }));
   return migrateLegacyCardBills(migrated);
 }
@@ -370,6 +371,17 @@ export function useDashboard(userId: string | null = null) {
     [selectedMonthId]
   );
 
+  const updateIncomeSources = useCallback(
+    (sources: IncomeSource[]) => {
+      const cleaned = sources.filter((source) => source.label.trim() || source.amount > 0);
+      const income = cleaned.reduce((sum, source) => sum + source.amount, 0);
+      setMonths((prev) =>
+        prev.map((m) => (m.id === selectedMonthId ? { ...m, income, incomeSources: cleaned } : m))
+      );
+    },
+    [selectedMonthId]
+  );
+
   // ====== COPIAR CONTAS FIXAS DO MÊS ANTERIOR ======
   const copyFixedBillsFromPrevious = useCallback(() => {
     const currentIdx = getMonthIndex(selectedMonth.name);
@@ -423,6 +435,7 @@ export function useDashboard(userId: string | null = null) {
         name: nextName,
         year: nextYear,
         income: last.income,
+        incomeSources: last.incomeSources?.map((source) => ({ ...source, id: uuid() })) ?? [],
         bills: [],
         savingsGoal: last.savingsGoal ?? 0,
         savingsGoalMode: last.savingsGoalMode ?? 'auto',
@@ -703,6 +716,7 @@ export function useDashboard(userId: string | null = null) {
     deleteBill,
     togglePaid,
     updateIncome,
+    updateIncomeSources,
     addCreditCardPurchase,
     addCreditCardPurchasesBatch,
     getAffectedMonths,

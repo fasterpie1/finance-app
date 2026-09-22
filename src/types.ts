@@ -128,11 +128,19 @@ export interface Bill {
   calendarEventId?: string;
 }
 
+export interface IncomeSource {
+  id: string;
+  label: string;
+  amount: number;
+}
+
 export interface BudgetMonth {
   id: string;
   name: string;
   year: number;
   income: number;
+  /** Fontes que compõem a entrada mensal; `income` é a soma dos valores. */
+  incomeSources?: IncomeSource[];
   bills: Bill[];
   /** Faturas importadas do cartão, separadas das contas do orçamento. */
   creditCardInvoices?: CreditCardInvoice[];
