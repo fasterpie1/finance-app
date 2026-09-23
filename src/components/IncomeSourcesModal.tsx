@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { type IncomeSource } from '../types';
+import { useModalA11y } from '../hooks/useModalA11y';
 
 function newSourceId(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -48,14 +49,14 @@ export const IncomeSourcesModal: React.FC<Props> = ({
   closeIcon,
 }) => {
   const [rows, setRows] = useState<IncomeSource[]>(() => seedSources(sources, income));
-  const [draftAmounts, setDraftAmounts] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    if (!open) return;
-    const seeded = seedSources(sources, income);
-    setRows(seeded);
-    setDraftAmounts(Object.fromEntries(seeded.map((row) => [row.id, row.amount > 0 ? String(row.amount) : ''])));
-  }, [open, sources, income]);
+  const [draftAmounts, setDraftAmounts] = useState<Record<string, string>>(() =>
+    Object.fromEntries(rows.map((row) => [row.id, row.amount > 0 ? String(row.amount) : ''])),
+  );
+  const commitAndClose = useCallback(() => {
+    onSave(rows);
+    onClose();
+  }, [onSave, onClose, rows]);
+  const dialogRef = useModalA11y<HTMLElement>(open, commitAndClose);
 
   const total = useMemo(
     () => rows.reduce((sum, row) => sum + (Number.isFinite(row.amount) ? row.amount : 0), 0),
@@ -63,11 +64,6 @@ export const IncomeSourcesModal: React.FC<Props> = ({
   );
 
   if (!open) return null;
-
-  const commitAndClose = () => {
-    onSave(rows);
-    onClose();
-  };
 
   const updateLabel = (id: string, label: string) => {
     setRows((prev) => prev.map((row) => (row.id === id ? { ...row, label } : row)));
@@ -100,9 +96,9 @@ export const IncomeSourcesModal: React.FC<Props> = ({
       className="income-sources-backdrop"
       role="presentation"
       onClick={commitAndClose}
-      onKeyDown={(event) => { if (event.key === 'Escape') commitAndClose(); }}
     >
       <article
+        ref={dialogRef}
         className="income-sources-sheet theme-income-editor"
         role="dialog"
         aria-modal="true"

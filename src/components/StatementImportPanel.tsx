@@ -34,6 +34,7 @@ function makeId(): string {
 }
 
 const STORAGE_KEY_GROQ_STATUS = 'groq_configured';
+const MAX_FILE_SIZE_MB = 20;
 
 export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month, year, existingTransactions }) => {
   const { formatMoney, parseAmount, t } = usePreferences();
@@ -55,6 +56,10 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
 
   const handleFile = async (file: File) => {
     setError('');
+    if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+      setError(`Arquivo muito grande (${(file.size / 1024 / 1024).toFixed(1)} MB). Envie um PDF ou imagem de até ${MAX_FILE_SIZE_MB} MB.`);
+      return;
+    }
     setLoading(true);
     setItems([]);
     setStatementTotalCents(undefined);
@@ -139,6 +144,9 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
       return !prev;
     });
   };
+
+  // Revoga a URL de preview ao trocar de arquivo ou desmontar, evitando vazamento.
+  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
 
   useEffect(() => {
     if (!open) return;

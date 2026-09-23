@@ -50,9 +50,14 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+:root {
+  --privacy-mask: #1a1a1a;
+}
+
 body[data-theme='light'] {
   background: #f4f5f7;
   color: #1d232c;
+  --privacy-mask: #a8b0bc;
 }
 
 body[data-theme='light'] .app-shell {
@@ -120,6 +125,11 @@ body[data-theme='light'] .theme-chat-view h2,
 body[data-theme='light'] .theme-chat-view p,
 body[data-theme='light'] .theme-chat-view label {
   color: #475569 !important;
+}
+
+/* Classe tripla para vencer os overrides amplos de cor acima (valores mascarados). */
+body[data-theme='light'] .privacy-mask.privacy-mask.privacy-mask {
+  color: var(--privacy-mask) !important;
 }
 
 body[data-theme='light'] .theme-summary-card > div:nth-child(3),
@@ -487,13 +497,15 @@ input, select, textarea, button {
   font-family: inherit;
 }
 
-/* Evitar zoom no iOS */
-input[type="text"],
-input[type="password"],
-input[type="number"],
-textarea,
-select {
-  font-size: 16px;
+/* Evitar zoom no iOS: qualquer controle com font-size < 16px faz a página dar
+   zoom no focus. Como os componentes definem font-size inline (que vence a
+   regra normal), forçamos 16px só no viewport de celular. */
+@media (max-width: 480px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
 }
 
 ::-webkit-scrollbar {
@@ -846,8 +858,8 @@ body[data-theme='light'] .google-calendar-heading small { color: #64748b; }
 }
 
 .daily-notification-close {
-  width: 30px;
-  height: 30px;
+  width: 44px;
+  height: 44px;
   border: 1px solid #333;
   border-radius: 7px;
   background: transparent;
@@ -1227,8 +1239,8 @@ body[data-theme='light'] .daily-notification-item.is-overdue .daily-notification
 }
 
 .income-source-remove {
-  width: 34px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
   border: 1px solid #292929;
   border-radius: 6px;
   background: transparent;

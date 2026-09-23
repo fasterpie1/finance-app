@@ -1,12 +1,10 @@
-import { type BillCategory, type CardTransactionType, BILL_CATEGORY_LABELS } from '../types';
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { extractWithGroq } from './groq';
-import { parsePdfTransactionFallback, type ExtractedPurchase } from './statementParser';
+import { parsePdfTransactionFallback, parseExtractedPurchases, VALID_CATEGORIES, type ExtractedPurchase } from './statementParser';
 export { extractStatementTotalCents } from './statementTotals';
+export { parseExtractedPurchases } from './statementParser';
 export type { ExtractedPurchase } from './statementParser';
-
-const VALID_CATEGORIES = Object.keys(BILL_CATEGORY_LABELS) as BillCategory[];
 
 const SYSTEM_PROMPT = `Você extrai compras de faturas de cartão de crédito brasileiras.
 Retorne APENAS JSON válido no formato: { "purchases": [ ... ] }
@@ -41,73 +39,6 @@ const TEXT_MODEL = 'openai/gpt-oss-20b';
 const MAX_OUTPUT_TOKENS = 1800;
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-
-function normalizeCategory(raw: unknown): BillCategory {
-  if (typeof raw !== 'string') return 'compras';
-  const lower = raw.toLowerCase().trim();
-  const found = VALID_CATEGORIES.find((c) => c === lower);
-  if (found) return found;
-  return 'compras';
-}
-
-function normalizePurchase(raw: Record<string, unknown>): Omit<ExtractedPurchase, 'id' | 'selected'> | null {
-  let name = typeof raw.name === 'string' ? raw.name.trim() : '';
-  const rawAmount = typeof raw.amount === 'number' ? raw.amount : parseFloat(String(raw.amount ?? ''));
-    const aggregateName = /compras?\s+(nacionais?|internacionais?)|total\s+(a\s+pagar|da\s+fatura)|valor\s+da\s+fatura|saldo\s+(obriga|rotativo)|pagamento\s+(total|mínimo)|gastos\s+desta\s+fatura|em\s+processamento|cart[aã]o\s+final|subtotal|limite\s+(total|disponível|utilizado)|próxima\s+fatura|demais\s+faturas/i;
-  if (!name || aggregateName.test(name) || !rawAmount || isNaN(rawAmount)) return null;
-  const normalizedType = String(raw.type ?? '').toUpperCase();
-  const type: CardTransactionType = ['PURCHASE', 'INSTALLMENT', 'REFUND', 'PAYMENT', 'FEE', 'OTHER'].includes(normalizedType)
-    ? normalizedType as CardTransactionType
-    : /pagamento|inclus[aã]o/i.test(name) ? 'PAYMENT'
-      : /estorno|cr[eé]dito/i.test(name) || rawAmount < 0 ? 'REFUND'
-        : /tarifa|anuidade|mensalidade|taxa/i.test(name) ? 'FEE' : 'PURCHASE';
-  const amount = Math.abs(rawAmount);
-
-  const installmentText = `${String(raw.installmentCurrent ?? '')} ${String(raw.installmentTotal ?? '')} ${name}`;
-  const installmentMatch = installmentText.match(/(?:parcela\s*)?(\d{1,2})\s*(?:\/|de)\s*(\d{1,2})/i);
-  let cur = installmentMatch ? Number(installmentMatch[1]) : (typeof raw.installmentCurrent === 'number' ? raw.installmentCurrent : parseInt(String(raw.installmentCurrent ?? '1'), 10));
-  let total = installmentMatch ? Number(installmentMatch[2]) : (typeof raw.installmentTotal === 'number' ? raw.installmentTotal : parseInt(String(raw.installmentTotal ?? '1'), 10));
-  if (installmentMatch) name = name.replace(installmentMatch[0], ' ').replace(/\s{2,}/g, ' ').trim();
-  name = name.replace(/\b(?:em processamento|cart[aã]o final\s*\d{4}|s[aã]o paulo|rio de janeiro|rio de|brasil)\b/gi, '').replace(/\s{2,}/g, ' ').trim();
-  if (!name || aggregateName.test(name)) return null;
-  if (isNaN(cur) || cur < 1) cur = 1;
-  if (isNaN(total) || total < 1) total = 1;
-  cur = Math.min(cur, total);
-
-  return {
-    name,
-    amount: Math.round(amount * 100) / 100,
-    installmentCurrent: cur,
-    installmentTotal: total,
-    category: normalizeCategory(raw.category),
-    type,
-    owner: 'ME',
-    cardLast4: typeof raw.cardLast4 === 'string' ? raw.cardLast4.slice(-4) : undefined,
-    date: typeof raw.date === 'string' ? raw.date : undefined,
-  };
-}
-
-export function parseExtractedPurchases(content: string): Omit<ExtractedPurchase, 'id' | 'selected'>[] {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    const match = content.match(/\{[\s\S]*\}/);
-    if (!match) return [];
-    try { parsed = JSON.parse(match[0]); } catch { return []; }
-  }
-
-  const arr = Array.isArray(parsed)
-    ? parsed
-    : Array.isArray((parsed as { purchases?: unknown[] })?.purchases)
-      ? (parsed as { purchases: unknown[] }).purchases
-      : [];
-
-  return arr
-    .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
-    .map(normalizePurchase)
-    .filter((p): p is Omit<ExtractedPurchase, 'id' | 'selected'> => p !== null);
-}
 
 
 export async function extractPurchasesFromImage(
@@ -147,7 +78,13 @@ export async function extractPurchasesFromText(
   try {
     const content = await extractWithGroq({ model: TEXT_MODEL, messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: `Extraia todos os lançamentos individuais das seções de transações desta fatura e classifique cada um como PURCHASE, INSTALLMENT, REFUND, PAYMENT, FEE ou OTHER. Percorra todas as páginas e não pare antes de incluir todos os lançamentos. Aceite datas numéricas como 25/01 e linhas quebradas. Não transforme valores de resumo como "Compras nacionais", "Total a pagar", "Valor da fatura", subtotais de cartão, limite, opções de parcelamento ou saldo de obrigações em lançamentos. Pagamentos, estornos, tarifas e anuidades devem ser preservados como lançamentos tipados, nunca como compras. O total oficial da fatura é informado separadamente e não deve ser somado novamente.\n\n${statementText.slice(0, 120000)}` }], max_completion_tokens: MAX_OUTPUT_TOKENS });
     extracted = parseExtractedPurchases(content);
-  } catch {
+  } catch (error) {
+    // Se a IA falhou e o parser local também não encontrou nada, propaga o erro real
+    // em vez de um "nenhuma compra encontrada" enganoso. Havendo fallback, degrada.
+    if (fallback.length === 0) {
+      throw error instanceof Error ? error : new Error('Falha ao interpretar a fatura com a IA.');
+    }
+    console.warn('Extração via IA falhou; usando parser local.', error);
     extracted = [];
   }
 
@@ -163,20 +100,26 @@ export async function extractPurchasesFromText(
 }
 
 export async function pdfToText(file: File): Promise<string> {
-  const pdf = await getDocument({ data: await file.arrayBuffer() }).promise;
+  const loadingTask = getDocument({ data: await file.arrayBuffer() });
+  const pdf = await loadingTask.promise;
   const pages: string[] = [];
-  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
-    const page = await pdf.getPage(pageNumber);
-    const content = await page.getTextContent();
-    const lines = new Map<number, string[]>();
-    content.items.forEach((item) => {
-      if (!('str' in item) || !item.str.trim()) return;
-      const y = Math.round(item.transform[5]);
-      const line = lines.get(y) || [];
-      line.push(item.str.trim());
-      lines.set(y, line);
-    });
-    pages.push(Array.from(lines.entries()).sort(([a], [b]) => b - a).map(([, items]) => items.join(' ')).join('\n'));
+  try {
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+      const page = await pdf.getPage(pageNumber);
+      const content = await page.getTextContent();
+      const lines = new Map<number, string[]>();
+      content.items.forEach((item) => {
+        if (!('str' in item) || !item.str.trim()) return;
+        const y = Math.round(item.transform[5]);
+        const line = lines.get(y) || [];
+        line.push(item.str.trim());
+        lines.set(y, line);
+      });
+      pages.push(Array.from(lines.entries()).sort(([a], [b]) => b - a).map(([, items]) => items.join(' ')).join('\n'));
+    }
+  } finally {
+    // Release the worker/document so repeated imports do not leak memory.
+    await loadingTask.destroy();
   }
   return pages.join('\n');
 }

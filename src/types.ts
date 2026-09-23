@@ -185,7 +185,13 @@ export function formatMonthFull(name: string, year: number, locale: 'pt-BR' | 'e
 
 export function getBillReminderStart(monthName: string, year: number, dueDay: number): Date {
   const monthIndex = getMonthIndex(monthName);
-  return new Date(year, monthIndex + 1, dueDay - 1, 9);
+  const dueMonthIndex = monthIndex < 0 ? 0 : (monthIndex + 1) % 12;
+  const dueYear = dueMonthIndex === 0 ? year + 1 : year;
+  // Clamp igual ao das notificações (nextMonthDate): sem isso, uma conta de dia 31
+  // num mês de 30 dias cairia no próprio vencimento em vez do dia anterior.
+  const lastDay = new Date(dueYear, dueMonthIndex + 1, 0).getDate();
+  const dueDate = new Date(dueYear, dueMonthIndex, Math.min(Math.max(dueDay, 1), lastDay));
+  return new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate() - 1, 9);
 }
 
 export function formatCurrency(value: number, currency = 'BRL', locale: string = 'pt-BR'): string {

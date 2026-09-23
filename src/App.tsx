@@ -12,11 +12,12 @@ import { AuthPanel } from './components/AuthPanel';
 import { DailyBillNotification } from './components/DailyBillNotification';
 import { GoogleCalendarSettings } from './components/GoogleCalendarSettings';
 import { CalendarReminderButton } from './components/CalendarReminderButton';
+import { useModalA11y } from './hooks/useModalA11y';
 import { getBillNotifications, type BillNotification } from './store/useDashboard';
 import { createCalendarEvent, deleteCalendarEvent, listCalendarEvents, updateCalendarEvent } from './services/googleCalendar';
 import { billReminderInput, invoiceReminderInput } from './services/calendarReminders';
 import { type Bill, BILL_CATEGORY_LABELS, getMonthIndex } from './types';
-import { centsToAmount, getInvoicePersonalTotalCents, getInvoiceTotalCents } from './services/cardTransactions';
+import { centsToAmount, getInvoicePersonalTotalCents, getInvoiceTotalCents, getTransactionCategoryImpactCents } from './services/cardTransactions';
 import { PreferencesProvider, usePreferences, type AppLocale, type DisplayCurrency } from './i18n';
 
 type Tab = 'dashboard' | 'cartao' | 'chat';
@@ -195,9 +196,9 @@ function CollapsibleSection({ title, count, totalAmount, isOpen, onToggle, right
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isOpen && !editMode ? 12 : 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: editMode ? 'default' : 'pointer', flex: 1 }} onClick={editMode ? undefined : onToggle}>
           {!editMode && <IconChevron open={isOpen} />}
-          <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{title}</h3>
-          {count !== undefined && <span className="theme-count-pill" style={{ fontSize: 10, fontWeight: 600, color: '#3a3a3a', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 6px' }}>{count}</span>}
-          {totalAmount !== undefined && !isOpen && !editMode && <span style={{ fontSize: 12, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#ef4444', marginLeft: 'auto', paddingRight: 8, transition: 'color 0.2s' }}>{hideValues ? '••••' : formatMoney(totalAmount)}</span>}
+          <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{title}</h3>
+          {count !== undefined && <span className="theme-count-pill" style={{ fontSize: 10, fontWeight: 600, color: '#8b8b8b', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 6px' }}>{count}</span>}
+          {totalAmount !== undefined && !isOpen && !editMode && <span className="privacy-mask" style={{ fontSize: 12, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#ef4444', marginLeft: 'auto', paddingRight: 8, transition: 'color 0.2s' }}>{hideValues ? '••••' : formatMoney(totalAmount)}</span>}
         </div>
         {isOpen && !editMode && rightAction}
       </div>
@@ -208,7 +209,7 @@ function CollapsibleSection({ title, count, totalAmount, isOpen, onToggle, right
 
 function EmptyState({ label, action, onAction }: { label: string; action?: string; onAction?: () => void }) {
   return (
-    <div style={{ background: '#0e0e0e', border: '1px dashed #1e1e1e', borderRadius: 8, padding: 20, textAlign: 'center', color: '#333', fontSize: 12 }}>
+    <div style={{ background: '#0e0e0e', border: '1px dashed #1e1e1e', borderRadius: 8, padding: 20, textAlign: 'center', color: '#8b8b8b', fontSize: 12 }}>
       <div>{label}</div>
       {action && onAction && <button className="theme-empty-action" onClick={onAction} style={{ marginTop: 10, background: '#111520', border: '1px solid #1e2a3e', borderRadius: 6, color: '#60a5fa', cursor: 'pointer', padding: '7px 14px', fontSize: 12, fontWeight: 600 }}>{action}</button>}
     </div>
@@ -229,6 +230,10 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
   const [theme, setTheme] = useState<'dark' | 'light'>(loadTheme);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
+  const closeHelp = useCallback(() => setHelpOpen(false), []);
+  const settingsRef = useModalA11y<HTMLElement>(settingsOpen && !helpOpen, closeSettings);
+  const helpRef = useModalA11y<HTMLElement>(helpOpen, closeHelp);
   const monthButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [dailyNotifications, setDailyNotifications] = useState<BillNotification[]>([]);
   const [dailyNotificationOpen, setDailyNotificationOpen] = useState(false);
@@ -237,6 +242,7 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
   const [savedAmountEditing, setSavedAmountEditing] = useState(false);
   const [savedAmountInput, setSavedAmountInput] = useState('');
   const [calendarWorkingId, setCalendarWorkingId] = useState<string | null>(null);
+  const calendarWorkingRef = useRef<string | null>(null);
   const [calendarError, setCalendarError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -430,6 +436,7 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
     }
   }, [layoutOrder, dragId]);
 
+  // Débito/pix é deduzido na hora e não tem toggle; conta como pago (mesma regra de useDashboard.totalPaid).
   const paidCount = db.selectedMonth.bills.filter((b) => b.isPaid || b.cardPaymentMethod === 'debito_pix').length;
   const totalCount = db.selectedMonth.bills.length;
   const progressPct = totalCount > 0 ? Math.round((paidCount / totalCount) * 100) : 0;
@@ -464,6 +471,29 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
     }).join('\n')}`
     : '\n\nNão há meses anteriores cadastrados para comparação.';
 
+  const currentCardBills = db.selectedMonth.bills.filter((bill) =>
+    (bill.type === 'parcela' && bill.category !== 'financiamento') || bill.isOnCreditCard === true
+  );
+  const currentCardTransactions = selectedInvoices.flatMap((invoice) => invoice.transactions).filter((transaction) => transaction.type !== 'PAYMENT');
+  const currentCategoryTotals = currentCardTransactions.reduce<Record<string, number>>((totals, transaction) => {
+    if (!transaction.category) return totals;
+    const label = BILL_CATEGORY_LABELS[transaction.category];
+    totals[label] = (totals[label] || 0) + centsToAmount(getTransactionCategoryImpactCents(transaction));
+    return totals;
+  }, currentCardBills.reduce<Record<string, number>>((totals, bill) => {
+    const label = BILL_CATEGORY_LABELS[bill.category];
+    totals[label] = (totals[label] || 0) + bill.amount;
+    return totals;
+  }, {}));
+  const currentCategories = Object.entries(currentCategoryTotals)
+    .filter(([, amount]) => amount !== 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([label, amount]) => `- ${label}: ${formatCurrency(amount)}`)
+    .join('\n') || 'sem gastos no cartão neste mês';
+  const currentCardTransactionsList = currentCardTransactions
+    .map((transaction) => `- ${transaction.merchant} (${transaction.category ? BILL_CATEGORY_LABELS[transaction.category] : 'Sem categoria'}) — ${formatCurrency(centsToAmount(getTransactionCategoryImpactCents(transaction)))}${transaction.installmentTotal && transaction.installmentTotal > 1 ? ` — Parcela ${transaction.installmentCurrent ?? 1}/${transaction.installmentTotal}` : ''}`)
+    .join('\n') || 'nenhum lançamento importado neste mês';
+
   const financialContext = `Você é um assistente financeiro pessoal inteligente e simpático. Responda sempre em português do Brasil, de forma objetiva e prática.
 
 Mês atual: ${db.selectedMonth.name} ${db.selectedMonth.year}
@@ -478,6 +508,12 @@ Impacto pessoal da fatura: ${formatCurrency(invoicePersonalTotal)}
 
 Contas do mês:
 ${db.billsSorted.map((b) => `- ${b.name} (${BILL_CATEGORY_LABELS[b.category]}) — ${formatCurrency(b.amount)} — Dia ${b.dueDay}${b.installmentCurrent ? ` — Parcela ${b.installmentCurrent}/${b.installmentTotal}` : ''} — ${b.isPaid ? 'Pago' : 'Pendente'}`).join('\n')}
+
+Gastos no cartão deste mês por categoria:
+${currentCategories}
+
+Lançamentos do cartão deste mês (estabelecimento, categoria, valor):
+${currentCardTransactionsList}
 
 Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus gastos, dívidas, planejamento financeiro ou como economizar.${historicalContext}`;
 
@@ -503,7 +539,10 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
   const addBillReminder = async (bill: Bill): Promise<string> => {
     if (!userId) return 'É necessário entrar na conta para usar o Google Agenda.';
     if (bill.calendarEventId) return `O lembrete de ${bill.name} já foi adicionado ao Google Agenda.`;
-    if (calendarWorkingId) return 'Já existe uma operação em andamento no Google Agenda.';
+    // Guard síncrono: o state só atualiza no próximo render, então dois cliques
+    // rápidos antes do re-render criariam dois eventos (o segundo órfão).
+    if (calendarWorkingRef.current) return 'Já existe uma operação em andamento no Google Agenda.';
+    calendarWorkingRef.current = bill.id;
     setCalendarWorkingId(bill.id); setCalendarError(null);
     try {
       const event = await createCalendarEvent(billReminderInput(bill, db.selectedMonth));
@@ -513,7 +552,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
       const message = error instanceof Error ? error.message : 'Não foi possível criar o lembrete.';
       setCalendarError(message);
       return message;
-    } finally { setCalendarWorkingId(null); }
+    } finally { calendarWorkingRef.current = null; setCalendarWorkingId(null); }
   };
 
   const togglePaidWithCalendar = (bill: Bill) => {
@@ -536,16 +575,22 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
     }
   };
 
-  const deleteBillWithCalendar = (bill: Bill) => {
+  const deleteBillWithCalendar = async (bill: Bill) => {
+    if (bill.calendarEventId) {
+      // Remove o evento ANTES de descartar a conta: se a remoção falhar, manter a
+      // conta evita órfão permanente no Google Agenda e permite tentar de novo.
+      const removed = await removeCalendarEvent(bill.calendarEventId);
+      if (!removed) return;
+    }
     db.deleteBill(bill.id);
-    if (bill.calendarEventId) void removeCalendarEvent(bill.calendarEventId);
   };
 
   const addInvoiceReminder = async (): Promise<string> => {
     const month = db.selectedMonth;
     if (!userId) return 'É necessário entrar na conta para usar o Google Agenda.';
     if (month.creditCardCalendarEventId) return 'O lembrete da fatura deste mês já foi adicionado ao Google Agenda.';
-    if (calendarWorkingId) return 'Já existe uma operação em andamento no Google Agenda.';
+    if (calendarWorkingRef.current) return 'Já existe uma operação em andamento no Google Agenda.';
+    calendarWorkingRef.current = `invoice:${month.id}`;
     setCalendarWorkingId(`invoice:${month.id}`); setCalendarError(null);
     try {
       const event = await createCalendarEvent(invoiceReminderInput(month, creditCardTotal));
@@ -555,7 +600,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
       const message = error instanceof Error ? error.message : 'Não foi possível criar o lembrete da fatura.';
       setCalendarError(message);
       return message;
-    } finally { setCalendarWorkingId(null); }
+    } finally { calendarWorkingRef.current = null; setCalendarWorkingId(null); }
   };
 
   const calendarAssistantActions = {
@@ -617,128 +662,90 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
       case 'savings':
         return (
           <CollapsibleSection key="savings" title={t('savingsGoal')} isOpen={isSectionOpen('savings', false)} onToggle={() => toggleSection('savings')} hideValues={hideValues} editMode={editMode} rightAction={
-            <button onClick={() => { setGoalInput(savingsGoal > 0 ? String(savingsGoal) : ''); setGoalEditing(true); }} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#555', cursor: 'pointer', fontSize: 11, padding: '3px 10px' }}>
-              {savingsGoalIsManual ? 'Editar meta' : 'Fixar meta'}
+            <button onClick={() => { setGoalInput(savingsGoal > 0 ? String(savingsGoal) : ''); setGoalEditing(true); }} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#8b8b8b', cursor: 'pointer', fontSize: 11, padding: '3px 10px' }}>
+              {savingsGoalIsManual ? t('editGoal') : t('setFixedGoal')}
             </button>
           }>
             {savingsGoal > 0 ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
                   <div className="theme-goal-card" style={{ background: '#0e0e0e', borderRadius: 8, padding: '10px 12px' }}>
-                    <div style={{ fontSize: 10, color: '#444', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{savingsGoalIsManual ? 'Meta mensal fixa' : 'Sobra prevista'}</div>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#d4d4d4', marginTop: 4 }}>{hideValues ? masked : formatCurrency(savingsGoal)}</div>
+                    <div style={{ fontSize: 10, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{savingsGoalIsManual ? t('fixedMonthlyGoal') : t('expectedLeft')}</div>
+                    <div className="privacy-mask" style={{ fontSize: 18, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#d4d4d4', marginTop: 4 }}>{hideValues ? masked : formatCurrency(savingsGoal)}</div>
                   </div>
                   <div className="theme-goal-card" style={{ background: '#0e0e0e', borderRadius: 8, padding: '10px 12px' }}>
-                    <div style={{ fontSize: 10, color: '#444', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Guardado no mês</div>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: hideValues ? '#1a1a1a' : savedAmount >= savingsGoal ? '#10b981' : '#f59e0b', marginTop: 4 }}>{hideValues ? masked : formatCurrency(savedAmount)}</div>
+                    <div style={{ fontSize: 10, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('savedThisMonth')}</div>
+                    <div className="privacy-mask" style={{ fontSize: 18, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : savedAmount >= savingsGoal ? '#10b981' : '#f59e0b', marginTop: 4 }}>{hideValues ? masked : formatCurrency(savedAmount)}</div>
                   </div>
                   <div className="theme-goal-card" style={{ background: '#0e0e0e', borderRadius: 8, padding: '10px 12px' }}>
-                    <div style={{ fontSize: 10, color: '#444', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Acumulado</div>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#60a5fa', marginTop: 4 }}>{hideValues ? masked : formatCurrency(accumulatedSaved)}</div>
+                    <div style={{ fontSize: 10, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('accumulated')}</div>
+                    <div className="privacy-mask" style={{ fontSize: 18, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#60a5fa', marginTop: 4 }}>{hideValues ? masked : formatCurrency(accumulatedSaved)}</div>
                   </div>
                 </div>
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <span style={{ fontSize: 10, color: '#3a3a3a' }}>{monthlySavingsPct}% da {savingsGoalIsManual ? 'meta mensal fixa' : 'sobra prevista'}</span>
-                    <span style={{ fontSize: 10, color: savedAmount >= savingsGoal ? '#10b981' : '#f59e0b' }}>{savedAmount >= savingsGoal ? 'Meta mensal atingida' : `Meta mensal não atingida · faltam ${hideValues ? masked : formatCurrency(savingsGoal - savedAmount)}`}</span>
+                    <span style={{ fontSize: 10, color: '#8b8b8b' }}>{monthlySavingsPct}% {savingsGoalIsManual ? t('ofFixedMonthlyGoal') : t('ofExpectedRemaining')}</span>
+                    <span style={{ fontSize: 10, color: savedAmount >= savingsGoal ? '#10b981' : '#f59e0b' }}>{savedAmount >= savingsGoal ? t('monthlyGoalReached') : `${t('goalNotReached')} ${hideValues ? masked : formatCurrency(savingsGoal - savedAmount)}`}</span>
                   </div>
                   <ProgressBar value={savedAmount} max={savingsGoal} color={savedAmount >= savingsGoal ? '#10b981' : '#f59e0b'} />
                 </div>
                 <div style={{ borderTop: '1px solid #1a1a1a', paddingTop: 12 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
                     <div>
-                      <div style={{ fontSize: 10, color: '#444', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Guardado em {db.selectedMonth.name}</div>
-                      <div style={{ fontSize: 12, color: '#555', marginTop: 3 }}>Esse valor entra no acumulado dos próximos meses.</div>
+                      <div style={{ fontSize: 10, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('savedIn')} {db.selectedMonth.name}</div>
+                      <div style={{ fontSize: 12, color: '#8b8b8b', marginTop: 3 }}>{t('savedInNote')}</div>
                     </div>
-                    <button onClick={() => { setSavedAmountInput(savedAmount > 0 ? String(savedAmount) : ''); setSavedAmountEditing(true); }} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#60a5fa', cursor: 'pointer', padding: '5px 10px', fontSize: 11, whiteSpace: 'nowrap' }}>Informar valor</button>
+                    <button onClick={() => { setSavedAmountInput(savedAmount > 0 ? String(savedAmount) : ''); setSavedAmountEditing(true); }} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#60a5fa', cursor: 'pointer', padding: '5px 10px', fontSize: 11, whiteSpace: 'nowrap' }}>{t('enterAmount')}</button>
                   </div>
                   {savedAmountEditing && (
                     <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                      <input autoFocus inputMode="decimal" placeholder="Ex: 4.000,00" value={savedAmountInput} onChange={(event) => setSavedAmountInput(event.target.value.replace(/[^0-9.,]/g, ''))} onKeyDown={(event) => { if (event.key === 'Enter') { db.updateSavedAmount(parseAmount(savedAmountInput)); setSavedAmountEditing(false); } if (event.key === 'Escape') setSavedAmountEditing(false); }} style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 6, color: '#e0e0e0', padding: '8px 10px', fontSize: 13, flex: 1, outline: 'none' }} />
-                      <button onClick={() => { db.updateSavedAmount(parseAmount(savedAmountInput)); setSavedAmountEditing(false); }} style={{ background: '#10b981', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '8px 12px', fontSize: 11, fontWeight: 600 }}>Salvar</button>
+                      <input autoFocus inputMode="decimal" placeholder={t('savedAmountPlaceholder')} value={savedAmountInput} onChange={(event) => setSavedAmountInput(event.target.value.replace(/[^0-9.,]/g, ''))} onKeyDown={(event) => { if (event.key === 'Enter') { db.updateSavedAmount(parseAmount(savedAmountInput)); setSavedAmountEditing(false); } if (event.key === 'Escape') setSavedAmountEditing(false); }} style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 6, color: '#e0e0e0', padding: '8px 10px', fontSize: 13, flex: 1, outline: 'none' }} />
+                      <button onClick={() => { db.updateSavedAmount(parseAmount(savedAmountInput)); setSavedAmountEditing(false); }} style={{ background: '#10b981', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '8px 12px', fontSize: 11, fontWeight: 600 }}>{t('save')}</button>
                     </div>
                   )}
                 </div>
                 {savingsGoalIsManual && (
-                  <button onClick={() => { db.usePredictedSavingsGoal(); setGoalEditing(false); }} style={{ background: 'transparent', border: '1px dashed #1e1e1e', borderRadius: 6, color: '#555', cursor: 'pointer', padding: '6px 10px', fontSize: 10, alignSelf: 'flex-start' }}>Voltar a usar sobra prevista</button>
+                  <button onClick={() => { db.usePredictedSavingsGoal(); setGoalEditing(false); }} style={{ background: 'transparent', border: '1px dashed #1e1e1e', borderRadius: 6, color: '#8b8b8b', cursor: 'pointer', padding: '6px 10px', fontSize: 10, alignSelf: 'flex-start' }}>{t('backToPredicted')}</button>
                 )}
               </div>
             ) : goalEditing ? null : (
-              <EmptyState label="Defina uma meta para acompanhar quanto você está acumulando." action="Definir meta" onAction={() => { setGoalInput(''); setGoalEditing(true); }} />
+              <EmptyState label={t('goalEmptyLabel')} action={t('defineGoal')} onAction={() => { setGoalInput(''); setGoalEditing(true); }} />
             )}
             {goalEditing && (
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: savingsGoal > 0 ? 8 : 0 }}>
-                <input autoFocus inputMode="decimal" placeholder="Ex: 5.000,00" value={goalInput} onChange={(event) => setGoalInput(event.target.value.replace(/[^0-9.,]/g, ''))} onKeyDown={(event) => { if (event.key === 'Enter') { db.updateSavingsGoal(parseAmount(goalInput)); setGoalEditing(false); } if (event.key === 'Escape') setGoalEditing(false); }} style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 6, color: '#e0e0e0', padding: '8px 12px', fontSize: 14, fontWeight: 700, flex: 1, outline: 'none' }} />
-                <button onClick={() => { db.updateSavingsGoal(parseAmount(goalInput)); setGoalEditing(false); }} style={{ background: '#10b981', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '8px 14px', fontSize: 12, fontWeight: 600 }}>Salvar</button>
-                <button onClick={() => setGoalEditing(false)} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#555', cursor: 'pointer', padding: '8px 12px', fontSize: 12 }}>Cancelar</button>
+                <input autoFocus inputMode="decimal" placeholder={t('goalPlaceholder')} value={goalInput} onChange={(event) => setGoalInput(event.target.value.replace(/[^0-9.,]/g, ''))} onKeyDown={(event) => { if (event.key === 'Enter') { db.updateSavingsGoal(parseAmount(goalInput)); setGoalEditing(false); } if (event.key === 'Escape') setGoalEditing(false); }} style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 6, color: '#e0e0e0', padding: '8px 12px', fontSize: 14, fontWeight: 700, flex: 1, outline: 'none' }} />
+                <button onClick={() => { db.updateSavingsGoal(parseAmount(goalInput)); setGoalEditing(false); }} style={{ background: '#10b981', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '8px 14px', fontSize: 12, fontWeight: 600 }}>{t('save')}</button>
+                <button onClick={() => setGoalEditing(false)} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#8b8b8b', cursor: 'pointer', padding: '8px 12px', fontSize: 12 }}>{t('cancel')}</button>
               </div>
             )}
           </CollapsibleSection>
         );
-        /* return (
-          <CollapsibleSection key="savings" title="Meta de economia" isOpen={isSectionOpen('savings', false)} onToggle={() => toggleSection('savings')} hideValues={hideValues} editMode={editMode}>
-            {savingsGoal > 0 ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <div style={{ fontSize: 10, color: '#444', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>Meta mensal</div>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#d4d4d4', marginTop: 4, transition: 'color 0.2s' }}>{hideValues ? masked : formatCurrency(savingsGoal)}</div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 10, color: '#444', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>Previsto sobrar</div>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: hideValues ? '#1a1a1a' : (savingsActual >= savingsGoal ? '#10b981' : '#f59e0b'), marginTop: 4, transition: 'color 0.2s' }}>{hideValues ? masked : formatCurrency(savingsActual)}</div>
-                  </div>
-                </div>
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <span style={{ fontSize: 10, color: '#3a3a3a' }}>{savingsPct}% da meta</span>
-                    <span style={{ fontSize: 10, color: savingsActual >= savingsGoal ? '#10b981' : '#3a3a3a' }}>{savingsActual >= savingsGoal ? 'Meta atingida' : `Faltam ${hideValues ? masked : formatCurrency(savingsGoal - savingsActual)}`}</span>
-                  </div>
-                  <ProgressBar value={savingsActual} max={savingsGoal} color={savingsActual >= savingsGoal ? '#10b981' : '#3b82f6'} />
-                </div>
-                <button onClick={() => { setGoalInput(savingsGoal.toString()); setGoalEditing(true); }} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#444', cursor: 'pointer', fontSize: 10, padding: '4px 10px', alignSelf: 'flex-start' }}>Alterar meta</button>
-              </div>
-            ) : goalEditing ? null : (
-              <div style={{ textAlign: 'center', padding: '10px 0' }}>
-                <div style={{ fontSize: 12, color: '#333', marginBottom: 10 }}>Defina quanto quer economizar por mês</div>
-                <button onClick={() => { setGoalInput(''); setGoalEditing(true); }} style={{ background: '#111520', border: '1px solid #1e2a3e', borderRadius: 6, color: '#60a5fa', cursor: 'pointer', padding: '7px 18px', fontSize: 12, fontWeight: 600 }}>Definir meta</button>
-              </div>
-            )}
-            {goalEditing && (
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: savingsGoal > 0 ? 8 : 0 }}>
-                <input autoFocus inputMode="decimal" pattern="[0-9.,]*" placeholder="Ex: 500,00" value={goalInput} onChange={(e) => setGoalInput(e.target.value.replace(/[^0-9.,]/g, ''))} onKeyDown={(e) => { if (e.key === 'Enter') { db.updateSavingsGoal(parseAmount(goalInput)); setGoalEditing(false); } if (e.key === 'Escape') setGoalEditing(false); }} style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 6, color: '#e0e0e0', padding: '8px 12px', fontSize: 14, fontWeight: 700, flex: 1, outline: 'none', fontFamily: 'inherit' }} />
-                <button onClick={() => { db.updateSavingsGoal(parseAmount(goalInput)); setGoalEditing(false); }} style={{ background: '#10b981', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '8px 14px', fontSize: 12, fontWeight: 600 }}>OK</button>
-                <button onClick={() => setGoalEditing(false)} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#555', cursor: 'pointer', padding: '8px 12px', fontSize: 12 }}>×</button>
-              </div>
-            )}
-          </CollapsibleSection>
-        ); */
 
       case 'fixed':
         return (
           <CollapsibleSection key="fixed" title={t('monthlyFixedBills')} count={db.fixedBills.length} totalAmount={fixedTotal} isOpen={isSectionOpen('fixed')} onToggle={() => toggleSection('fixed')} hideValues={hideValues} editMode={editMode} rightAction={
-            <button onClick={() => toggleAdd('fixed')} style={{ background: addSection === 'fixed' ? '#111520' : 'transparent', border: `1px solid ${addSection === 'fixed' ? '#1e2a3e' : '#1e1e1e'}`, borderRadius: 6, color: addSection === 'fixed' ? '#60a5fa' : '#555', cursor: 'pointer', fontSize: 11, padding: '3px 10px', transition: 'all 0.15s' }}>
-              {addSection === 'fixed' ? 'Cancelar' : 'Adicionar'}
+            <button onClick={() => toggleAdd('fixed')} style={{ background: addSection === 'fixed' ? '#111520' : 'transparent', border: `1px solid ${addSection === 'fixed' ? '#1e2a3e' : '#1e1e1e'}`, borderRadius: 6, color: addSection === 'fixed' ? '#60a5fa' : '#8b8b8b', cursor: 'pointer', fontSize: 11, padding: '3px 10px', transition: 'all 0.15s' }}>
+              {addSection === 'fixed' ? t('cancel') : t('add')}
             </button>
           }>
             <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
               <div className="theme-inset-panel" style={{ flex: 1, background: '#0e0e0e', borderRadius: 6, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 10, color: '#444' }}>Total</span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#ef4444', transition: 'color 0.2s' }}>{hideValues ? masked : formatCurrency(fixedTotal)}</span>
+                <span style={{ fontSize: 10, color: '#8b8b8b' }}>{t('total')}</span>
+                <span className="privacy-mask" style={{ fontSize: 13, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#ef4444', transition: 'color 0.2s' }}>{hideValues ? masked : formatCurrency(fixedTotal)}</span>
               </div>
               <div className="theme-inset-panel" style={{ flex: 1, background: '#0e0e0e', borderRadius: 6, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 10, color: '#444' }}>Pago</span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#10b981', transition: 'color 0.2s' }}>{hideValues ? masked : formatCurrency(fixedPaidTotal)}</span>
+                <span style={{ fontSize: 10, color: '#8b8b8b' }}>{t('paid')}</span>
+                <span className="privacy-mask" style={{ fontSize: 13, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#10b981', transition: 'color 0.2s' }}>{hideValues ? masked : formatCurrency(fixedPaidTotal)}</span>
               </div>
             </div>
-            {!hasFixedBills && addSection !== 'fixed' && <EmptyState label="Nenhuma conta fixa ainda." action="Copiar do mês anterior" onAction={db.copyFixedBillsFromPrevious} />}
+            {!hasFixedBills && addSection !== 'fixed' && <EmptyState label={t('fixedBillEmpty')} action={t('copyPrevious')} onAction={db.copyFixedBillsFromPrevious} />}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {db.fixedBills.map((bill) => (<BillRow key={bill.id} bill={bill} onTogglePaid={() => togglePaidWithCalendar(bill)} onSave={saveBillWithCalendar} onDelete={() => deleteBillWithCalendar(bill)} onCalendarReminder={!bill.isOnCreditCard ? () => void addBillReminder(bill) : undefined} calendarReminderLoading={calendarWorkingId === bill.id} hideValues={hideValues} showCreditCardToggle />))}
               {addSection === 'fixed' && <InlineAddRow monthName={db.selectedMonth.name} onSave={handleAddBill} onCancel={() => setAddSection(null)} defaultType="mensal" />}
             </div>
             {hasFixedBills && (
-              <button className="theme-copy-previous" onClick={() => { if (confirm('Copiar contas fixas do mês anterior?')) db.copyFixedBillsFromPrevious(); }} style={{ marginTop: 10, background: 'transparent', border: '1px dashed #1e1e1e', borderRadius: 6, color: '#333', cursor: 'pointer', padding: '6px 12px', fontSize: 10, width: '100%' }}>
-                Copiar contas fixas do mês anterior
+              <button className="theme-copy-previous" onClick={() => { if (confirm(`${t('copyFixedBills')}?`)) db.copyFixedBillsFromPrevious(); }} style={{ marginTop: 10, background: 'transparent', border: '1px dashed #1e1e1e', borderRadius: 6, color: '#8b8b8b', cursor: 'pointer', padding: '6px 12px', fontSize: 10, width: '100%' }}>
+                {t('copyFixedBills')}
               </button>
             )}
           </CollapsibleSection>
@@ -750,13 +757,13 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
             {!editMode && (
               <>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                  <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('card')}</h3>
-                  <button onClick={() => setTab('cartao')} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#555', cursor: 'pointer', fontSize: 10, padding: '3px 10px' }}>{t('details')}</button>
+                  <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('card')}</h3>
+                  <button onClick={() => setTab('cartao')} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#8b8b8b', cursor: 'pointer', fontSize: 10, padding: '3px 10px' }}>{t('details')}</button>
                 </div>
                 {db.creditCardBills.length === 0 && linkedFixedBills.length === 0 && importedCardTransactions.length === 0 ? (
                   <div onClick={() => setTab('cartao')} style={{ background: '#111', border: '1px dashed #1e1e1e', borderRadius: 10, padding: '18px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
-                    <span style={{ fontSize: 12, color: '#333' }}>{t('noInstallments')} {t('in')} {db.selectedMonth.name}</span>
-                    <span style={{ fontSize: 11, color: '#444' }}>{t('addPurchase')} →</span>
+                    <span style={{ fontSize: 12, color: '#8b8b8b' }}>{t('noInstallments')} {t('in')} {db.selectedMonth.name}</span>
+                    <span style={{ fontSize: 11, color: '#8b8b8b' }}>{t('addPurchase')} →</span>
                   </div>
                 ) : (
                   <div className="theme-card-invoice-preview" style={{ background: '#131313', border: `1px solid ${allCardPaid ? '#10b98122' : '#1a1a1a'}`, borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12, opacity: allCardPaid ? 0.55 : 1, transition: 'all 0.15s' }}>
@@ -792,24 +799,24 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                     <div onClick={() => setTab('cartao')} style={{ flex: 1, cursor: 'pointer', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
                       <span style={{ fontSize: 13, fontWeight: 600, color: allCardPaid ? '#555' : '#d4d4d4', textDecoration: allCardPaid ? 'line-through' : 'none' }}>{t('monthlyInvoice')}</span>
                       <div className="theme-card-invoice-details" style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-                        <span className="theme-card-count" style={{ fontSize: 10, color: '#444', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 6px' }}>
+                        <span className="theme-card-count" style={{ fontSize: 10, color: '#8b8b8b', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 6px' }}>
                           {db.creditCardBills.length + importedCardTransactions.length} lançamento{db.creditCardBills.length + importedCardTransactions.length !== 1 ? 's' : ''}
                         </span>
                         {linkedFixedBills.length > 0 && (
                           <>
-                            <span style={{ fontSize: 10, color: '#2a2a2a' }}>·</span>
+                            <span style={{ fontSize: 10, color: '#5a5a5a' }}>·</span>
                             <span style={{ fontSize: 10, color: '#60a5fa', background: '#111520', border: '1px solid #1e2a3e', borderRadius: 4, padding: '1px 6px' }}>
                               {linkedFixedBills.length} fixa{linkedFixedBills.length !== 1 ? 's' : ''}
                             </span>
                           </>
                         )}
-                        <span style={{ fontSize: 10, color: '#2a2a2a' }}>·</span>
-                        <span className="theme-card-details-link" style={{ fontSize: 10, color: '#444' }}>{t('details')} →</span>
+                        <span style={{ fontSize: 10, color: '#5a5a5a' }}>·</span>
+                        <span className="theme-card-details-link" style={{ fontSize: 10, color: '#8b8b8b' }}>{t('details')} →</span>
                       </div>
                     </div>
 
                     {/* Valor */}
-                    <span className="theme-card-invoice-amount" style={{ fontSize: 14, fontWeight: 700, color: hideValues ? '#1a1a1a' : (allCardPaid ? '#10b981' : '#d4d4d4'), flexShrink: 0, letterSpacing: '-0.01em', transition: 'color 0.2s' }}>
+                    <span className="theme-card-invoice-amount privacy-mask" style={{ fontSize: 14, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : (allCardPaid ? '#10b981' : '#d4d4d4'), flexShrink: 0, letterSpacing: '-0.01em', transition: 'color 0.2s' }}>
                       {hideValues ? masked : formatCurrency(creditCardTotal)}
                     </span>
                     {!allCardPaid && (
@@ -819,7 +826,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                 )}
               </>
             )}
-            {editMode && <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('card')}</h3>}
+            {editMode && <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('card')}</h3>}
           </section>
         );
 
@@ -827,8 +834,8 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
         if (db.variableBills.length === 0 && addSection !== 'variable' && !editMode) return null;
         return (
           <CollapsibleSection key="variable" title={t('variableExpenses')} count={db.variableBills.length} totalAmount={db.variableBills.reduce((s, b) => s + b.amount, 0)} isOpen={isSectionOpen('variable')} onToggle={() => toggleSection('variable')} hideValues={hideValues} editMode={editMode} rightAction={
-            <button onClick={() => toggleAdd('variable')} style={{ background: addSection === 'variable' ? '#111520' : 'transparent', border: `1px solid ${addSection === 'variable' ? '#1e2a3e' : '#1e1e1e'}`, borderRadius: 6, color: addSection === 'variable' ? '#60a5fa' : '#555', cursor: 'pointer', fontSize: 11, padding: '3px 10px', transition: 'all 0.15s' }}>
-              {addSection === 'variable' ? 'Cancelar' : 'Adicionar'}
+            <button onClick={() => toggleAdd('variable')} style={{ background: addSection === 'variable' ? '#111520' : 'transparent', border: `1px solid ${addSection === 'variable' ? '#1e2a3e' : '#1e1e1e'}`, borderRadius: 6, color: addSection === 'variable' ? '#60a5fa' : '#8b8b8b', cursor: 'pointer', fontSize: 11, padding: '3px 10px', transition: 'all 0.15s' }}>
+              {addSection === 'variable' ? t('cancel') : t('add')}
             </button>
           }>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -849,18 +856,18 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
 
       case 'backup':
         return (
-          <CollapsibleSection key="backup" title="Backup dos dados" isOpen={isSectionOpen('backup', false)} onToggle={() => toggleSection('backup')} hideValues={hideValues} editMode={editMode}>
+          <CollapsibleSection key="backup" title={t('dataBackup')} isOpen={isSectionOpen('backup', false)} onToggle={() => toggleSection('backup')} hideValues={hideValues} editMode={editMode}>
             {importMsg && (
-              <div style={{ background: importMsg.includes('sucesso') ? '#0a1a0a' : '#1a1010', border: `1px solid ${importMsg.includes('sucesso') ? '#152515' : '#2a1515'}`, borderRadius: 6, padding: '8px 12px', fontSize: 11, color: importMsg.includes('sucesso') ? '#4ade80' : '#ef4444', marginBottom: 10 }}>{importMsg}</div>
+              <div style={{ background: importMsg === t('dataRestoredSuccess') ? '#0a1a0a' : '#1a1010', border: `1px solid ${importMsg === t('dataRestoredSuccess') ? '#152515' : '#2a1515'}`, borderRadius: 6, padding: '8px 12px', fontSize: 11, color: importMsg === t('dataRestoredSuccess') ? '#4ade80' : '#ef4444', marginBottom: 10 }}>{importMsg}</div>
             )}
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button className="theme-export-backup" onClick={db.exportData} style={{ flex: 1, minWidth: 130, background: '#111520', border: '1px solid #1e2a3e', borderRadius: 6, color: '#60a5fa', cursor: 'pointer', padding: '10px 14px', fontSize: 12, fontWeight: 600 }}>Exportar backup</button>
+              <button className="theme-export-backup" onClick={db.exportData} style={{ flex: 1, minWidth: 130, background: '#111520', border: '1px solid #1e2a3e', borderRadius: 6, color: '#60a5fa', cursor: 'pointer', padding: '10px 14px', fontSize: 12, fontWeight: 600 }}>{t('exportBackup')}</button>
               <label className="theme-backup-import" style={{ flex: 1, minWidth: 130, background: '#131313', border: '1px solid #1e1e1e', borderRadius: 6, color: '#777', cursor: 'pointer', padding: '10px 14px', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
-                Importar backup
-                <input type="file" accept=".json" style={{ display: 'none' }} onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; const ok = await db.importData(file); setImportMsg(ok ? 'Dados restaurados com sucesso!' : 'Arquivo inválido.'); setTimeout(() => setImportMsg(null), 4000); e.target.value = ''; }} />
+                {t('importBackup')}
+                <input type="file" accept=".json" style={{ display: 'none' }} onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; const ok = await db.importData(file); setImportMsg(ok ? t('dataRestoredSuccess') : t('invalidBackupFile')); setTimeout(() => setImportMsg(null), 4000); e.target.value = ''; }} />
               </label>
             </div>
-            <p style={{ margin: '10px 0 0', fontSize: 10, color: '#2a2a2a', lineHeight: 1.5 }}>Exporte antes de trocar de celular ou limpar o navegador.</p>
+            <p style={{ margin: '10px 0 0', fontSize: 10, color: '#5a5a5a', lineHeight: 1.5 }}>{t('backupHint')}</p>
           </CollapsibleSection>
         );
 
@@ -883,18 +890,18 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{ fontSize: 14, fontWeight: 700, color: '#c0c0c0', letterSpacing: '-0.02em' }}>finança</span>
-          <span style={{ fontSize: 9, color: '#3a3a3a', letterSpacing: '0.1em', fontWeight: 500 }}>PESSOAL</span>
+          <span style={{ fontSize: 9, color: '#8b8b8b', letterSpacing: '0.1em', fontWeight: 500 }}>PESSOAL</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {userId && (
             <>
               {db.syncNotice && <span style={{ fontSize: 10, color: '#4b8f73' }}>{db.syncNotice}</span>}
-              <button onClick={() => void refreshAppOrData(db.refreshData)} disabled={db.isRefreshing} title="Atualizar aplicativo e dados compartilhados" aria-label="Atualizar aplicativo e dados compartilhados" style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 7, color: db.isRefreshing ? '#3b82f6' : '#666', cursor: db.isRefreshing ? 'wait' : 'pointer', width: 40, height: 38, display: 'grid', placeItems: 'center' }}>
+              <button onClick={() => void refreshAppOrData(db.refreshData)} disabled={db.isRefreshing} title={t('update')} aria-label={t('update')} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 7, color: db.isRefreshing ? '#3b82f6' : '#666', cursor: db.isRefreshing ? 'wait' : 'pointer', width: 40, height: 38, display: 'grid', placeItems: 'center' }}>
                 <IconRefresh spinning={db.isRefreshing} />
               </button>
             </>
           )}
-          <button onClick={() => setSettingsOpen(true)} title="Abrir configurações" aria-label="Abrir configurações" style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 7, color: '#666', cursor: 'pointer', width: 40, height: 38, display: 'grid', placeItems: 'center' }}><IconSettings /></button>
+          <button onClick={() => setSettingsOpen(true)} title={t('openSettings')} aria-label={t('openSettings')} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 7, color: '#666', cursor: 'pointer', width: 40, height: 38, display: 'grid', placeItems: 'center' }}><IconSettings /></button>
         </div>
       </header>
 
@@ -919,21 +926,21 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
         zIndex: 100, paddingBottom: 'env(safe-area-inset-bottom, 0px)',
       }}>
         {([
-          { key: 'dashboard' as Tab, icon: IconDashboard, label: 'Dashboard' },
-          { key: 'cartao' as Tab, icon: IconCard, label: 'Cartão' },
-          { key: 'chat' as Tab, icon: IconChat, label: 'IA' },
+          { key: 'dashboard' as Tab, icon: IconDashboard, label: t('dashboard') },
+          { key: 'cartao' as Tab, icon: IconCard, label: t('card') },
+          { key: 'chat' as Tab, icon: IconChat, label: t('assistant') },
         ]).map(({ key, icon: Icon, label }) => (
           <button key={key} onClick={() => { setTab(key); setEditMode(false); }} style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '6px 18px', minWidth: 70, transition: 'all 0.15s' }}>
             <Icon active={tab === key} />
-            <span style={{ fontSize: 9, fontWeight: tab === key ? 600 : 400, color: tab === key ? '#c0c0c0' : '#3a3a3a', letterSpacing: '0.02em', textTransform: 'uppercase' }}>{label}</span>
+            <span style={{ fontSize: 9, fontWeight: tab === key ? 600 : 400, color: tab === key ? '#c0c0c0' : '#8b8b8b', letterSpacing: '0.02em', textTransform: 'uppercase' }}>{label}</span>
         </button>
         ))}
       </nav>
 
       {settingsOpen && (
         <>
-          <button className="settings-backdrop" aria-label="Fechar configurações" onClick={() => setSettingsOpen(false)} />
-          <aside className="settings-drawer" aria-label={t('settings')}>
+          <button className="settings-backdrop" aria-label={t('closeSettings')} onClick={() => setSettingsOpen(false)} />
+          <aside ref={settingsRef} className="settings-drawer" role="dialog" aria-modal="true" aria-label={t('settings')}>
             <div className="settings-heading">
               <div>
                 <div className="settings-eyebrow">{t('preferences')}</div>
@@ -958,7 +965,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                 <button className={`theme-switch ${theme === 'light' ? 'is-light' : ''}`} role="switch" aria-checked={theme === 'light'} aria-label={t('toggleTheme')} onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}><span /></button>
               </div>
             </div>
-            <GoogleCalendarSettings userId={userId} />
+            <GoogleCalendarSettings userId={userId} onClearCalendarEventIds={db.clearCalendarEventIds} />
             <div className="settings-group">
               <div className="settings-label">{t('help')}</div>
               <button className="settings-action" onClick={() => setHelpOpen(true)}><span>{t('useApp')}</span><span className="settings-action-arrow">→</span></button>
@@ -999,33 +1006,33 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
 
       {helpOpen && (
         <div className="help-modal-backdrop" role="presentation">
-          <article className="help-modal" role="dialog" aria-modal="true" aria-labelledby="help-modal-title">
+          <article ref={helpRef} className="help-modal" role="dialog" aria-modal="true" aria-labelledby="help-modal-title">
             <div className="help-modal-header">
               <div>
-                <div className="settings-eyebrow">Guia rápido</div>
-                <h2 id="help-modal-title">Como usar o Finança</h2>
+                <div className="settings-eyebrow">{t('quickGuide')}</div>
+                <h2 id="help-modal-title">{t('helpTitle')}</h2>
               </div>
-              <button className="settings-icon-button" onClick={() => setHelpOpen(false)} title="Fechar guia" aria-label="Fechar guia"><IconClose /></button>
+              <button className="settings-icon-button" onClick={() => setHelpOpen(false)} title={t('closeGuide')} aria-label={t('closeGuide')}><IconClose /></button>
             </div>
             <div className="help-modal-content">
-              <section><h3>1. Escolha o mês</h3><p>Use os botões no topo para navegar entre os meses. O mês selecionado controla as contas, o cartão, os gráficos e a meta exibidos na tela.</p></section>
-              <section><h3>2. Cadastre suas contas</h3><p>Adicione contas fixas, mensais ou variáveis. Informe o nome, valor, categoria e dia de vencimento. As contas lançadas em um mês são consideradas para pagamento no mês seguinte.</p></section>
-              <section><h3>3. Organize o cartão</h3><p>Na aba Cartão, lance compras à vista ou parceladas. As parcelas são distribuídas pelos meses automaticamente. O vencimento deve ser definido em <strong>Vencimento da fatura</strong>, uma única vez por mês.</p></section>
-              <section><h3>4. Lance a fatura por print</h3><p>Na aba Cartão, abra <strong>Importar fatura</strong> e selecione um print, foto ou PDF legível da fatura. A IA identifica as compras em quantidade, valores, categorias e parcelas. Revise os itens encontrados, desmarque o que não quiser lançar e confirme para adicionar tudo ao cartão. É necessário configurar a chave Groq no Assistente antes da importação.</p></section>
-              <section><h3>5. Acompanhe sua meta</h3><p>A Meta financeira compara o valor guardado no mês com a meta mensal. O acumulado soma o que foi guardado nos meses anteriores. A meta pode acompanhar a sobra prevista ou ser fixada manualmente.</p></section>
-              <section><h3>6. Leia os gráficos</h3><p>Em Visualizações dos gastos, compare a evolução do cartão e veja a distribuição por categoria. Use os filtros para escolher quais categorias aparecem no gráfico.</p></section>
-              <section><h3>7. Use os lembretes</h3><p>Quando uma conta estiver a até três dias do vencimento, um popup aparece ao entrar no app. A fatura do cartão aparece agrupada em um único lembrete. Contas atrasadas ficam destacadas em vermelho.</p></section>
-              <section><h3>8. Backup e sincronização</h3><p>Exporte um backup antes de trocar de aparelho ou limpar o navegador. Com a conta conectada, os dados também podem ser sincronizados na nuvem.</p></section>
-              <section><h3>9. Assistente financeiro</h3><p>Na aba IA, clique no link <a className="help-modal-link" href="https://console.groq.com/keys" target="_blank" rel="noreferrer">console.groq.com/keys</a>, crie sua conta, entre no painel e clique em <strong>Create API Key</strong>. Gere o token, copie-o e cole no campo <strong>Chave API Groq</strong> do Assistente. Depois clique em <strong>Salvar e começar</strong>. A chave fica salva apenas neste navegador; não compartilhe esse token. A IA usa os dados financeiros do mês atual para responder sobre gastos, contas pendentes e planejamento.</p></section>
-              <section><h3>10. Preferências</h3><p>Abra as configurações pelo ícone de engrenagem para alternar entre modo escuro e claro, ocultar valores pelo botão do olho e sair da conta.</p></section>
+              <section><h3>{t('helpStep1Title')}</h3><p>{t('helpStep1Body')}</p></section>
+              <section><h3>{t('helpStep2Title')}</h3><p>{t('helpStep2Body')}</p></section>
+              <section><h3>{t('helpStep3Title')}</h3><p>{t('helpStep3BodyA')}<strong>{t('invoiceDueDate')}</strong>{t('helpStep3BodyB')}</p></section>
+              <section><h3>{t('helpStep4Title')}</h3><p>{t('helpStep4BodyA')}<strong>{t('importInvoice')}</strong>{t('helpStep4BodyB')}</p></section>
+              <section><h3>{t('helpStep5Title')}</h3><p>{t('helpStep5Body')}</p></section>
+              <section><h3>{t('helpStep6Title')}</h3><p>{t('helpStep6Body')}</p></section>
+              <section><h3>{t('helpStep7Title')}</h3><p>{t('helpStep7Body')}</p></section>
+              <section><h3>{t('helpStep8Title')}</h3><p>{t('helpStep8Body')}</p></section>
+              <section><h3>{t('helpStep9Title')}</h3><p>{t('helpStep9BodyA')}<a className="help-modal-link" href="https://console.groq.com/keys" target="_blank" rel="noreferrer">console.groq.com/keys</a>{t('helpStep9BodyB')}<strong>Create API Key</strong>{t('helpStep9BodyC')}<strong>{t('groqKey')}</strong>{t('helpStep9BodyD')}<strong>{t('saveAndStart')}</strong>{t('helpStep9BodyE')}</p></section>
+              <section><h3>{t('helpStep10Title')}</h3><p>{t('helpStep10Body')}</p></section>
             </div>
-            <button className="help-modal-close" onClick={() => setHelpOpen(false)}>Fechar guia</button>
+            <button className="help-modal-close" onClick={() => setHelpOpen(false)}>{t('closeGuide')}</button>
           </article>
         </div>
       )}
 
       {/* ─── Main ─── */}
-      <div className={`app-content${tab === 'chat' ? ' app-content-chat' : ''}`} style={{ maxWidth: 900, margin: '0 auto', padding: '16px 16px 80px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div className={`app-content${tab === 'chat' ? ' app-content-chat' : ''}`} style={{ maxWidth: 900, margin: '0 auto', padding: '16px 16px calc(56px + env(safe-area-inset-bottom, 0px) + 24px)', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
         {/* Month selector */}
         {tab !== 'chat' && <div className="theme-month-selector" style={{ display: 'flex', gap: 5, overflowX: 'auto', paddingBottom: 2, alignItems: 'center' }}>
@@ -1033,13 +1040,13 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
             <button key={m.id} ref={(element) => { monthButtonRefs.current[m.id] = element; }} className={db.selectedMonthId === m.id ? 'theme-month-active' : undefined} onClick={() => db.selectMonth(m.id)} style={{
               background: db.selectedMonthId === m.id ? '#1a1a1a' : 'transparent',
               border: `1px solid ${db.selectedMonthId === m.id ? '#2a2a2a' : '#151515'}`,
-              borderRadius: 6, color: db.selectedMonthId === m.id ? '#e0e0e0' : '#444',
-              cursor: 'pointer', padding: '5px 12px', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', transition: 'all 0.15s',
+              borderRadius: 6, color: db.selectedMonthId === m.id ? '#e0e0e0' : '#8b8b8b',
+              cursor: 'pointer', padding: '5px 12px', minHeight: 44, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', transition: 'all 0.15s',
             }}>
               {formatMonthShort(m.name, m.year)}
             </button>
           ))}
-          <button onClick={db.addNextMonth} style={{ background: 'transparent', border: '1px dashed #1e1e1e', borderRadius: 6, color: '#333', cursor: 'pointer', padding: '5px 10px', fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 }} title="Adicionar mês">+</button>
+          <button onClick={db.addNextMonth} aria-label={t('addMonth')} style={{ background: 'transparent', border: '1px dashed #1e1e1e', borderRadius: 6, color: '#8b8b8b', cursor: 'pointer', padding: '5px 10px', minHeight: 44, fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 }} title={t('addMonth')}>+</button>
         </div>}
 
         {/* ──── DASHBOARD ──── */}
@@ -1050,16 +1057,16 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
               <div className="theme-edit-banner" style={{ background: '#111520', border: '1px solid #1e2a3e', borderRadius: 8, padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <GripIcon />
-                  <span style={{ fontSize: 12, color: '#60a5fa', fontWeight: 500 }}>Arraste para reordenar</span>
+                  <span style={{ fontSize: 12, color: '#60a5fa', fontWeight: 500 }}>{t('dragToReorder')}</span>
                 </div>
-                <button onClick={() => setEditMode(false)} style={{ background: '#3b82f6', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '5px 14px', fontSize: 11, fontWeight: 600 }}>Pronto</button>
+                <button onClick={() => setEditMode(false)} style={{ background: '#3b82f6', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '5px 14px', fontSize: 11, fontWeight: 600 }}>{t('done')}</button>
               </div>
             )}
 
             {/* Progress */}
             <div className="theme-progress-panel" style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 10, padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 12, color: '#555' }}>{t('paidBills')}: <strong style={{ color: '#999' }}>{paidCount}</strong> {t('of')} <strong style={{ color: '#999' }}>{totalCount}</strong></span>
+                <span style={{ fontSize: 12, color: '#8b8b8b' }}>{t('paidBills')}: <strong style={{ color: '#999' }}>{paidCount}</strong> {t('of')} <strong style={{ color: '#999' }}>{totalCount}</strong></span>
                 <span style={{ fontSize: 12, fontWeight: 700, color: progressPct === 100 ? '#10b981' : '#666' }}>{progressPct}%</span>
               </div>
               <ProgressBar value={paidCount} max={totalCount} />
@@ -1081,7 +1088,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
               <button
                 onClick={togglePrivacy}
                   className="theme-privacy-toggle"
-                  aria-label={hideValues ? 'Mostrar valores' : 'Ocultar valores'}
+                  aria-label={hideValues ? t('showValues') : t('hideValues')}
                 style={{
                   position: 'absolute',
                   top: '50%',
@@ -1092,7 +1099,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                   borderRadius: '50%',
                   background: hideValues ? '#3b82f6' : '#1a1a1a',
                   border: `2px solid ${hideValues ? '#3b82f6' : '#2a2a2a'}`,
-                  color: hideValues ? '#fff' : '#555',
+                  color: hideValues ? '#fff' : '#8b8b8b',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -1167,10 +1174,10 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
             {/* Footer */}
             <footer style={{ textAlign: 'center', fontSize: 10, color: '#1e1e1e', paddingTop: 10, borderTop: '1px solid #111', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-                <span style={{ color: db.syncError ? '#ef4444' : undefined }}>{db.syncError || (userId ? 'Dados sincronizados na nuvem' : 'Dados salvos automaticamente')}</span>
+                <span style={{ color: db.syncError ? '#ef4444' : undefined }}>{db.syncError || (userId ? t('savedToCloud') : t('savedAutomatically'))}</span>
                 <span style={{ color: '#151515' }}>·</span>
-                <button onClick={() => { if (confirm('Limpar todos os dados e começar novamente?')) db.resetData(); }} style={{ background: 'transparent', border: 'none', color: '#1e1e1e', cursor: 'pointer', fontSize: 10, padding: 0, textDecoration: 'underline' }}>Resetar</button>
-                {userId && <><span style={{ color: '#151515' }}>·</span><button onClick={signOut} style={{ background: 'transparent', border: 'none', color: '#1e1e1e', cursor: 'pointer', fontSize: 10, padding: 0, textDecoration: 'underline' }}>Sair</button></>}
+                <button onClick={() => { if (confirm(t('resetConfirm'))) db.resetData(); }} style={{ background: 'transparent', border: 'none', color: '#1e1e1e', cursor: 'pointer', fontSize: 10, padding: 0, textDecoration: 'underline' }}>{t('reset')}</button>
+                {userId && <><span style={{ color: '#151515' }}>·</span><button onClick={signOut} style={{ background: 'transparent', border: 'none', color: '#1e1e1e', cursor: 'pointer', fontSize: 10, padding: 0, textDecoration: 'underline' }}>{t('signOutShort')}</button></>}
               </div>
               <button
                 onClick={() => setEditMode((p) => !p)}
@@ -1178,7 +1185,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                   background: editMode ? '#111520' : 'transparent',
                   border: `1px solid ${editMode ? '#1e2a3e' : '#1e1e1e'}`,
                   borderRadius: 6,
-                  color: editMode ? '#60a5fa' : '#333',
+                  color: editMode ? '#60a5fa' : '#8b8b8b',
                   cursor: 'pointer',
                   padding: '5px 14px',
                   fontSize: 10,
@@ -1186,7 +1193,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                   transition: 'all 0.15s',
                 }}
               >
-                {editMode ? 'Pronto' : 'Editar layout'}
+                {editMode ? t('done') : t('editLayout')}
               </button>
             </footer>
           </>

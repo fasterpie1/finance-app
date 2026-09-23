@@ -70,7 +70,7 @@ export const CategoryChart: React.FC<Props> = ({ bills, invoices = [], hideValue
           </svg>
           <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center' }}>
             <div style={{ fontSize: 9, color: '#444', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Total</div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#d4d4d4', marginTop: 1, transition: 'color 0.2s' }}>{hideValues ? '••••' : formatMoney(total)}</div>
+            <div className="privacy-mask" style={{ fontSize: 13, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#d4d4d4', marginTop: 1, transition: 'color 0.2s' }}>{hideValues ? '••••' : formatMoney(total)}</div>
           </div>
         </div>
       </div>
@@ -83,7 +83,7 @@ export const CategoryChart: React.FC<Props> = ({ bills, invoices = [], hideValue
               <div style={{ fontSize: 13, color: '#c4c4c4', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.label}</div>
               <div style={{ fontSize: 11, color: '#686868', marginTop: 2 }}>{d.pct.toFixed(1)}% do total</div>
             </div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: hideValues ? '#1a1a1a' : '#e3e3e3', flexShrink: 0, transition: 'color 0.2s', fontVariantNumeric: 'tabular-nums' }}>
+            <div className="privacy-mask" style={{ fontSize: 14, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#e3e3e3', flexShrink: 0, transition: 'color 0.2s', fontVariantNumeric: 'tabular-nums' }}>
               {hideValues ? '••••' : formatMoney(d.amount)}
             </div>
           </div>

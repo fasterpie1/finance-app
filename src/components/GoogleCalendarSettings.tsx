@@ -5,11 +5,12 @@ import { usePreferences } from '../i18n';
 
 interface Props {
   userId: string | null;
+  onClearCalendarEventIds?: () => void;
 }
 
 const STATUS_STORAGE_KEY = 'google_calendar_status';
 
-export const GoogleCalendarSettings: React.FC<Props> = ({ userId }) => {
+export const GoogleCalendarSettings: React.FC<Props> = ({ userId, onClearCalendarEventIds }) => {
   const { t } = usePreferences();
   const cachedStatus = userId ? readUserStorage(userId, STATUS_STORAGE_KEY) as GoogleCalendarStatus | null : null;
   const [status, setStatus] = useState<GoogleCalendarStatus>(cachedStatus === 'connected' || cachedStatus === 'expired' ? cachedStatus : 'disconnected');
@@ -81,6 +82,9 @@ export const GoogleCalendarSettings: React.FC<Props> = ({ userId }) => {
       await disconnectGoogleCalendar();
       setStatus('disconnected');
       removeUserStorage(userId, STATUS_STORAGE_KEY);
+      // Sem isso os calendarEventId armazenados ficam órfãos e os fluxos de
+      // pagar/editar/disparar lembrete tentariam operar eventos inacessíveis.
+      onClearCalendarEventIds?.();
     } catch (error) {
       setStatus('error');
       setErrorMessage(error instanceof Error ? error.message : t('googleErrorDescription'));

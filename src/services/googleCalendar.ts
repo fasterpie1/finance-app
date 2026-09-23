@@ -15,20 +15,30 @@ async function invokeOnce(body: Record<string, unknown>): Promise<{ data: Functi
   return supabase.functions.invoke('google-calendar', { body });
 }
 
-function isUnauthorized(error: unknown): boolean {
-  if (!error || typeof error !== 'object') return false;
+function statusOf(error: unknown): number | undefined {
+  if (!error || typeof error !== 'object') return undefined;
   const context = (error as { context?: { status?: number } }).context;
-  return context?.status === 401;
+  return typeof context?.status === 'number' ? context.status : undefined;
 }
 
-async function invoke(body: Record<string, unknown>): Promise<FunctionResponse> {
+function isUnauthorized(error: unknown): boolean {
+  return statusOf(error) === 401;
+}
+
+function isNotFound(error: unknown): boolean {
+  return statusOf(error) === 404;
+}
+
+async function invoke(body: Record<string, unknown>, options: { treatNotFoundAsSuccess?: boolean } = {}): Promise<FunctionResponse> {
   const first = await invokeOnce(body);
   if (!first.error && !first.data?.error) return first.data as FunctionResponse;
+  if (options.treatNotFoundAsSuccess && isNotFound(first.error)) return {};
   if (isUnauthorized(first.error)) {
     const refreshed = await supabase?.auth.refreshSession();
     if (refreshed?.error || !refreshed?.data.session) throw new Error('A sessão do aplicativo expirou. Atualize a sessão da conta para reconectar o Google Agenda.');
     const retry = await invokeOnce(body);
     if (!retry.error && !retry.data?.error) return retry.data as FunctionResponse;
+    if (options.treatNotFoundAsSuccess && isNotFound(retry.error)) return {};
     if (isUnauthorized(retry.error)) throw new Error('A sessão do aplicativo expirou. Atualize a sessão da conta para reconectar o Google Agenda.');
     throw new Error(retry.data?.error ?? (retry.error as { message?: string } | null)?.message ?? 'Não foi possível acessar o Google Agenda.');
   }
@@ -81,7 +91,10 @@ export async function updateCalendarEvent(eventId: string, input: Partial<Calend
 }
 
 export async function deleteCalendarEvent(eventId: string): Promise<void> {
-  await invoke({ action: 'delete-event', event_id: eventId });
+  // 404 = o evento já não existe no Google (removido manualmente). Tratar como
+  // sucesso idempotente permite limpar o calendarEventId local em vez de travar
+  // o botão como "já adicionado" para sempre.
+  await invoke({ action: 'delete-event', event_id: eventId }, { treatNotFoundAsSuccess: true });
 }
 
 export async function listCalendarEvents(input: { timeMin?: string; timeMax?: string; query?: string } = {}): Promise<CalendarEvent[]> {

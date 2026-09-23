@@ -3,9 +3,9 @@ import { formatCurrency, formatMonthShort, getBillReminderStart, getMonthIndex, 
 import { normalizePreferences } from './i18n';
 import { getBillNotifications, getMonthsFrom } from './store/useDashboard';
 import type { BudgetMonth } from './types';
-import { getInvoicePersonalTotalCents, getPersonalImpactCents } from './services/cardTransactions';
+import { getInvoicePersonalTotalCents, getInvoiceTotalCents, getPersonalImpactCents } from './services/cardTransactions';
 import { extractStatementTotalCents } from './services/statementTotals';
-import { parsePdfTransactionFallback } from './services/statementParser';
+import { parsePdfTransactionFallback, parseExtractedPurchases } from './services/statementParser';
 import { findDuplicateTransaction } from './services/transactionDuplicates';
 import type { CreditCardInvoice, CreditCardTransaction } from './types';
 
@@ -31,6 +31,27 @@ describe('financial helpers', () => {
       ],
     };
     expect(getInvoicePersonalTotalCents(invoice)).toBe(24999);
+  });
+
+  it('computes the invoice total from charges, excluding payments and netting refunds', () => {
+    const invoice: CreditCardInvoice = {
+      id: 'i1', month: 'Agosto', year: 2026, transactions: [
+        transaction({ amountCents: 10000, type: 'PURCHASE' }),
+        transaction({ id: 't2', amountCents: 5000, type: 'REFUND' }),
+        transaction({ id: 't3', amountCents: 3000, type: 'PAYMENT' }),
+      ],
+    };
+    // 10000 purchase − 5000 refund = 5000; the 3000 payment is not a charge.
+    expect(getInvoiceTotalCents(invoice)).toBe(5000);
+  });
+
+  it('prefers the official statement total over the computed fallback', () => {
+    const invoice: CreditCardInvoice = {
+      id: 'i1', month: 'Agosto', year: 2026, statementTotalCents: 7777, transactions: [
+        transaction({ amountCents: 10000, type: 'PURCHASE' }),
+      ],
+    };
+    expect(getInvoiceTotalCents(invoice)).toBe(7777);
   });
 
   it('extracts the official statement total instead of summing payments', () => {
@@ -91,6 +112,36 @@ describe('financial helpers', () => {
     expect(notifications[0].isOverdue).toBe(true);
   });
 
+  it('derives the card invoice reminder from creditCardInvoices, not legacy bills', () => {
+    const months: BudgetMonth[] = [{
+      id: '1', name: 'Setembro', year: 2026, income: 5000, creditCardDueDay: 10,
+      bills: [],
+      creditCardInvoices: [{
+        id: 'inv1', month: 'Setembro', year: 2026, isPaid: false,
+        transactions: [transaction({ amountCents: 20000, type: 'PURCHASE', owner: 'ME' })],
+      }],
+    }];
+    // Setembro's invoice is due the 10th of the next month (Outubro). On Oct 8 that
+    // is 2 days away — inside the 3-day notification window.
+    const notifications = getBillNotifications(months, new Date(2026, 9, 8));
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0].name).toBe('Fatura do cartão');
+    expect(notifications[0].amount).toBe(200);
+    expect(notifications[0].isOverdue).toBe(false);
+  });
+
+  it('does not notify a card invoice that is already paid', () => {
+    const months: BudgetMonth[] = [{
+      id: '1', name: 'Setembro', year: 2026, income: 5000, creditCardDueDay: 10,
+      bills: [],
+      creditCardInvoices: [{
+        id: 'inv1', month: 'Setembro', year: 2026, isPaid: true,
+        transactions: [transaction({ amountCents: 20000, type: 'PURCHASE', owner: 'ME' })],
+      }],
+    }];
+    expect(getBillNotifications(months, new Date(2026, 9, 8))).toHaveLength(0);
+  });
+
   it('formats currency in Brazilian locale', () => {
     expect(formatCurrency(1234.56)).toContain('1.234,56');
     expect(getMonthIndex('Setembro')).toBe(8);
@@ -114,5 +165,43 @@ describe('financial helpers', () => {
   it('calculates the reminder on the previous day of the following month', () => {
     expect(getBillReminderStart('Setembro', 2026, 7)).toEqual(new Date(2026, 9, 6, 9));
     expect(getBillReminderStart('Dezembro', 2026, 1)).toEqual(new Date(2026, 11, 31, 9));
+  });
+
+  it('clamps the reminder when the due day exceeds the month length', () => {
+    // Março/2026 vence em abril (30 dias): dia 31 vira 30, lembrete em 29/04.
+    expect(getBillReminderStart('Março', 2026, 31)).toEqual(new Date(2026, 3, 29, 9));
+    // Janeiro/2026 vence em fevereiro (28 dias): dia 31 vira 28, lembrete em 27/02.
+    expect(getBillReminderStart('Janeiro', 2026, 31)).toEqual(new Date(2026, 1, 27, 9));
+  });
+});
+
+describe('parseExtractedPurchases', () => {
+  const parse = (purchases: unknown[]) =>
+    parseExtractedPurchases(JSON.stringify({ purchases }));
+
+  it('parses pt-BR and decimal amount strings', () => {
+    const result = parse([
+      { name: 'Mercado', amount: '1.234,56', type: 'PURCHASE' },
+      { name: 'Farmácia', amount: '89.90', type: 'PURCHASE' },
+      { name: 'Loja', amount: 42.5, type: 'PURCHASE' },
+    ]);
+    expect(result.map((p) => p.amount)).toEqual([1234.56, 89.9, 42.5]);
+  });
+
+  it('prefers explicit installment numbers over a date-like name', () => {
+    const [purchase] = parse([
+      { name: 'Compra 08/09/2026', amount: 50, installmentCurrent: 1, installmentTotal: 1, type: 'PURCHASE' },
+    ]);
+    expect(purchase.installmentCurrent).toBe(1);
+    expect(purchase.installmentTotal).toBe(1);
+  });
+
+  it('falls back to name-encoded installments when none are explicit', () => {
+    const [purchase] = parse([
+      { name: 'beautyglam 8/9', amount: '56,36', type: 'PURCHASE' },
+    ]);
+    expect(purchase.installmentCurrent).toBe(8);
+    expect(purchase.installmentTotal).toBe(9);
+    expect(purchase.name).toBe('beautyglam');
   });
 });

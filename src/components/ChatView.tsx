@@ -138,7 +138,9 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
       else if (command.action === 'list_events') result = await calendarActions.listEvents(command.date);
       else if (command.action === 'create_event') result = command.title && command.date ? await calendarActions.createEvent({ title: command.title, date: command.date, time: command.time, durationMinutes: command.durationMinutes, description: command.description }) : 'Informe o título e a data do evento.';
       else if (command.action === 'update_event') result = await calendarActions.updateEvent({ eventId: command.eventId, query: command.query, title: command.title, date: command.date, time: command.time, description: command.description });
-      else result = command.query || command.eventId ? await calendarActions.deleteEvent(command.query ?? command.eventId ?? '') : 'Informe qual evento deve ser removido.';
+      else if (command.action === 'delete_event') result = command.query || command.eventId ? await calendarActions.deleteEvent(command.query ?? command.eventId ?? '') : 'Informe qual evento deve ser removido.';
+      // Unknown/hallucinated action: never fall through to a destructive delete.
+      else result = command.response ?? 'Não entendi o comando de agenda.';
       setMessages((prev) => [...prev, { role: 'assistant', content: result }]);
     } catch (err) {
       setMessages((prev) => [...prev, { role: 'error', content: err instanceof Error ? err.message : 'Erro desconhecido' }]);

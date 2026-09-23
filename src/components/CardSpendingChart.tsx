@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   type Bill,
   type BillCategory,
@@ -24,9 +24,10 @@ interface Props {
 }
 
 const STORAGE_KEY = 'financa_card_chart_categories_v1';
-const CHART_WIDTH = 760;
+const DEFAULT_CHART_WIDTH = 760;
 const CHART_HEIGHT = 300;
 const PADDING = { top: 62, right: 54, bottom: 62, left: 92 };
+const NARROW_PADDING = { top: 52, right: 16, bottom: 52, left: 48 };
 
 function loadCategories(available: BillCategory[]): BillCategory[] {
   try {
@@ -62,6 +63,19 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
   }, [months, categoryLabel, locale]);
   const [selectedCategories, setSelectedCategories] = useState<BillCategory[]>(() => loadCategories(availableCategories));
 
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [measuredWidth, setMeasuredWidth] = useState(0);
+  useEffect(() => {
+    const node = containerRef.current;
+    if (!node) return;
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width ?? 0;
+      setMeasuredWidth((current) => (Math.abs(current - width) < 0.5 ? current : width));
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
   const toggleCategory = (category: BillCategory) => {
     setSelectedCategories((current) => {
       const next = current.includes(category)
@@ -79,10 +93,18 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
     cardAmountByCategory(month, category)
   ));
   const maxValue = Math.max(...values, 0);
-  const plotWidth = CHART_WIDTH - PADDING.left - PADDING.right;
-  const plotHeight = CHART_HEIGHT - PADDING.top - PADDING.bottom;
-  const xFor = (index: number) => chartMonths.length <= 1 ? PADDING.left + plotWidth / 2 : PADDING.left + (index / (chartMonths.length - 1)) * plotWidth;
-  const yFor = (value: number) => PADDING.top + plotHeight - (maxValue > 0 ? (value / maxValue) * plotHeight : 0);
+  const chartWidth = measuredWidth > 0 ? Math.round(measuredWidth) : DEFAULT_CHART_WIDTH;
+  const narrow = chartWidth < 480;
+  const padding = narrow ? NARROW_PADDING : PADDING;
+  const axisFontSize = narrow ? 10 : 14;
+  const monthFontSize = narrow ? 11 : 15;
+  const valueFontSize = narrow ? 10 : 14;
+  const valueStagger = narrow ? 15 : 20;
+  const stripCurrency = (text: string) => text.replace(/^(R\$|US\$|€)\s?/, '').trim();
+  const plotWidth = chartWidth - padding.left - padding.right;
+  const plotHeight = CHART_HEIGHT - padding.top - padding.bottom;
+  const xFor = (index: number) => chartMonths.length <= 1 ? padding.left + plotWidth / 2 : padding.left + (index / (chartMonths.length - 1)) * plotWidth;
+  const yFor = (value: number) => padding.top + plotHeight - (maxValue > 0 ? (value / maxValue) * plotHeight : 0);
   const series = selectedCategories.map((category) => ({
     category,
     points: chartMonths.map((month, index) => {
@@ -93,7 +115,7 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
   const gridValues = [0, 0.5, 1].map((ratio) => maxValue * ratio);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
         <div>
           <h3 style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#666', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Gastos no cartão por categoria</h3>
@@ -118,21 +140,21 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
       ) : chartMonths.length === 0 ? (
         <div style={{ border: '1px dashed #242424', borderRadius: 8, padding: 28, textAlign: 'center', color: '#444', fontSize: 12 }}>Ainda não há lançamentos de cartão suficientes para comparar.</div>
       ) : (
-        <div style={{ margin: '0 -4px' }}>
-          <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} width="100%" role="img" aria-label="Evolução mensal dos gastos no cartão por categoria" style={{ display: 'block' }}>
+        <div>
+          <svg viewBox={`0 0 ${chartWidth} ${CHART_HEIGHT}`} width="100%" role="img" aria-label="Evolução mensal dos gastos no cartão por categoria" style={{ display: 'block' }}>
             {gridValues.map((value) => {
               const y = yFor(value);
               return (
                 <g key={value}>
-                  <line x1={PADDING.left} x2={CHART_WIDTH - PADDING.right} y1={y} y2={y} stroke="#202020" strokeDasharray="3 5" />
-                  <text x={PADDING.left - 10} y={y + 5} textAnchor="end" fill="#666" fontSize="14">{hideValues ? '•••' : formatMoney(value).replace(/^(R\$|US\$|€)\s?/, '').trim()}</text>
+                  <line x1={padding.left} x2={chartWidth - padding.right} y1={y} y2={y} stroke="#202020" strokeDasharray="3 5" />
+                  <text x={padding.left - 8} y={y + 4} textAnchor="end" fill="#666" fontSize={axisFontSize}>{hideValues ? '•••' : stripCurrency(formatMoney(value))}</text>
                 </g>
               );
             })}
-            <line x1={PADDING.left} x2={CHART_WIDTH - PADDING.right} y1={PADDING.top + plotHeight} y2={PADDING.top + plotHeight} stroke="#292929" />
+            <line x1={padding.left} x2={chartWidth - padding.right} y1={padding.top + plotHeight} y2={padding.top + plotHeight} stroke="#292929" />
             {chartMonths.map((month, index) => (
               <g key={month.id}>
-                <text x={xFor(index)} y={CHART_HEIGHT - 29} textAnchor={index === 0 ? 'start' : index === chartMonths.length - 1 ? 'end' : 'middle'} fill="#777" fontSize="15" fontWeight="600">{formatMonthShort(month.name, month.year)}</text>
+                <text x={xFor(index)} y={CHART_HEIGHT - (narrow ? 22 : 29)} textAnchor={index === 0 ? 'start' : index === chartMonths.length - 1 ? 'end' : 'middle'} fill="#777" fontSize={monthFontSize} fontWeight="600">{formatMonthShort(month.name, month.year)}</text>
               </g>
             ))}
             {series.map(({ category, points }, seriesIndex) => (
@@ -140,8 +162,8 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
                 <polyline points={points.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" stroke={BILL_CATEGORY_COLORS[category]} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
                 {points.map((point, index) => (
                   <g key={`${category}-${index}`}>
-                    <text x={point.x} y={Math.max(18, point.y - 16 - seriesIndex * 20)} textAnchor={index === 0 ? 'start' : index === points.length - 1 ? 'end' : 'middle'} fill={BILL_CATEGORY_COLORS[category]} fontSize="14" fontWeight="700">
-                      {hideValues ? '•••' : formatMoney(point.value)}
+                    <text x={point.x} y={Math.max(narrow ? 12 : 18, point.y - (narrow ? 12 : 16) - seriesIndex * valueStagger)} textAnchor={index === 0 ? 'start' : index === points.length - 1 ? 'end' : 'middle'} fill={BILL_CATEGORY_COLORS[category]} fontSize={valueFontSize} fontWeight="700">
+                      {hideValues ? '•••' : narrow ? stripCurrency(formatMoney(point.value)) : formatMoney(point.value)}
                     </text>
                     <circle cx={point.x} cy={point.y} r="4.5" fill="#111" stroke={BILL_CATEGORY_COLORS[category]} strokeWidth="2" />
                   </g>

@@ -38,12 +38,25 @@ export async function hasGroqKey(): Promise<boolean> {
   return Boolean(data?.configured);
 }
 
+const GROQ_TIMEOUT_MS = 60000;
+
 async function invokeGroq(action: 'chat' | 'extract', request: Record<string, unknown>): Promise<GroqResponse> {
   if (!supabase) throw new Error('Supabase não está configurado.');
-  const { data, error } = await supabase.functions.invoke('groq-proxy', { body: { action, request } });
-  if (error) throw new Error(await functionErrorMessage(error, 'Não foi possível consultar a IA.'));
-  if (data?.error) throw new Error(data.error);
-  return data as GroqResponse;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('Tempo limite excedido ao consultar a IA. Tente novamente.')), GROQ_TIMEOUT_MS);
+  });
+  try {
+    const { data, error } = await Promise.race([
+      supabase.functions.invoke('groq-proxy', { body: { action, request } }),
+      timeout,
+    ]);
+    if (error) throw new Error(await functionErrorMessage(error, 'Não foi possível consultar a IA.'));
+    if (data?.error) throw new Error(data.error);
+    return data as GroqResponse;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 export async function sendGroqChat(request: Record<string, unknown>): Promise<string> {

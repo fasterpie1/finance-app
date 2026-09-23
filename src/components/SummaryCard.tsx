@@ -59,11 +59,11 @@ export const SummaryCard: React.FC<Props> = ({ title, value, accent = 'default',
       >
         {title}
       </span>
-      <div
+      <div className="privacy-mask"
         style={{
           fontSize: 20,
           fontWeight: 700,
-          color: hidden ? '#1a1a1a' : (valueColor || '#e8e8e8'),
+          color: hidden ? 'var(--privacy-mask)' : (valueColor || '#e8e8e8'),
           letterSpacing: '-0.02em',
           transition: 'color 0.2s',
         }}

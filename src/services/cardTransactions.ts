@@ -19,7 +19,10 @@ export function getPersonalImpactCents(transaction: CreditCardTransaction): numb
 
 export function getInvoiceTotalCents(invoice: CreditCardInvoice): number {
   if (invoice.statementTotalCents != null) return invoice.statementTotalCents;
-  return invoice.transactions.reduce((total, transaction) => total + transaction.amountCents, 0);
+  // Fall back to the net amount owed: charges minus refunds, excluding payments.
+  // Summing every transaction here would count PAYMENT as a charge and REFUND as
+  // money owed, inflating the invoice total.
+  return getInvoiceChargeTotalCents(invoice);
 }
 
 export function getInvoicePersonalTotalCents(invoice: CreditCardInvoice): number {

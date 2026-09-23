@@ -127,15 +127,18 @@ export function getBillNotifications(months: BudgetMonth[], today = new Date()):
 
   return months.flatMap((month) => {
     const notifications: BillNotification[] = [];
-    const unpaidCardBills = month.bills.filter((bill) => !bill.isPaid && bill.cardPaymentMethod !== 'debito_pix' && isCreditCardBill(bill));
+    // Card purchases live in creditCardInvoices now (legacy bills are migrated on
+    // load), so the invoice reminder must be derived from unpaid invoices rather
+    // than from month.bills, which no longer carries card data.
+    const unpaidInvoices = (month.creditCardInvoices ?? []).filter((invoice) => !invoice.isPaid);
 
-    if (unpaidCardBills.length > 0 && month.creditCardDueDay) {
+    if (unpaidInvoices.length > 0 && month.creditCardDueDay) {
       const dueDate = nextMonthDate(month, month.creditCardDueDay);
       const daysUntilDue = Math.round((dueDate.getTime() - currentDate.getTime()) / dayMs);
       notifications.push({
         billId: `credit-card-invoice-${month.id}`,
         name: 'Fatura do cartão',
-        amount: unpaidCardBills.reduce((total, bill) => total + bill.amount, 0),
+        amount: centsToAmount(unpaidInvoices.reduce((total, invoice) => total + getInvoicePersonalTotalCents(invoice), 0)),
         dueDate,
         daysUntilDue,
         isOverdue: daysUntilDue < 0,
@@ -200,6 +203,10 @@ export function useDashboard(userId: string | null = null) {
   const [, setRemoteRevision] = useState(0);
   const remoteRevisionRef = useRef(0);
   const remoteLoaded = useRef(!supabase || !userId);
+  // Debounce coalesces rapid edits; the chain serializes in-flight updates so each
+  // one reads the latest revision only after the previous write has resolved.
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveChainRef = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     if (!supabase || !userId) {
@@ -260,9 +267,18 @@ export function useDashboard(userId: string | null = null) {
   useEffect(() => {
     if (!remoteLoaded.current) return;
     writeUserStorage(userId, STORAGE_KEY, JSON.stringify(months));
-    if (supabase && userId) {
-      const expectedRevision = remoteRevisionRef.current;
-      void supabase.from('user_finance_data').update({ months, selected_month_id: selectedMonthId, updated_at: new Date().toISOString(), revision: expectedRevision + 1 }).eq('user_id', userId).eq('revision', expectedRevision).select('revision').maybeSingle().then(({ data, error }) => {
+    const client = supabase;
+    const uid = userId;
+    if (!client || !uid) return;
+
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      saveChainRef.current = saveChainRef.current.then(async () => {
+        const expectedRevision = remoteRevisionRef.current;
+        const { data, error } = await client.from('user_finance_data')
+          .update({ months, selected_month_id: selectedMonthId, updated_at: new Date().toISOString(), revision: expectedRevision + 1 })
+          .eq('user_id', uid).eq('revision', expectedRevision)
+          .select('revision').maybeSingle();
         if (error || !data) {
           console.error('Falha ao salvar dados no Supabase:', error);
           setSyncError('Conflito de sincronização: os dados mudaram em outro dispositivo. Atualize antes de salvar novamente.');
@@ -271,8 +287,12 @@ export function useDashboard(userId: string | null = null) {
           setRemoteRevision(data.revision);
           setSyncError(null);
         }
-      });
-    }
+      }).catch((err) => console.error('Falha inesperada ao salvar dados:', err));
+    }, 600);
+
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
   }, [months, selectedMonthId, userId]);
 
   useEffect(() => {
@@ -302,6 +322,9 @@ export function useDashboard(userId: string | null = null) {
     .filter((invoice) => invoice.isPaid)
     .reduce((total, invoice) => total + centsToAmount(getInvoicePersonalTotalCents(invoice)), 0);
   const totalPlanned = selectedMonth.bills.reduce((s, b) => s + b.amount, 0) + invoicePersonalTotal;
+  // Débito/pix é deduzido da conta na hora da compra (não depende de pagar a fatura)
+  // e não tem toggle de pago na UI (showPaidToggle={false}), então conta como pago
+  // independentemente do `isPaid` armazenado, que permanece false desde a criação.
   const totalPaid = selectedMonth.bills.filter((b) => b.isPaid || b.cardPaymentMethod === 'debito_pix').reduce((s, b) => s + b.amount, 0) + invoicePersonalPaid;
   const remaining = selectedMonth.income - totalPlanned;
 
@@ -402,14 +425,21 @@ export function useDashboard(userId: string | null = null) {
 
       return prev.map((m) => {
         if (m.id !== selectedMonthId) return m;
-        const newBills = billsToCopy.map((b) => ({
-          ...b,
-          id: uuid(),
-          isPaid: false,
-          month: selectedMonth.name,
-          // Incrementar parcela se for financiamento
-          installmentCurrent: b.installmentCurrent ? b.installmentCurrent + 1 : undefined,
-        }));
+        // Idempotency: skip bills already present this month so calling this twice
+        // (e.g. a double-tap) does not duplicate every fixed bill.
+        const billKey = (b: Bill) => `${b.name}|${b.type}|${b.category}|${b.dueDay}`;
+        const existingKeys = new Set(m.bills.map(billKey));
+        const newBills = billsToCopy
+          .filter((b) => !existingKeys.has(billKey(b)))
+          .map((b) => ({
+            ...b,
+            id: uuid(),
+            isPaid: false,
+            month: selectedMonth.name,
+            // Incrementar parcela se for financiamento
+            installmentCurrent: b.installmentCurrent ? b.installmentCurrent + 1 : undefined,
+          }));
+        if (newBills.length === 0) return m;
         return { ...m, bills: [...m.bills, ...newBills] };
       });
     });
@@ -496,6 +526,14 @@ export function useDashboard(userId: string | null = null) {
     },
     [selectedMonthId]
   );
+
+  const clearCalendarEventIds = useCallback(() => {
+    setMonths((prev) => prev.map((month) => ({
+      ...month,
+      creditCardCalendarEventId: undefined,
+      bills: month.bills.map((bill) => (bill.calendarEventId ? { ...bill, calendarEventId: undefined } : bill)),
+    })));
+  }, []);
 
   // ====== CARTÃO DE CRÉDITO ======
   const applyCreditCardPurchase = (
@@ -600,8 +638,9 @@ export function useDashboard(userId: string | null = null) {
           bills: m.bills.map((b) => {
             // Marca parcelas do cartão como pagas
             const isCreditCardBill = b.type === 'parcela' && b.category !== 'financiamento' && b.cardPaymentMethod !== 'debito_pix';
-            // Marca contas fixas vinculadas ao cartão como pagas
-            const isLinkedFixed = b.isOnCreditCard === true;
+            // Marca contas fixas vinculadas ao cartão como pagas. Débito/pix não
+            // faz parte da fatura do cartão, então não deve ser marcado aqui.
+            const isLinkedFixed = b.isOnCreditCard === true && b.cardPaymentMethod !== 'debito_pix';
             if (isCreditCardBill || isLinkedFixed) {
               return { ...b, isPaid: true };
             }
@@ -622,7 +661,7 @@ export function useDashboard(userId: string | null = null) {
           creditCardInvoices: (m.creditCardInvoices ?? []).map((invoice) => ({ ...invoice, isPaid: false })),
           bills: m.bills.map((b) => {
             const isCreditCardBill = b.type === 'parcela' && b.category !== 'financiamento' && b.cardPaymentMethod !== 'debito_pix';
-            const isLinkedFixed = b.isOnCreditCard === true;
+            const isLinkedFixed = b.isOnCreditCard === true && b.cardPaymentMethod !== 'debito_pix';
             if (isCreditCardBill || isLinkedFixed) {
               return { ...b, isPaid: false };
             }
@@ -727,6 +766,7 @@ export function useDashboard(userId: string | null = null) {
     updateSavedAmount,
     updateCreditCardDueDay,
     updateCreditCardCalendarEventId,
+    clearCalendarEventIds,
     payCreditCard,
     unpayCreditCard,
     addCreditCardInvoice,
