@@ -550,6 +550,9 @@ input, select, textarea, button {
   border-left: 1px solid #242424;
   box-shadow: -18px 0 50px rgba(0, 0, 0, 0.28);
   animation: settings-slide-in 0.22s ease-out;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .settings-heading,
