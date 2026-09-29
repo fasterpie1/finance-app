@@ -136,9 +136,9 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
       </div>
 
       {selectedCategories.length === 0 ? (
-        <div style={{ border: '1px dashed #242424', borderRadius: 8, padding: 28, textAlign: 'center', color: '#444', fontSize: 12 }}>Selecione uma categoria para visualizar a evolução.</div>
+        <div className="chart-empty" style={{ border: '1px dashed #242424', borderRadius: 8, padding: 28, textAlign: 'center', color: '#444', fontSize: 12 }}>Selecione uma categoria para visualizar a evolução.</div>
       ) : chartMonths.length === 0 ? (
-        <div style={{ border: '1px dashed #242424', borderRadius: 8, padding: 28, textAlign: 'center', color: '#444', fontSize: 12 }}>Ainda não há lançamentos de cartão suficientes para comparar.</div>
+        <div className="chart-empty" style={{ border: '1px dashed #242424', borderRadius: 8, padding: 28, textAlign: 'center', color: '#444', fontSize: 12 }}>Ainda não há lançamentos de cartão suficientes para comparar.</div>
       ) : (
         <div>
           <svg viewBox={`0 0 ${chartWidth} ${CHART_HEIGHT}`} width="100%" role="img" aria-label="Evolução mensal dos gastos no cartão por categoria" style={{ display: 'block' }}>
@@ -146,15 +146,15 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
               const y = yFor(value);
               return (
                 <g key={value}>
-                  <line x1={padding.left} x2={chartWidth - padding.right} y1={y} y2={y} stroke="#202020" strokeDasharray="3 5" />
-                  <text x={padding.left - 8} y={y + 4} textAnchor="end" fill="#666" fontSize={axisFontSize}>{hideValues ? '•••' : stripCurrency(formatMoney(value))}</text>
+                  <line className="chart-grid" x1={padding.left} x2={chartWidth - padding.right} y1={y} y2={y} stroke="#202020" strokeDasharray="3 5" />
+                  <text className="chart-axis-label" x={padding.left - 8} y={y + 4} textAnchor="end" fill="#666" fontSize={axisFontSize}>{hideValues ? '•••' : stripCurrency(formatMoney(value))}</text>
                 </g>
               );
             })}
-            <line x1={padding.left} x2={chartWidth - padding.right} y1={padding.top + plotHeight} y2={padding.top + plotHeight} stroke="#292929" />
+            <line className="chart-axis" x1={padding.left} x2={chartWidth - padding.right} y1={padding.top + plotHeight} y2={padding.top + plotHeight} stroke="#292929" />
             {chartMonths.map((month, index) => (
               <g key={month.id}>
-                <text x={xFor(index)} y={CHART_HEIGHT - (narrow ? 22 : 29)} textAnchor={index === 0 ? 'start' : index === chartMonths.length - 1 ? 'end' : 'middle'} fill="#777" fontSize={monthFontSize} fontWeight="600">{formatMonthShort(month.name, month.year)}</text>
+                <text className="chart-month-label" x={xFor(index)} y={CHART_HEIGHT - (narrow ? 22 : 29)} textAnchor={index === 0 ? 'start' : index === chartMonths.length - 1 ? 'end' : 'middle'} fill="#777" fontSize={monthFontSize} fontWeight="600">{formatMonthShort(month.name, month.year)}</text>
               </g>
             ))}
             {series.map(({ category, points }, seriesIndex) => (
@@ -165,7 +165,7 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
                     <text x={point.x} y={Math.max(narrow ? 12 : 18, point.y - (narrow ? 12 : 16) - seriesIndex * valueStagger)} textAnchor={index === 0 ? 'start' : index === points.length - 1 ? 'end' : 'middle'} fill={BILL_CATEGORY_COLORS[category]} fontSize={valueFontSize} fontWeight="700">
                       {hideValues ? '•••' : narrow ? stripCurrency(formatMoney(point.value)) : formatMoney(point.value)}
                     </text>
-                    <circle cx={point.x} cy={point.y} r="4.5" fill="#111" stroke={BILL_CATEGORY_COLORS[category]} strokeWidth="2" />
+                    <circle className="chart-point" cx={point.x} cy={point.y} r="4.5" fill="#111" stroke={BILL_CATEGORY_COLORS[category]} strokeWidth="2" />
                   </g>
                 ))}
               </g>

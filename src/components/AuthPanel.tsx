@@ -103,36 +103,36 @@ export const AuthPanel: React.FC<Props> = ({ children }) => {
   };
 
   if (!isSupabaseConfigured) return <>{children(null, signOut)}</>;
-  if (initializing) return <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', color: '#777', background: '#0a0a0a' }}>{t('loading')}</div>;
+  if (initializing) return <div className="auth-shell" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', color: '#777', background: '#0a0a0a' }}>{t('loading')}</div>;
   if (userId) return <>{children(userId, signOut)}</>;
 
   return (
-    <main style={{ minHeight: '100vh', background: '#0a0a0a', color: '#e0e0e0', display: 'grid', placeItems: 'center', padding: 20, fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif" }}>
-      <section style={{ width: '100%', maxWidth: 420, background: '#111', border: '1px solid #1f1f1f', borderRadius: 16, padding: 32, boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
+    <main className="auth-shell" style={{ minHeight: '100vh', background: '#0a0a0a', color: '#e0e0e0', display: 'grid', placeItems: 'center', padding: 20, fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif" }}>
+      <section className="auth-card" style={{ width: '100%', maxWidth: 420, background: '#111', border: '1px solid #1f1f1f', borderRadius: 16, padding: 32, boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
 
         {mode === 'signin' && (
           <>
-            <h1 style={{ margin: '0 0 8px', fontSize: 24, color: '#fff' }}>Finança Pessoal</h1>
-            <p style={{ margin: '0 0 24px', color: '#999', fontSize: 14, lineHeight: 1.5 }}>{t('loginDescription')}</p>
+            <h1 className="auth-title" style={{ margin: '0 0 8px', fontSize: 24, color: '#fff' }}>Finança Pessoal</h1>
+            <p className="auth-subtitle" style={{ margin: '0 0 24px', color: '#999', fontSize: 14, lineHeight: 1.5 }}>{t('loginDescription')}</p>
             <form onSubmit={(event) => { event.preventDefault(); void signIn(); }} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div>
-                <label htmlFor="auth-email" style={labelStyle}>{t('emailLabel')}</label>
-                <input id="auth-email" type="email" autoComplete="email" placeholder="voce@exemplo.com" value={email} onChange={(event) => setEmail(event.target.value)} style={fieldStyle} />
+                <label className="auth-label" htmlFor="auth-email" style={labelStyle}>{t('emailLabel')}</label>
+                <input className="auth-input" id="auth-email" type="email" autoComplete="email" placeholder="voce@exemplo.com" value={email} onChange={(event) => setEmail(event.target.value)} style={fieldStyle} />
               </div>
               <div>
-                <label htmlFor="auth-password" style={labelStyle}>{t('passwordLabel')}</label>
-                <input id="auth-password" type="password" autoComplete="current-password" placeholder="••••••" value={password} onChange={(event) => setPassword(event.target.value)} style={fieldStyle} />
+                <label className="auth-label" htmlFor="auth-password" style={labelStyle}>{t('passwordLabel')}</label>
+                <input className="auth-input" id="auth-password" type="password" autoComplete="current-password" placeholder="••••••" value={password} onChange={(event) => setPassword(event.target.value)} style={fieldStyle} />
               </div>
-              {message && <div role="alert" style={{ color: '#f87171', fontSize: 13, lineHeight: 1.5, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, padding: '10px 12px' }}>{message}</div>}
-              <button type="submit" disabled={loading || !email || !password} style={{ background: loading || !email || !password ? '#1e3a5f' : '#3b82f6', border: 0, borderRadius: 8, color: '#fff', padding: 13, fontSize: 15, fontWeight: 700, cursor: loading || !email || !password ? 'default' : 'pointer', transition: 'background 0.15s' }}>
+              {message && <div className="auth-message" role="alert" style={{ color: '#f87171', fontSize: 13, lineHeight: 1.5, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, padding: '10px 12px' }}>{message}</div>}
+              <button className="auth-primary" type="submit" disabled={loading || !email || !password} style={{ background: loading || !email || !password ? '#1e3a5f' : '#3b82f6', border: 0, borderRadius: 8, color: '#fff', padding: 13, fontSize: 15, fontWeight: 700, cursor: loading || !email || !password ? 'default' : 'pointer', transition: 'background 0.15s' }}>
                 {loading ? t('loading') : t('login')}
               </button>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: '#555', fontSize: 12 }}>
+              <div className="auth-divider" style={{ display: 'flex', alignItems: 'center', gap: 12, color: '#555', fontSize: 12 }}>
                 <span style={{ flex: 1, height: 1, background: '#262626' }} />
                 <span>{t('noAccount')}</span>
                 <span style={{ flex: 1, height: 1, background: '#262626' }} />
               </div>
-              <button type="button" onClick={() => switchMode('signup')} style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.4)', borderRadius: 8, color: '#93c5fd', padding: 13, fontSize: 15, fontWeight: 700, cursor: 'pointer', transition: 'background 0.15s' }}>
+              <button className="auth-secondary" type="button" onClick={() => switchMode('signup')} style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.4)', borderRadius: 8, color: '#93c5fd', padding: 13, fontSize: 15, fontWeight: 700, cursor: 'pointer', transition: 'background 0.15s' }}>
                 {t('createAccount')}
               </button>
             </form>
@@ -141,11 +141,11 @@ export const AuthPanel: React.FC<Props> = ({ children }) => {
 
         {mode === 'signup' && (
           <>
-            <h1 style={{ margin: '0 0 8px', fontSize: 24, color: '#fff' }}>{t('signUpTitle')}</h1>
-            <p style={{ margin: '0 0 20px', color: '#999', fontSize: 14, lineHeight: 1.5 }}>{t('signUpDescription')}</p>
-            <div style={{ background: '#0d1420', border: '1px solid #1c2a3d', borderRadius: 10, padding: '14px 16px', marginBottom: 22 }}>
-              <div style={{ color: '#93c5fd', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>{t('signUpHowItWorks')}</div>
-              <ol style={{ margin: 0, paddingLeft: 18, color: '#b8c4d4', fontSize: 13, lineHeight: 1.8 }}>
+            <h1 className="auth-title" style={{ margin: '0 0 8px', fontSize: 24, color: '#fff' }}>{t('signUpTitle')}</h1>
+            <p className="auth-subtitle" style={{ margin: '0 0 20px', color: '#999', fontSize: 14, lineHeight: 1.5 }}>{t('signUpDescription')}</p>
+            <div className="auth-info" style={{ background: '#0d1420', border: '1px solid #1c2a3d', borderRadius: 10, padding: '14px 16px', marginBottom: 22 }}>
+              <div className="auth-info-title" style={{ color: '#93c5fd', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>{t('signUpHowItWorks')}</div>
+              <ol className="auth-step" style={{ margin: 0, paddingLeft: 18, color: '#b8c4d4', fontSize: 13, lineHeight: 1.8 }}>
                 <li>{t('signUpStep1')}</li>
                 <li>{t('signUpStep2')}</li>
                 <li>{t('signUpStep3')}</li>
@@ -153,23 +153,23 @@ export const AuthPanel: React.FC<Props> = ({ children }) => {
             </div>
             <form onSubmit={(event) => { event.preventDefault(); void signUp(); }} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div>
-                <label htmlFor="signup-email" style={labelStyle}>{t('emailLabel')}</label>
-                <input id="signup-email" type="email" autoComplete="email" placeholder="voce@exemplo.com" value={email} onChange={(event) => setEmail(event.target.value)} style={fieldStyle} />
+                <label className="auth-label" htmlFor="signup-email" style={labelStyle}>{t('emailLabel')}</label>
+                <input className="auth-input" id="signup-email" type="email" autoComplete="email" placeholder="voce@exemplo.com" value={email} onChange={(event) => setEmail(event.target.value)} style={fieldStyle} />
               </div>
               <div>
-                <label htmlFor="signup-password" style={labelStyle}>{t('passwordLabel')}</label>
-                <input id="signup-password" type="password" autoComplete="new-password" placeholder="••••••" value={password} onChange={(event) => setPassword(event.target.value)} style={fieldStyle} />
-                <div style={hintStyle}>{t('passwordHint')}</div>
+                <label className="auth-label" htmlFor="signup-password" style={labelStyle}>{t('passwordLabel')}</label>
+                <input className="auth-input" id="signup-password" type="password" autoComplete="new-password" placeholder="••••••" value={password} onChange={(event) => setPassword(event.target.value)} style={fieldStyle} />
+                <div className="auth-hint" style={hintStyle}>{t('passwordHint')}</div>
               </div>
               <div>
-                <label htmlFor="signup-confirm" style={labelStyle}>{t('confirmPasswordLabel')}</label>
-                <input id="signup-confirm" type="password" autoComplete="new-password" placeholder="••••••" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} style={fieldStyle} />
+                <label className="auth-label" htmlFor="signup-confirm" style={labelStyle}>{t('confirmPasswordLabel')}</label>
+                <input className="auth-input" id="signup-confirm" type="password" autoComplete="new-password" placeholder="••••••" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} style={fieldStyle} />
               </div>
-              {message && <div role="alert" style={{ color: '#f87171', fontSize: 13, lineHeight: 1.5, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, padding: '10px 12px' }}>{message}</div>}
-              <button type="submit" disabled={loading || !email || password.length < 6 || !confirmPassword} style={{ background: loading || !email || password.length < 6 || !confirmPassword ? '#1e3a5f' : '#3b82f6', border: 0, borderRadius: 8, color: '#fff', padding: 13, fontSize: 15, fontWeight: 700, cursor: loading || !email || password.length < 6 || !confirmPassword ? 'default' : 'pointer', transition: 'background 0.15s' }}>
+              {message && <div className="auth-message" role="alert" style={{ color: '#f87171', fontSize: 13, lineHeight: 1.5, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, padding: '10px 12px' }}>{message}</div>}
+              <button className="auth-primary" type="submit" disabled={loading || !email || password.length < 6 || !confirmPassword} style={{ background: loading || !email || password.length < 6 || !confirmPassword ? '#1e3a5f' : '#3b82f6', border: 0, borderRadius: 8, color: '#fff', padding: 13, fontSize: 15, fontWeight: 700, cursor: loading || !email || password.length < 6 || !confirmPassword ? 'default' : 'pointer', transition: 'background 0.15s' }}>
                 {loading ? t('loading') : t('createAccount')}
               </button>
-              <button type="button" onClick={() => switchMode('signin')} style={{ background: 'transparent', border: 0, color: '#93c5fd', padding: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+              <button className="auth-link" type="button" onClick={() => switchMode('signin')} style={{ background: 'transparent', border: 0, color: '#93c5fd', padding: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
                 {t('hasAccount')} {t('login')}
               </button>
             </form>
@@ -178,11 +178,11 @@ export const AuthPanel: React.FC<Props> = ({ children }) => {
 
         {mode === 'checkEmail' && (
           <>
-            <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.35)', display: 'grid', placeItems: 'center', fontSize: 26, marginBottom: 18 }}>✉️</div>
-            <h1 style={{ margin: '0 0 8px', fontSize: 24, color: '#fff' }}>{t('checkEmailTitle')}</h1>
-            <p style={{ margin: '0 0 16px', color: '#999', fontSize: 14, lineHeight: 1.6 }}>{t('checkEmailBody')}</p>
-            <div style={{ background: '#0e0e0e', border: '1px solid #262626', borderRadius: 8, padding: '10px 14px', color: '#e0e0e0', fontSize: 14, marginBottom: 22, wordBreak: 'break-all' }}>{email}</div>
-            <button type="button" onClick={() => switchMode('signin')} style={{ background: '#3b82f6', border: 0, borderRadius: 8, color: '#fff', padding: 13, fontSize: 15, fontWeight: 700, cursor: 'pointer', width: '100%' }}>
+            <div className="auth-icon" style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.35)', display: 'grid', placeItems: 'center', fontSize: 26, marginBottom: 18 }}>✉️</div>
+            <h1 className="auth-title" style={{ margin: '0 0 8px', fontSize: 24, color: '#fff' }}>{t('checkEmailTitle')}</h1>
+            <p className="auth-subtitle" style={{ margin: '0 0 16px', color: '#999', fontSize: 14, lineHeight: 1.6 }}>{t('checkEmailBody')}</p>
+            <div className="auth-emailbox" style={{ background: '#0e0e0e', border: '1px solid #262626', borderRadius: 8, padding: '10px 14px', color: '#e0e0e0', fontSize: 14, marginBottom: 22, wordBreak: 'break-all' }}>{email}</div>
+            <button className="auth-primary" type="button" onClick={() => switchMode('signin')} style={{ background: '#3b82f6', border: 0, borderRadius: 8, color: '#fff', padding: 13, fontSize: 15, fontWeight: 700, cursor: 'pointer', width: '100%' }}>
               {t('backToLogin')}
             </button>
           </>

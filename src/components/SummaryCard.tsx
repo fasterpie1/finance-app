@@ -59,7 +59,7 @@ export const SummaryCard: React.FC<Props> = ({ title, value, accent = 'default',
       >
         {title}
       </span>
-      <div className="privacy-mask"
+      <div className={`privacy-mask theme-summary-value-${valueTone}`}
         style={{
           fontSize: 20,
           fontWeight: 700,

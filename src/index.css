@@ -111,7 +111,7 @@ body[data-theme='light'] .theme-chat-view > div {
 }
 
 body[data-theme='light'] .theme-summary-card span,
-body[data-theme='light'] .theme-summary-card > div:not(:first-child),
+body[data-theme='light'] .theme-summary-card > div:not(:first-child):not(.privacy-mask),
 body[data-theme='light'] .theme-bill-row span,
 body[data-theme='light'] .theme-bill-row > div,
 body[data-theme='light'] .theme-inline-row span,
@@ -127,12 +127,32 @@ body[data-theme='light'] .theme-chat-view label {
   color: #475569 !important;
 }
 
-/* Classe tripla para vencer os overrides amplos de cor acima (valores mascarados). */
-body[data-theme='light'] .privacy-mask.privacy-mask.privacy-mask {
-  color: var(--privacy-mask) !important;
+/* Valores monetários: a cor inline foi pensada para fundo escuro e fica ilegível
+   no modo claro. Definimos um padrão legível e preservamos cores de destaque. */
+body[data-theme='light'] .privacy-mask.privacy-mask {
+  color: #1e293b !important;
 }
 
-body[data-theme='light'] .theme-summary-card > div:nth-child(3),
+body[data-theme='light'] .privacy-mask.theme-value-green,
+body[data-theme='light'] .privacy-mask.theme-summary-value-green {
+  color: #059669 !important;
+}
+
+body[data-theme='light'] .privacy-mask.theme-value-red,
+body[data-theme='light'] .privacy-mask.theme-summary-value-red {
+  color: #dc2626 !important;
+}
+
+body[data-theme='light'] .privacy-mask.theme-value-blue,
+body[data-theme='light'] .privacy-mask.theme-summary-value-blue {
+  color: #2563eb !important;
+}
+
+body[data-theme='light'] .privacy-mask.theme-value-yellow,
+body[data-theme='light'] .privacy-mask.theme-summary-value-yellow {
+  color: #d97706 !important;
+}
+
 body[data-theme='light'] .theme-bill-row input,
 body[data-theme='light'] .theme-bill-row select,
 body[data-theme='light'] .theme-inline-row input,
@@ -258,21 +278,6 @@ body[data-theme='light'] .theme-card-preview span {
   color: #475569 !important;
 }
 
-/* Superfícies que usam estilos inline no modo escuro. O escuro permanece inalterado. */
-body[data-theme='light'] .app-section div[style*='#0e0e0e'],
-body[data-theme='light'] .app-section div[style*='#111'],
-body[data-theme='light'] .app-section div[style*='#131313'],
-body[data-theme='light'] .app-section div[style*='#141414'],
-body[data-theme='light'] .theme-card-view div[style*='#0e0e0e'],
-body[data-theme='light'] .theme-card-view div[style*='#111'],
-body[data-theme='light'] .theme-card-view div[style*='#131313'],
-body[data-theme='light'] .theme-import-panel div[style*='#0e0e0e'],
-body[data-theme='light'] .theme-import-panel div[style*='#111'],
-body[data-theme='light'] .theme-import-panel div[style*='#131313'] {
-  background: #ffffff !important;
-  border-color: #dfe2e7 !important;
-}
-
 body[data-theme='light'] .theme-summary-card > div,
 body[data-theme='light'] .theme-card-preview > div,
 body[data-theme='light'] .theme-card-view > div > div,
@@ -281,13 +286,10 @@ body[data-theme='light'] .theme-chat-view > div > div {
   border-color: #dfe2e7 !important;
 }
 
-body[data-theme='light'] .theme-summary-card > div:nth-child(3),
-body[data-theme='light'] .theme-card-view div[style*='#151515'],
-body[data-theme='light'] .theme-card-preview span[style*='#151515'],
-body[data-theme='light'] .theme-card-view span[style*='#151515'] {
-  background: #f1f5f9 !important;
-  border-color: #cbd5e1 !important;
-  color: #334155 !important;
+/* O valor do card de resumo não ganha caixa própria: herda o fundo branco. */
+body[data-theme='light'] .theme-summary-card > div.privacy-mask {
+  background: transparent !important;
+  border-color: transparent !important;
 }
 
 body[data-theme='light'] .theme-card-preview > div > div,
@@ -1405,6 +1407,330 @@ body[data-theme='light'] .help-modal-content p {
 body[data-theme='light'] .help-modal-content strong {
   color: #1e293b;
 }
+
+/* ===== Modo claro: componentes com estilos inline escuros ===== */
+
+/* Valores soltos (sem privacy-mask) */
+body[data-theme='light'] .theme-value-green { color: #059669 !important; }
+body[data-theme='light'] .theme-value-red { color: #dc2626 !important; }
+body[data-theme='light'] .theme-value-blue { color: #2563eb !important; }
+
+/* Barra de progresso */
+body[data-theme='light'] .theme-progress-track { background: #e2e8f0 !important; }
+
+/* Estado vazio */
+body[data-theme='light'] .theme-empty-state {
+  color: #64748b !important;
+  background: #ffffff !important;
+  border-color: #dfe2e7 !important;
+}
+
+/* Divisor da meta */
+body[data-theme='light'] .theme-goal-divider { background: #e2e8f0 !important; }
+
+/* Botões de alternância (adicionar / pago) */
+body[data-theme='light'] .theme-add-toggle.is-active,
+body[data-theme='light'] .theme-paid-toggle.is-active {
+  background: #dbeafe !important;
+  border-color: #93c5fd !important;
+  color: #1d4ed8 !important;
+}
+
+/* Chips genéricos de cartão */
+body[data-theme='light'] .theme-chip-card {
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #334155 !important;
+}
+
+/* Mensagem de importação / backup */
+body[data-theme='light'] .theme-import-msg {
+  background: #eff6ff !important;
+  border-color: #bfdbfe !important;
+  color: #1e40af !important;
+}
+body[data-theme='light'] .theme-import-msg.is-error {
+  background: #fef2f2 !important;
+  border-color: #fecaca !important;
+  color: #b91c1c !important;
+}
+body[data-theme='light'] .theme-import-msg.is-success {
+  background: #ecfdf5 !important;
+  border-color: #a7f3d0 !important;
+  color: #047857 !important;
+}
+
+/* Logo do cabeçalho */
+body[data-theme='light'] .app-logo { color: #1e293b !important; }
+body[data-theme='light'] .app-logo-sub { color: #64748b !important; }
+
+/* Alerta de erro do calendário */
+body[data-theme='light'] .theme-alert-error {
+  background: #fef2f2 !important;
+  border-color: #fecaca !important;
+  color: #b91c1c !important;
+}
+
+/* Navegação inferior */
+body[data-theme='light'] .app-nav button { color: #94a3b8 !important; }
+body[data-theme='light'] .app-nav button span { color: #94a3b8 !important; }
+body[data-theme='light'] .app-nav button.is-active { color: #2563eb !important; }
+body[data-theme='light'] .app-nav button.is-active span { color: #2563eb !important; }
+
+/* Rodapé */
+body[data-theme='light'] .app-footer { color: #94a3b8 !important; border-top-color: #e2e8f0 !important; }
+body[data-theme='light'] .app-footer button { color: #64748b !important; }
+body[data-theme='light'] .theme-edit-layout {
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #475569 !important;
+}
+body[data-theme='light'] .theme-edit-layout.is-active {
+  background: #dbeafe !important;
+  border-color: #93c5fd !important;
+  color: #1d4ed8 !important;
+}
+
+/* Botão de lembrete do calendário */
+body[data-theme='light'] .theme-reminder-btn {
+  background: #eff6ff !important;
+  border-color: #bfdbfe !important;
+  color: #2563eb !important;
+}
+body[data-theme='light'] .theme-reminder-btn.is-added {
+  background: #ecfdf5 !important;
+  border-color: #a7f3d0 !important;
+  color: #059669 !important;
+}
+
+/* Gráfico de categorias (donut) */
+body[data-theme='light'] .donut-track { stroke: #e2e8f0 !important; }
+body[data-theme='light'] .category-label { color: #334155 !important; }
+
+/* Gráfico de gastos no cartão */
+body[data-theme='light'] .chart-grid { stroke: #e2e8f0 !important; }
+body[data-theme='light'] .chart-axis { stroke: #cbd5e1 !important; }
+body[data-theme='light'] .chart-point { fill: #ffffff !important; }
+body[data-theme='light'] .chart-empty {
+  border-color: #cbd5e1 !important;
+  color: #64748b !important;
+}
+body[data-theme='light'] .chart-axis-label { fill: #64748b !important; }
+body[data-theme='light'] .chart-month-label { fill: #475569 !important; }
+
+/* ===== Cartão de crédito (CreditCardView) ===== */
+body[data-theme='light'] .cc-summary-tile {
+  background: #ffffff !important;
+  border-color: #dfe2e7 !important;
+}
+body[data-theme='light'] .cc-filter-btn {
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #475569 !important;
+}
+body[data-theme='light'] .cc-filter-btn.is-active {
+  background: #dbeafe !important;
+  border-color: #93c5fd !important;
+  color: #1d4ed8 !important;
+}
+body[data-theme='light'] .cc-transaction-row {
+  background: #ffffff !important;
+  border-color: #dfe2e7 !important;
+}
+body[data-theme='light'] .cc-merchant { color: #1e293b !important; }
+body[data-theme='light'] .cc-amount { color: #1e293b !important; }
+body[data-theme='light'] .cc-amount-refund { color: #059669 !important; }
+body[data-theme='light'] .cc-divider { background: #e2e8f0 !important; }
+body[data-theme='light'] .cc-charged-panel {
+  background: #ecfdf5 !important;
+  border-color: #a7f3d0 !important;
+}
+body[data-theme='light'] .cc-charged-label { color: #059669 !important; }
+body[data-theme='light'] .cc-month-chip {
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #475569 !important;
+}
+body[data-theme='light'] .cc-month-chip.is-first {
+  background: #dbeafe !important;
+  border-color: #93c5fd !important;
+  color: #1d4ed8 !important;
+}
+body[data-theme='light'] .cc-dup-warning {
+  background: #fffbeb !important;
+  border-color: #fde68a !important;
+  color: #92400e !important;
+}
+body[data-theme='light'] .cc-submit {
+  background: #2563eb !important;
+  border-color: #2563eb !important;
+  color: #ffffff !important;
+}
+body[data-theme='light'] .cc-submit:disabled {
+  background: #e2e8f0 !important;
+  border-color: #e2e8f0 !important;
+  color: #94a3b8 !important;
+}
+body[data-theme='light'] .cc-debit-chip {
+  background: #fffbeb !important;
+  border-color: #fde68a !important;
+  color: #92400e !important;
+}
+
+/* ===== Chat / Assistente (ChatView) ===== */
+body[data-theme='light'] .chat-title { color: #1e293b !important; }
+body[data-theme='light'] .chat-save {
+  background: #2563eb !important;
+  color: #ffffff !important;
+}
+body[data-theme='light'] .chat-save:disabled {
+  background: #e2e8f0 !important;
+  color: #94a3b8 !important;
+}
+body[data-theme='light'] .chat-avatar {
+  background: #eff6ff !important;
+  border-color: #bfdbfe !important;
+  color: #2563eb !important;
+}
+body[data-theme='light'] .chat-typing {
+  background: #ffffff !important;
+  border-color: #dfe2e7 !important;
+}
+body[data-theme='light'] .chat-send {
+  background: #2563eb !important;
+  color: #ffffff !important;
+}
+body[data-theme='light'] .chat-send:disabled {
+  background: #e2e8f0 !important;
+  color: #94a3b8 !important;
+}
+body[data-theme='light'] .theme-ai-info a { color: #2563eb !important; }
+body[data-theme='light'] .theme-ai-info strong { color: #1e293b !important; }
+
+/* ===== Importar fatura (StatementImportPanel) ===== */
+body[data-theme='light'] .import-info-box {
+  background: #eff6ff !important;
+  border-color: #bfdbfe !important;
+  color: #1e40af !important;
+}
+body[data-theme='light'] .import-warn-box {
+  background: #fffbeb !important;
+  border-color: #fde68a !important;
+  color: #92400e !important;
+}
+body[data-theme='light'] .import-upload {
+  background: #f8fafc !important;
+  border-color: #93c5fd !important;
+  color: #2563eb !important;
+}
+body[data-theme='light'] .import-upload:disabled {
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #94a3b8 !important;
+}
+body[data-theme='light'] .import-pdf {
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #475569 !important;
+}
+body[data-theme='light'] .import-error-box {
+  background: #fef2f2 !important;
+  border-color: #fecaca !important;
+  color: #b91c1c !important;
+}
+body[data-theme='light'] .import-item-card {
+  background: #ffffff !important;
+  border-color: #dfe2e7 !important;
+}
+body[data-theme='light'] .import-item-card.is-duplicate {
+  border-color: #fcd34d !important;
+}
+body[data-theme='light'] .import-total-strong { color: #1e293b !important; }
+body[data-theme='light'] .import-confirm {
+  background: #16a34a !important;
+  color: #ffffff !important;
+}
+body[data-theme='light'] .import-confirm:disabled {
+  background: #e2e8f0 !important;
+  color: #94a3b8 !important;
+}
+
+/* ===== Ajustes somente em CSS (divisores e status) ===== */
+body[data-theme='light'] .app-section button,
+body[data-theme='light'] .theme-card-preview button { border-color: #cbd5e1 !important; }
+body[data-theme='light'] .theme-card-preview button { color: #475569 !important; }
+body[data-theme='light'] .app-header button {
+  border-color: #cbd5e1 !important;
+  color: #475569 !important;
+}
+body[data-theme='light'] .settings-heading,
+body[data-theme='light'] .settings-group { border-bottom-color: #e2e8f0; }
+body[data-theme='light'] .settings-eyebrow,
+body[data-theme='light'] .settings-label,
+body[data-theme='light'] .settings-field { color: #64748b; }
+body[data-theme='light'] .theme-switch-icon {
+  background: #eff6ff;
+  color: #2563eb;
+}
+body[data-theme='light'] .theme-switch-copy small { color: #64748b; }
+body[data-theme='light'] .google-calendar-status.is-connected { color: #059669; }
+body[data-theme='light'] .google-calendar-status.is-expired { color: #d97706; }
+body[data-theme='light'] .theme-category-row + .theme-category-row { border-top-color: #e2e8f0; }
+body[data-theme='light'] .daily-notification-eyebrow { color: #2563eb; }
+body[data-theme='light'] .income-sources-sheet-handle { background: #cbd5e1; }
+body[data-theme='light'] .settings-action-arrow { color: #94a3b8; }
+
+/* ===== Tela de autenticação (AuthPanel) ===== */
+body[data-theme='light'] .auth-shell {
+  background: #f4f5f7 !important;
+}
+body[data-theme='light'] .auth-card {
+  background: #ffffff !important;
+  border-color: #dfe2e7 !important;
+}
+body[data-theme='light'] .auth-title { color: #1e293b !important; }
+body[data-theme='light'] .auth-subtitle,
+body[data-theme='light'] .auth-label,
+body[data-theme='light'] .auth-step { color: #475569 !important; }
+body[data-theme='light'] .auth-hint { color: #94a3b8 !important; }
+body[data-theme='light'] .auth-icon {
+  background: #eff6ff !important;
+  border-color: #bfdbfe !important;
+  color: #2563eb !important;
+}
+body[data-theme='light'] .auth-info {
+  background: #eff6ff !important;
+  border-color: #bfdbfe !important;
+}
+body[data-theme='light'] .auth-info-title { color: #1d4ed8 !important; }
+body[data-theme='light'] .auth-input {
+  background: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #1e293b !important;
+}
+body[data-theme='light'] .auth-emailbox {
+  background: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+  color: #1e293b !important;
+}
+body[data-theme='light'] .auth-primary {
+  background: #2563eb !important;
+  color: #ffffff !important;
+}
+body[data-theme='light'] .auth-primary:disabled {
+  background: #e2e8f0 !important;
+  color: #94a3b8 !important;
+}
+body[data-theme='light'] .auth-secondary {
+  background: #eff6ff !important;
+  border-color: #93c5fd !important;
+  color: #1d4ed8 !important;
+}
+body[data-theme='light'] .auth-divider { color: #94a3b8 !important; }
+body[data-theme='light'] .auth-divider > span:first-child,
+body[data-theme='light'] .auth-divider > span:last-child { background: #e2e8f0 !important; }
+body[data-theme='light'] .auth-link { color: #2563eb !important; }
+body[data-theme='light'] .auth-message { color: #b91c1c !important; }
 
 /* PWA safe areas */
 @supports (padding: max(0px)) {

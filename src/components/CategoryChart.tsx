@@ -63,7 +63,7 @@ export const CategoryChart: React.FC<Props> = ({ bills, invoices = [], hideValue
       <div style={{ display: 'flex', justifyContent: 'center' }}>
         <div style={{ position: 'relative', width: size, height: size }}>
           <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-            <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#1a1a1a" strokeWidth={strokeWidth} />
+            <circle className="donut-track" cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#1a1a1a" strokeWidth={strokeWidth} />
             {segments.map((s, i) => (
               <circle key={i} cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={s.color} strokeWidth={strokeWidth} strokeDasharray={`${s.dashArray} ${circumference - s.dashArray}`} strokeDashoffset={-s.offset} transform={`rotate(-90 ${size / 2} ${size / 2})`} style={{ transition: 'all 0.4s ease' }} />
             ))}
@@ -80,7 +80,7 @@ export const CategoryChart: React.FC<Props> = ({ bills, invoices = [], hideValue
           <div className="theme-category-row" key={d.category} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', borderRadius: 6 }}>
             <div style={{ width: 3, height: 24, borderRadius: 2, background: d.color, flexShrink: 0 }} />
             <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-              <div style={{ fontSize: 13, color: '#c4c4c4', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.label}</div>
+              <div className="category-label" style={{ fontSize: 13, color: '#c4c4c4', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.label}</div>
               <div style={{ fontSize: 11, color: '#686868', marginTop: 2 }}>{d.pct.toFixed(1)}% do total</div>
             </div>
             <div className="privacy-mask" style={{ fontSize: 14, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#e3e3e3', flexShrink: 0, transition: 'color 0.2s', fontVariantNumeric: 'tabular-nums' }}>

@@ -11,6 +11,7 @@ export const CalendarReminderButton: React.FC<Props> = ({ added, loading = false
     type="button"
     onClick={onClick}
     disabled={added || loading}
+    className={added ? 'theme-reminder-btn is-added' : 'theme-reminder-btn'}
     title={added ? 'Lembrete já adicionado ao Google Agenda' : 'Adicionar lembrete ao Google Agenda'}
     style={{
       display: 'inline-flex', alignItems: 'center', gap: 5, border: `1px solid ${added ? '#173522' : '#1e2a3e'}`,

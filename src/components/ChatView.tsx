@@ -164,7 +164,7 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
           <div className="theme-ai-icon" style={{ width: 48, height: 48, borderRadius: 12, background: '#111520', border: '1px solid #1e2a3e', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', color: '#60a5fa' }}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a4 4 0 014 4v1h2a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V9a2 2 0 012-2h2V6a4 4 0 014-4z" /><circle cx="9" cy="13" r="1" fill="currentColor" /><circle cx="15" cy="13" r="1" fill="currentColor" /></svg>
           </div>
-          <h2 style={{ margin: '0 0 8px', fontSize: 18, fontWeight: 700, color: '#e0e0e0' }}>{t('financialAssistant')}</h2>
+          <h2 className="chat-title" style={{ margin: '0 0 8px', fontSize: 18, fontWeight: 700, color: '#e0e0e0' }}>{t('financialAssistant')}</h2>
           <p style={{ margin: 0, fontSize: 13, color: '#555', maxWidth: 360 }}>{t('freeAi')}</p>
         </div>
         <div className="theme-ai-setup" style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 12, padding: 20, width: '100%', maxWidth: 420, display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -182,7 +182,7 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
             </ol>
             <div style={{ fontSize: 10, color: '#3a3a3a', marginTop: 8 }}>Groq · GPT OSS 20B</div>
           </div>
-          <button onClick={saveKey} disabled={keyLoading || !apiKeyInput.startsWith('gsk_')} style={{ background: apiKeyInput.startsWith('gsk_') && !keyLoading ? '#3b82f6' : '#151520', border: 'none', borderRadius: 6, color: apiKeyInput.startsWith('gsk_') && !keyLoading ? '#fff' : '#3a4a5a', cursor: apiKeyInput.startsWith('gsk_') && !keyLoading ? 'pointer' : 'not-allowed', padding: '10px', fontSize: 13, fontWeight: 600 }}>{keyLoading ? t('saving') : t('saveAndStart')}</button>
+          <button className="chat-save" onClick={saveKey} disabled={keyLoading || !apiKeyInput.startsWith('gsk_')} style={{ background: apiKeyInput.startsWith('gsk_') && !keyLoading ? '#3b82f6' : '#151520', border: 'none', borderRadius: 6, color: apiKeyInput.startsWith('gsk_') && !keyLoading ? '#fff' : '#3a4a5a', cursor: apiKeyInput.startsWith('gsk_') && !keyLoading ? 'pointer' : 'not-allowed', padding: '10px', fontSize: 13, fontWeight: 600 }}>{keyLoading ? t('saving') : t('saveAndStart')}</button>
         </div>
       </div>
     );
@@ -192,9 +192,9 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
     <div className="theme-chat-view theme-chat-active" style={{ display: 'flex', flexDirection: 'column', flex: '1 1 auto', minHeight: 0, height: 'auto', overflow: 'hidden', gap: 0 }}>
       <div className="theme-chat-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 28, height: 28, borderRadius: 8, background: '#111520', border: '1px solid #1e2a3e', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#60a5fa' }}><IconAI /></div>
+          <div className="chat-avatar" style={{ width: 28, height: 28, borderRadius: 8, background: '#111520', border: '1px solid #1e2a3e', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#60a5fa' }}><IconAI /></div>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#c0c0c0' }}>{t('financialAssistant')}</div>
+            <div className="chat-title" style={{ fontSize: 13, fontWeight: 600, color: '#c0c0c0' }}>{t('financialAssistant')}</div>
             <div style={{ fontSize: 10, color: '#3a3a3a' }}>Groq · GPT OSS 20B</div>
           </div>
         </div>
@@ -223,7 +223,7 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
         {messages.map((m, i) => (
           <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start', alignItems: 'flex-end', gap: 6 }}>
             {m.role !== 'user' && (
-              <div style={{ width: 22, height: 22, borderRadius: 6, background: m.role === 'error' ? '#1a1010' : '#111520', border: `1px solid ${m.role === 'error' ? '#2a1515' : '#1e2a3e'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: m.role === 'error' ? '#ef4444' : '#60a5fa', flexShrink: 0, marginBottom: 2 }}>
+              <div className={m.role === 'error' ? undefined : 'chat-avatar'} style={{ width: 22, height: 22, borderRadius: 6, background: m.role === 'error' ? '#1a1010' : '#111520', border: `1px solid ${m.role === 'error' ? '#2a1515' : '#1e2a3e'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: m.role === 'error' ? '#ef4444' : '#60a5fa', flexShrink: 0, marginBottom: 2 }}>
                 {m.role === 'error' ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" /></svg> : <IconAI />}
               </div>
             )}
@@ -233,8 +233,8 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
 
         {loading && (
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6 }}>
-            <div style={{ width: 22, height: 22, borderRadius: 6, background: '#111520', border: '1px solid #1e2a3e', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#60a5fa' }}><IconAI /></div>
-            <div style={{ background: '#141414', border: '1px solid #1e1e1e', borderRadius: '12px 12px 12px 4px', padding: '10px 14px' }}>
+            <div className="chat-avatar" style={{ width: 22, height: 22, borderRadius: 6, background: '#111520', border: '1px solid #1e2a3e', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#60a5fa' }}><IconAI /></div>
+            <div className="chat-typing" style={{ background: '#141414', border: '1px solid #1e1e1e', borderRadius: '12px 12px 12px 4px', padding: '10px 14px' }}>
               <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                 {[0, 1, 2].map((d) => (<div key={d} style={{ width: 5, height: 5, borderRadius: '50%', background: '#3b82f6', animation: `bounce 1.2s ${d * 0.2}s infinite ease-in-out` }} />))}
               </div>
@@ -252,7 +252,7 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
 
       <div className="theme-chat-composer" style={{ display: 'flex', gap: 8, alignItems: 'flex-end', paddingTop: 8, borderTop: '1px solid #141414', flexShrink: 0 }}>
         <textarea ref={inputRef} placeholder={t('askAboutExpenses')} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onKeyDown} rows={2} style={{ flex: 1, background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, color: '#e0e0e0', padding: '9px 12px', fontSize: 14, outline: 'none', fontFamily: 'inherit', resize: 'none', lineHeight: 1.5, transition: 'border-color 0.15s' }} onFocus={(e) => { e.currentTarget.style.borderColor = '#2a3a4a'; }} onBlur={(e) => { e.currentTarget.style.borderColor = '#1e1e1e'; }} />
-        <button onClick={() => sendMessage()} disabled={!input.trim() || loading} style={{ background: input.trim() && !loading ? '#3b82f6' : '#151520', border: 'none', borderRadius: 8, color: input.trim() && !loading ? '#fff' : '#3a4a5a', cursor: input.trim() && !loading ? 'pointer' : 'not-allowed', padding: '9px 14px', transition: 'all 0.15s', alignSelf: 'stretch', display: 'flex', alignItems: 'center' }}>
+        <button className="chat-send" onClick={() => sendMessage()} disabled={!input.trim() || loading} style={{ background: input.trim() && !loading ? '#3b82f6' : '#151520', border: 'none', borderRadius: 8, color: input.trim() && !loading ? '#fff' : '#3a4a5a', cursor: input.trim() && !loading ? 'pointer' : 'not-allowed', padding: '9px 14px', transition: 'all 0.15s', alignSelf: 'stretch', display: 'flex', alignItems: 'center' }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
         </button>
       </div>

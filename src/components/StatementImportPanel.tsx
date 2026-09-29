@@ -179,16 +179,16 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
 
       {open && (
         <div style={{ padding: '0 18px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div style={{ height: 1, background: '#1a1a1a' }} />
+          <div className="cc-divider" style={{ height: 1, background: '#1a1a1a' }} />
 
           {checkingKey && (
-            <div style={{ background: '#111520', border: '1px solid #1e2a3e', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#60a5fa' }}>
+            <div className="import-info-box" style={{ background: '#111520', border: '1px solid #1e2a3e', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#60a5fa' }}>
               Verificando o Assistente...
             </div>
           )}
 
           {!checkingKey && !apiKeyConfigured && (
-            <div style={{ background: '#1a150a', border: '1px solid #2a2010', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#f59e0b' }}>
+            <div className="import-warn-box" style={{ background: '#1a150a', border: '1px solid #2a2010', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#f59e0b' }}>
               {t('configureGroq')}
             </div>
           )}
@@ -212,6 +212,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
           <button
             onClick={() => fileRef.current?.click()}
             disabled={loading || checkingKey || !apiKeyConfigured}
+            className="import-upload"
             style={{
               background: loading ? '#151520' : '#111520',
               border: '1px dashed #1e2a3e',
@@ -247,11 +248,11 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
             <img src={previewUrl} alt="Preview da fatura" style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, border: '1px solid #1e1e1e' }} />
           )}
           {previewUrl && previewIsPdf && (
-            <div style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, padding: '14px', color: '#999', fontSize: 12 }}>{t('pdfSelected')}</div>
+            <div className="import-pdf" style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, padding: '14px', color: '#999', fontSize: 12 }}>{t('pdfSelected')}</div>
           )}
 
           {error && (
-            <div style={{ background: '#1a1010', border: '1px solid #2a1515', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#ef4444' }}>{error}</div>
+            <div className="import-error-box" style={{ background: '#1a1010', border: '1px solid #2a1515', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#ef4444' }}>{error}</div>
           )}
 
           {items.length > 0 && (
@@ -264,13 +265,13 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 320, overflowY: 'auto' }}>
                 {items.map((item) => (
-                  <div key={item.id} style={{ background: '#0e0e0e', border: `1px solid ${item.duplicateConfidence ? '#5a3b12' : item.selected ? '#1e2a3e' : '#1a1a1a'}`, borderRadius: 8, padding: '10px 12px', opacity: item.selected ? 1 : 0.5 }}>
+                  <div key={item.id} className={item.duplicateConfidence ? 'import-item-card is-duplicate' : 'import-item-card'} style={{ background: '#0e0e0e', border: `1px solid ${item.duplicateConfidence ? '#5a3b12' : item.selected ? '#1e2a3e' : '#1a1a1a'}`, borderRadius: 8, padding: '10px 12px', opacity: item.selected ? 1 : 0.5 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                       <input type="checkbox" checked={item.selected} onChange={(e) => updateItem(item.id, { selected: e.target.checked })} style={{ accentColor: '#3b82f6', width: 16, height: 16 }} />
                       <input style={{ ...fieldStyle, flex: 1 }} value={item.name} onChange={(e) => updateItem(item.id, { name: e.target.value })} placeholder="Nome" />
                     </div>
                     {item.duplicateConfidence && (
-                      <div style={{ background: '#241a0b', border: '1px solid #5a3b12', borderRadius: 6, padding: '7px 9px', marginBottom: 8, color: '#f59e0b', fontSize: 11 }}>
+                      <div className="cc-dup-warning" style={{ background: '#241a0b', border: '1px solid #5a3b12', borderRadius: 6, padding: '7px 9px', marginBottom: 8, color: '#f59e0b', fontSize: 11 }}>
                         {item.duplicateConfidence === 'high' ? 'Possível duplicado: valor, parcela e identificadores coincidem.' : 'Possível duplicado: valor, tipo e parcela coincidem; confirme antes de lançar.'}
                       </div>
                     )}
@@ -330,11 +331,12 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                 <span style={{ fontSize: 12, color: '#777' }}>
-                  {selectedCount} · {t('invoiceTotal')}: <strong style={{ color: '#c0c0c0' }}>{formatMoney(displayedTotal)}</strong>
+                  {selectedCount} · {t('invoiceTotal')}: <strong className="import-total-strong" style={{ color: '#c0c0c0' }}>{formatMoney(displayedTotal)}</strong>
                 </span>
                 <button
                   onClick={handleConfirm}
                   disabled={selectedCount === 0}
+                  className="import-confirm"
                   style={{
                     background: selectedCount > 0 ? '#16a34a' : '#151520',
                     border: 'none',

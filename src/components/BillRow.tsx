@@ -226,6 +226,7 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete,
                 tabIndex={0}
                 onClick={() => onSave({ ...bill, isOnCreditCard: !bill.isOnCreditCard })}
                 onKeyDown={openEditOnKey(() => onSave({ ...bill, isOnCreditCard: !bill.isOnCreditCard }))}
+                className={bill.isOnCreditCard ? 'theme-chip-card is-linked' : 'theme-chip-card'}
                 style={{
                   fontSize: 9,
                   fontWeight: 600,
@@ -248,7 +249,7 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete,
           {!showCreditCardToggle && bill.isOnCreditCard && (
             <>
               <span style={{ fontSize: 10, color: '#5a5a5a' }}>·</span>
-              <span style={{ fontSize: 9, fontWeight: 600, color: '#60a5fa', background: '#111520', border: '1px solid #1e2a3e', borderRadius: 4, padding: '1px 6px' }}>💳</span>
+              <span className="theme-chip-card is-linked" style={{ fontSize: 9, fontWeight: 600, color: '#60a5fa', background: '#111520', border: '1px solid #1e2a3e', borderRadius: 4, padding: '1px 6px' }}>💳</span>
             </>
           )}
         </div>
@@ -266,7 +267,7 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete,
           <input ref={inputRef} inputMode="decimal" pattern="[0-9.,]*" value={editStr} onChange={(e) => setEditStr(e.target.value.replace(/[^0-9.,]/g, ''))} onBlur={commit} onKeyDown={onKeyDown} style={{ ...editInputStyle, width: 90, fontWeight: 700, fontSize: 14 }} />
         </div>
       ) : (
-        <span className="privacy-mask" role="button" tabIndex={0} onClick={() => startEdit('amount')} onKeyDown={openEditOnKey(() => startEdit('amount'))} style={{ fontSize: 14, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : (bill.isPaid ? '#10b981' : '#d4d4d4'), flexShrink: 0, cursor: 'text', letterSpacing: '-0.01em', transition: 'color 0.2s' }}>
+        <span className={bill.isPaid ? 'privacy-mask theme-value-green' : 'privacy-mask'} role="button" tabIndex={0} onClick={() => startEdit('amount')} onKeyDown={openEditOnKey(() => startEdit('amount'))} style={{ fontSize: 14, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : (bill.isPaid ? '#10b981' : '#d4d4d4'), flexShrink: 0, cursor: 'text', letterSpacing: '-0.01em', transition: 'color 0.2s' }}>
           {hideValues ? '••••' : formatMoney(bill.amount)}
         </span>
       )}

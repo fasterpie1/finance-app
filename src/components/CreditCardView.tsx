@@ -103,7 +103,7 @@ function InvoiceTransactions({ invoices, creditCardBills, onUpdate, onTogglePaid
           [t('thirdParty'), totals.thirdParty],
           [t('unclassified'), totals.unclassified],
         ].map(([label, cents]) => (
-          <div key={String(label)} style={{ minWidth: 126, flex: '0 0 126px', background: '#131313', border: '1px solid #1e1e1e', borderRadius: 10, padding: '12px 14px' }}>
+          <div key={String(label)} className="cc-summary-tile" style={{ minWidth: 126, flex: '0 0 126px', background: '#131313', border: '1px solid #1e1e1e', borderRadius: 10, padding: '12px 14px' }}>
             <div style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</div>
             <div className="privacy-mask" style={{ marginTop: 5, fontSize: 16, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#e8e8e8' }}>{hideValues ? '••••' : formatMoney(centsToAmount(Number(cents)))}</div>
           </div>
@@ -111,7 +111,7 @@ function InvoiceTransactions({ invoices, creditCardBills, onUpdate, onTogglePaid
       </div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         {([{ value: 'ALL', label: t('all') }, ...ownerOptions] as Array<{ value: 'ALL' | ExpenseOwner; label: string }>).map((option) => (
-          <button key={option.value} type="button" onClick={() => setFilter(option.value)} style={{ background: filter === option.value ? '#1e2a3e' : '#151515', border: `1px solid ${filter === option.value ? '#3b82f6' : '#242424'}`, borderRadius: 5, color: filter === option.value ? '#93c5fd' : '#666', cursor: 'pointer', padding: '6px 9px', fontSize: 11 }}>{option.label}</button>
+          <button key={option.value} type="button" onClick={() => setFilter(option.value)} className={filter === option.value ? 'cc-filter-btn is-active' : 'cc-filter-btn'} style={{ background: filter === option.value ? '#1e2a3e' : '#151515', border: `1px solid ${filter === option.value ? '#3b82f6' : '#242424'}`, borderRadius: 5, color: filter === option.value ? '#93c5fd' : '#666', cursor: 'pointer', padding: '6px 9px', fontSize: 11 }}>{option.label}</button>
         ))}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: -6 }}>
@@ -120,10 +120,10 @@ function InvoiceTransactions({ invoices, creditCardBills, onUpdate, onTogglePaid
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {transactions.map((transaction) => (
-          <div key={transaction.id} style={{ background: '#131313', border: `1px solid ${transaction.owner === 'UNCLASSIFIED' ? '#3a2a12' : '#1e1e1e'}`, borderRadius: 10, padding: '11px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div key={transaction.id} className="cc-transaction-row" style={{ background: '#131313', border: `1px solid ${transaction.owner === 'UNCLASSIFIED' ? '#3a2a12' : '#1e1e1e'}`, borderRadius: 10, padding: '11px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <strong style={{ fontSize: 13, color: '#d4d4d4' }}>{transaction.merchant}</strong>
+                <strong className="cc-merchant" style={{ fontSize: 13, color: '#d4d4d4' }}>{transaction.merchant}</strong>
                 {transaction.installmentCurrent && transaction.installmentTotal && transaction.installmentTotal > 1 && <span style={{ fontSize: 10, color: '#777' }}>{typeLabel('parcela')} {transaction.installmentCurrent}/{transaction.installmentTotal}</span>}
                 <span style={{ fontSize: 10, color: '#777' }}>{transaction.type}</span>
               </div>
@@ -136,7 +136,7 @@ function InvoiceTransactions({ invoices, creditCardBills, onUpdate, onTogglePaid
                 <span style={{ fontSize: 10, color: transaction.owner === 'UNCLASSIFIED' ? '#f59e0b' : '#555' }}>{getOwnerLabel(transaction.owner)}</span>
               </div>
             </div>
-            <strong style={{ fontSize: 14, color: transaction.type === 'REFUND' ? '#10b981' : '#d4d4d4', whiteSpace: 'nowrap' }}>{hideValues ? '••••' : formatMoney(centsToAmount(transaction.amountCents))}</strong>
+            <strong className={transaction.type === 'REFUND' ? 'cc-amount-refund' : 'cc-amount'} style={{ fontSize: 14, color: transaction.type === 'REFUND' ? '#10b981' : '#d4d4d4', whiteSpace: 'nowrap' }}>{hideValues ? '••••' : formatMoney(centsToAmount(transaction.amountCents))}</strong>
             <button
               type="button"
               title={t('removeTransaction')}
@@ -260,7 +260,7 @@ export const CreditCardView: React.FC<Props> = ({
           </button>
           <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', flexShrink: 0, opacity: 0.8 }} />
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: allCardPaid ? '#555' : '#d4d4d4', textDecoration: allCardPaid ? 'line-through' : 'none' }}>{t('monthlyInvoice')}</span>
+            <span className="cc-merchant" style={{ fontSize: 13, fontWeight: 600, color: allCardPaid ? '#555' : '#d4d4d4', textDecoration: allCardPaid ? 'line-through' : 'none' }}>{t('monthlyInvoice')}</span>
             <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
               <span style={{ fontSize: 10, color: '#444' }}>
                 {creditCardBills.length} parcela{creditCardBills.length !== 1 ? 's' : ''}
@@ -337,11 +337,11 @@ export const CreditCardView: React.FC<Props> = ({
               <div><label style={labelStyle}>{t('totalInstallments')}</label><input disabled={paymentMethod === 'debito_pix'} style={fieldStyle} inputMode="numeric" pattern="[0-9]*" value={paymentMethod === 'debito_pix' ? '1' : totalInstallment} onChange={(e) => setTotalInstallment(e.target.value.replace(/[^0-9]/g, ''))} /></div>
             </div>
             {affected.length > 0 && (
-              <div style={{ background: '#0a1a0a', border: '1px solid #152515', borderRadius: 8, padding: '10px 14px' }}>
-                <div style={{ fontSize: 10, color: '#4ade80', fontWeight: 600, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('chargedIn')} {affected.length} {affected.length === 1 ? t('monthUnit') : t('monthsUnit')}</div>
+              <div className="cc-charged-panel" style={{ background: '#0a1a0a', border: '1px solid #152515', borderRadius: 8, padding: '10px 14px' }}>
+                <div className="cc-charged-label" style={{ fontSize: 10, color: '#4ade80', fontWeight: 600, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('chargedIn')} {affected.length} {affected.length === 1 ? t('monthUnit') : t('monthsUnit')}</div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {affected.map((mi, i) => (
-                    <span key={`${mi.name}-${mi.year}-${i}`} style={{ background: i === 0 ? '#16a34a15' : '#131313', border: `1px solid ${i === 0 ? '#16a34a33' : '#1e1e1e'}`, borderRadius: 5, padding: '3px 10px', fontSize: 11, color: i === 0 ? '#4ade80' : '#555', fontWeight: i === 0 ? 600 : 400 }}>
+                    <span key={`${mi.name}-${mi.year}-${i}`} className={i === 0 ? 'cc-month-chip is-first' : 'cc-month-chip'} style={{ background: i === 0 ? '#16a34a15' : '#131313', border: `1px solid ${i === 0 ? '#16a34a33' : '#1e1e1e'}`, borderRadius: 5, padding: '3px 10px', fontSize: 11, color: i === 0 ? '#4ade80' : '#555', fontWeight: i === 0 ? 600 : 400 }}>
                       {formatMonthShort(mi.name, mi.year)}
                     </span>
                   ))}
@@ -351,12 +351,12 @@ export const CreditCardView: React.FC<Props> = ({
             )}
 
             {manualDuplicate && (
-              <div style={{ background: '#241a0b', border: '1px solid #5a3b12', borderRadius: 6, padding: '8px 10px', color: '#f59e0b', fontSize: 11 }}>
+              <div className="cc-dup-warning" style={{ background: '#241a0b', border: '1px solid #5a3b12', borderRadius: 6, padding: '8px 10px', color: '#f59e0b', fontSize: 11 }}>
                 {t('manualDuplicateWarning')}
               </div>
             )}
 
-            <button onClick={handleAdd} disabled={!name.trim() || !amount} style={{ background: name.trim() && amount ? '#3b82f6' : '#151520', border: 'none', borderRadius: 6, color: name.trim() && amount ? '#fff' : '#3a4a5a', cursor: name.trim() && amount ? 'pointer' : 'not-allowed', padding: '10px 20px', fontSize: 13, fontWeight: 600, alignSelf: 'flex-start', transition: 'all 0.15s' }}>
+            <button onClick={handleAdd} disabled={!name.trim() || !amount} className="cc-submit" style={{ background: name.trim() && amount ? '#3b82f6' : '#151520', border: 'none', borderRadius: 6, color: name.trim() && amount ? '#fff' : '#3a4a5a', cursor: name.trim() && amount ? 'pointer' : 'not-allowed', padding: '10px 20px', fontSize: 13, fontWeight: 600, alignSelf: 'flex-start', transition: 'all 0.15s' }}>
               Lançar {affected.length > 1 ? `nos ${affected.length} meses` : 'no mês'}
             </button>
           </div>
@@ -386,7 +386,7 @@ export const CreditCardView: React.FC<Props> = ({
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('debitPixPurchases')}</h3>
-            <span style={{ fontSize: 10, color: '#f59e0b', background: '#1a150a', border: '1px solid #2a2010', borderRadius: 4, padding: '1px 7px', fontWeight: 600 }}>{debitPixBills.length}</span>
+            <span className="cc-debit-chip" style={{ fontSize: 10, color: '#f59e0b', background: '#1a150a', border: '1px solid #2a2010', borderRadius: 4, padding: '1px 7px', fontWeight: 600 }}>{debitPixBills.length}</span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {debitPixBills.map((bill) => (<BillRow key={bill.id} bill={bill} onTogglePaid={() => onTogglePaid(bill.id)} onSave={onSaveBill} onDelete={() => onDeleteBill(bill.id)} hideValues={hideValues} showPaidToggle={false} />))}
@@ -408,7 +408,7 @@ export const CreditCardView: React.FC<Props> = ({
               return (
                 <div key={m.id} className={isSelected ? 'theme-month-overview theme-month-overview-active' : 'theme-month-overview'} style={{ display: 'flex', alignItems: 'center', gap: 12, background: isSelected ? '#111520' : '#111', border: `1px solid ${isSelected ? '#1e2a3e' : '#1a1a1a'}`, borderRadius: 8, padding: '10px 14px' }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: isSelected ? '#60a5fa' : '#777', minWidth: 55 }}>{formatMonthShort(m.name, m.year)}</div>
-                  <div style={{ flex: 1, background: '#1a1a1a', borderRadius: 3, height: 4, overflow: 'hidden' }}>
+                  <div className="theme-progress-track" style={{ flex: 1, background: '#1a1a1a', borderRadius: 3, height: 4, overflow: 'hidden' }}>
                     <div style={{ width: `${pct}%`, height: '100%', background: '#10b981', borderRadius: 3, transition: 'width 0.3s' }} />
                   </div>
                   <div className="privacy-mask" style={{ fontSize: 12, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#c0c0c0', minWidth: 85, textAlign: 'right', transition: 'color 0.2s' }}>{hideValues ? '••••' : formatMoney(totalAmt)}</div>

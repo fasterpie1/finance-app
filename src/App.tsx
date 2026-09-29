@@ -119,18 +119,18 @@ function useKeyboardOpen() {
 }
 
 /* ─── SVG Icons ─── */
-const IconDashboard = ({ active }: { active: boolean }) => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? '#e0e0e0' : '#555'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+const IconDashboard = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" />
   </svg>
 );
-const IconCard = ({ active }: { active: boolean }) => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? '#e0e0e0' : '#555'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+const IconCard = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <rect x="1" y="4" width="22" height="16" rx="2" /><line x1="1" y1="10" x2="23" y2="10" />
   </svg>
 );
-const IconChat = ({ active }: { active: boolean }) => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? '#e0e0e0' : '#555'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+const IconChat = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
   </svg>
 );
@@ -180,7 +180,7 @@ const GripIcon = () => (
 function ProgressBar({ value, max, color }: { value: number; max: number; color?: string }) {
   const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
   return (
-    <div style={{ background: '#1a1a1a', borderRadius: 3, height: 4, width: '100%', overflow: 'hidden' }}>
+    <div className="theme-progress-track" style={{ background: '#1a1a1a', borderRadius: 3, height: 4, width: '100%', overflow: 'hidden' }}>
       <div style={{ height: '100%', width: `${pct}%`, background: color || (pct > 80 ? '#ef4444' : pct > 50 ? '#f59e0b' : '#10b981'), borderRadius: 3, transition: 'width 0.4s ease' }} />
     </div>
   );
@@ -198,7 +198,7 @@ function CollapsibleSection({ title, count, totalAmount, isOpen, onToggle, right
           {!editMode && <IconChevron open={isOpen} />}
           <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{title}</h3>
           {count !== undefined && <span className="theme-count-pill" style={{ fontSize: 10, fontWeight: 600, color: '#8b8b8b', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 6px' }}>{count}</span>}
-          {totalAmount !== undefined && !isOpen && !editMode && <span className="privacy-mask" style={{ fontSize: 12, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#ef4444', marginLeft: 'auto', paddingRight: 8, transition: 'color 0.2s' }}>{hideValues ? '••••' : formatMoney(totalAmount)}</span>}
+          {totalAmount !== undefined && !isOpen && !editMode && <span className="privacy-mask theme-value-red" style={{ fontSize: 12, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#ef4444', marginLeft: 'auto', paddingRight: 8, transition: 'color 0.2s' }}>{hideValues ? '••••' : formatMoney(totalAmount)}</span>}
         </div>
         {isOpen && !editMode && rightAction}
       </div>
@@ -209,7 +209,7 @@ function CollapsibleSection({ title, count, totalAmount, isOpen, onToggle, right
 
 function EmptyState({ label, action, onAction }: { label: string; action?: string; onAction?: () => void }) {
   return (
-    <div style={{ background: '#0e0e0e', border: '1px dashed #1e1e1e', borderRadius: 8, padding: 20, textAlign: 'center', color: '#8b8b8b', fontSize: 12 }}>
+    <div className="theme-empty-state" style={{ background: '#0e0e0e', border: '1px dashed #1e1e1e', borderRadius: 8, padding: 20, textAlign: 'center', color: '#8b8b8b', fontSize: 12 }}>
       <div>{label}</div>
       {action && onAction && <button className="theme-empty-action" onClick={onAction} style={{ marginTop: 10, background: '#111520', border: '1px solid #1e2a3e', borderRadius: 6, color: '#60a5fa', cursor: 'pointer', padding: '7px 14px', fontSize: 12, fontWeight: 600 }}>{action}</button>}
     </div>
@@ -675,11 +675,11 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                   </div>
                   <div className="theme-goal-card" style={{ background: '#0e0e0e', borderRadius: 8, padding: '10px 12px' }}>
                     <div style={{ fontSize: 10, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('savedThisMonth')}</div>
-                    <div className="privacy-mask" style={{ fontSize: 18, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : savedAmount >= savingsGoal ? '#10b981' : '#f59e0b', marginTop: 4 }}>{hideValues ? masked : formatCurrency(savedAmount)}</div>
+                    <div className={`privacy-mask ${savedAmount >= savingsGoal ? 'theme-value-green' : 'theme-value-yellow'}`} style={{ fontSize: 18, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : savedAmount >= savingsGoal ? '#10b981' : '#f59e0b', marginTop: 4 }}>{hideValues ? masked : formatCurrency(savedAmount)}</div>
                   </div>
                   <div className="theme-goal-card" style={{ background: '#0e0e0e', borderRadius: 8, padding: '10px 12px' }}>
                     <div style={{ fontSize: 10, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('accumulated')}</div>
-                    <div className="privacy-mask" style={{ fontSize: 18, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#60a5fa', marginTop: 4 }}>{hideValues ? masked : formatCurrency(accumulatedSaved)}</div>
+                    <div className="privacy-mask theme-value-blue" style={{ fontSize: 18, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#60a5fa', marginTop: 4 }}>{hideValues ? masked : formatCurrency(accumulatedSaved)}</div>
                   </div>
                 </div>
                 <div>
@@ -724,18 +724,18 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
       case 'fixed':
         return (
           <CollapsibleSection key="fixed" title={t('monthlyFixedBills')} count={db.fixedBills.length} totalAmount={fixedTotal} isOpen={isSectionOpen('fixed')} onToggle={() => toggleSection('fixed')} hideValues={hideValues} editMode={editMode} rightAction={
-            <button onClick={() => toggleAdd('fixed')} style={{ background: addSection === 'fixed' ? '#111520' : 'transparent', border: `1px solid ${addSection === 'fixed' ? '#1e2a3e' : '#1e1e1e'}`, borderRadius: 6, color: addSection === 'fixed' ? '#60a5fa' : '#8b8b8b', cursor: 'pointer', fontSize: 11, padding: '3px 10px', transition: 'all 0.15s' }}>
+            <button onClick={() => toggleAdd('fixed')} className={addSection === 'fixed' ? 'theme-add-toggle is-active' : 'theme-add-toggle'} style={{ background: addSection === 'fixed' ? '#111520' : 'transparent', border: `1px solid ${addSection === 'fixed' ? '#1e2a3e' : '#1e1e1e'}`, borderRadius: 6, color: addSection === 'fixed' ? '#60a5fa' : '#8b8b8b', cursor: 'pointer', fontSize: 11, padding: '3px 10px', transition: 'all 0.15s' }}>
               {addSection === 'fixed' ? t('cancel') : t('add')}
             </button>
           }>
             <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
               <div className="theme-inset-panel" style={{ flex: 1, background: '#0e0e0e', borderRadius: 6, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 10, color: '#8b8b8b' }}>{t('total')}</span>
-                <span className="privacy-mask" style={{ fontSize: 13, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#ef4444', transition: 'color 0.2s' }}>{hideValues ? masked : formatCurrency(fixedTotal)}</span>
+                <span className="privacy-mask theme-value-red" style={{ fontSize: 13, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#ef4444', transition: 'color 0.2s' }}>{hideValues ? masked : formatCurrency(fixedTotal)}</span>
               </div>
               <div className="theme-inset-panel" style={{ flex: 1, background: '#0e0e0e', borderRadius: 6, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 10, color: '#8b8b8b' }}>{t('paid')}</span>
-                <span className="privacy-mask" style={{ fontSize: 13, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#10b981', transition: 'color 0.2s' }}>{hideValues ? masked : formatCurrency(fixedPaidTotal)}</span>
+                <span className="privacy-mask theme-value-green" style={{ fontSize: 13, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#10b981', transition: 'color 0.2s' }}>{hideValues ? masked : formatCurrency(fixedPaidTotal)}</span>
               </div>
             </div>
             {!hasFixedBills && addSection !== 'fixed' && <EmptyState label={t('fixedBillEmpty')} action={t('copyPrevious')} onAction={db.copyFixedBillsFromPrevious} />}
@@ -805,7 +805,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                         {linkedFixedBills.length > 0 && (
                           <>
                             <span style={{ fontSize: 10, color: '#5a5a5a' }}>·</span>
-                            <span style={{ fontSize: 10, color: '#60a5fa', background: '#111520', border: '1px solid #1e2a3e', borderRadius: 4, padding: '1px 6px' }}>
+                            <span className="theme-chip-card is-linked" style={{ fontSize: 10, color: '#60a5fa', background: '#111520', border: '1px solid #1e2a3e', borderRadius: 4, padding: '1px 6px' }}>
                               {linkedFixedBills.length} fixa{linkedFixedBills.length !== 1 ? 's' : ''}
                             </span>
                           </>
@@ -816,7 +816,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                     </div>
 
                     {/* Valor */}
-                    <span className="theme-card-invoice-amount privacy-mask" style={{ fontSize: 14, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : (allCardPaid ? '#10b981' : '#d4d4d4'), flexShrink: 0, letterSpacing: '-0.01em', transition: 'color 0.2s' }}>
+                    <span className={`theme-card-invoice-amount privacy-mask${allCardPaid ? ' theme-value-green' : ''}`} style={{ fontSize: 14, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : (allCardPaid ? '#10b981' : '#d4d4d4'), flexShrink: 0, letterSpacing: '-0.01em', transition: 'color 0.2s' }}>
                       {hideValues ? masked : formatCurrency(creditCardTotal)}
                     </span>
                     {!allCardPaid && (
@@ -834,7 +834,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
         if (db.variableBills.length === 0 && addSection !== 'variable' && !editMode) return null;
         return (
           <CollapsibleSection key="variable" title={t('variableExpenses')} count={db.variableBills.length} totalAmount={db.variableBills.reduce((s, b) => s + b.amount, 0)} isOpen={isSectionOpen('variable')} onToggle={() => toggleSection('variable')} hideValues={hideValues} editMode={editMode} rightAction={
-            <button onClick={() => toggleAdd('variable')} style={{ background: addSection === 'variable' ? '#111520' : 'transparent', border: `1px solid ${addSection === 'variable' ? '#1e2a3e' : '#1e1e1e'}`, borderRadius: 6, color: addSection === 'variable' ? '#60a5fa' : '#8b8b8b', cursor: 'pointer', fontSize: 11, padding: '3px 10px', transition: 'all 0.15s' }}>
+            <button onClick={() => toggleAdd('variable')} className={addSection === 'variable' ? 'theme-add-toggle is-active' : 'theme-add-toggle'} style={{ background: addSection === 'variable' ? '#111520' : 'transparent', border: `1px solid ${addSection === 'variable' ? '#1e2a3e' : '#1e1e1e'}`, borderRadius: 6, color: addSection === 'variable' ? '#60a5fa' : '#8b8b8b', cursor: 'pointer', fontSize: 11, padding: '3px 10px', transition: 'all 0.15s' }}>
               {addSection === 'variable' ? t('cancel') : t('add')}
             </button>
           }>
@@ -858,7 +858,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
         return (
           <CollapsibleSection key="backup" title={t('dataBackup')} isOpen={isSectionOpen('backup', false)} onToggle={() => toggleSection('backup')} hideValues={hideValues} editMode={editMode}>
             {importMsg && (
-              <div style={{ background: importMsg === t('dataRestoredSuccess') ? '#0a1a0a' : '#1a1010', border: `1px solid ${importMsg === t('dataRestoredSuccess') ? '#152515' : '#2a1515'}`, borderRadius: 6, padding: '8px 12px', fontSize: 11, color: importMsg === t('dataRestoredSuccess') ? '#4ade80' : '#ef4444', marginBottom: 10 }}>{importMsg}</div>
+              <div className={importMsg === t('dataRestoredSuccess') ? 'theme-import-msg is-success' : 'theme-import-msg is-error'} style={{ background: importMsg === t('dataRestoredSuccess') ? '#0a1a0a' : '#1a1010', border: `1px solid ${importMsg === t('dataRestoredSuccess') ? '#152515' : '#2a1515'}`, borderRadius: 6, padding: '8px 12px', fontSize: 11, color: importMsg === t('dataRestoredSuccess') ? '#4ade80' : '#ef4444', marginBottom: 10 }}>{importMsg}</div>
             )}
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button className="theme-export-backup" onClick={db.exportData} style={{ flex: 1, minWidth: 130, background: '#111520', border: '1px solid #1e2a3e', borderRadius: 6, color: '#60a5fa', cursor: 'pointer', padding: '10px 14px', fontSize: 12, fontWeight: 600 }}>{t('exportBackup')}</button>
@@ -889,8 +889,8 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
         position: 'sticky', top: 0, background: '#0a0a0a', zIndex: 50,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 14, fontWeight: 700, color: '#c0c0c0', letterSpacing: '-0.02em' }}>finança</span>
-          <span style={{ fontSize: 9, color: '#8b8b8b', letterSpacing: '0.1em', fontWeight: 500 }}>PESSOAL</span>
+          <span className="app-logo" style={{ fontSize: 14, fontWeight: 700, color: '#c0c0c0', letterSpacing: '-0.02em' }}>finança</span>
+          <span className="app-logo-sub" style={{ fontSize: 9, color: '#8b8b8b', letterSpacing: '0.1em', fontWeight: 500 }}>PESSOAL</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {userId && (
@@ -913,7 +913,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
       )}
 
       {calendarError && (
-        <div role="alert" style={{ margin: '8px 0', padding: '8px 12px', border: '1px solid #2a1515', borderRadius: 6, background: '#1a1010', color: '#ef4444', fontSize: 11 }}>
+        <div role="alert" className="theme-alert-error" style={{ margin: '8px 0', padding: '8px 12px', border: '1px solid #2a1515', borderRadius: 6, background: '#1a1010', color: '#ef4444', fontSize: 11 }}>
           {calendarError}
         </div>
       )}
@@ -930,8 +930,8 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
           { key: 'cartao' as Tab, icon: IconCard, label: t('card') },
           { key: 'chat' as Tab, icon: IconChat, label: t('assistant') },
         ]).map(({ key, icon: Icon, label }) => (
-          <button key={key} onClick={() => { setTab(key); setEditMode(false); }} style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '6px 18px', minWidth: 70, transition: 'all 0.15s' }}>
-            <Icon active={tab === key} />
+          <button key={key} onClick={() => { setTab(key); setEditMode(false); }} className={tab === key ? 'is-active' : undefined} style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '6px 18px', minWidth: 70, transition: 'all 0.15s', color: tab === key ? '#e0e0e0' : '#555' }}>
+            <Icon />
             <span style={{ fontSize: 9, fontWeight: tab === key ? 600 : 400, color: tab === key ? '#c0c0c0' : '#8b8b8b', letterSpacing: '0.02em', textTransform: 'uppercase' }}>{label}</span>
         </button>
         ))}
@@ -1172,7 +1172,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
             })}
 
             {/* Footer */}
-            <footer style={{ textAlign: 'center', fontSize: 10, color: '#1e1e1e', paddingTop: 10, borderTop: '1px solid #111', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+            <footer className="app-footer" style={{ textAlign: 'center', fontSize: 10, color: '#1e1e1e', paddingTop: 10, borderTop: '1px solid #111', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
                 <span style={{ color: db.syncError ? '#ef4444' : undefined }}>{db.syncError || (userId ? t('savedToCloud') : t('savedAutomatically'))}</span>
                 <span style={{ color: '#151515' }}>·</span>
@@ -1181,6 +1181,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
               </div>
               <button
                 onClick={() => setEditMode((p) => !p)}
+                className={editMode ? 'theme-edit-layout is-active' : 'theme-edit-layout'}
                 style={{
                   background: editMode ? '#111520' : 'transparent',
                   border: `1px solid ${editMode ? '#1e2a3e' : '#1e1e1e'}`,
@@ -1221,5 +1222,8 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
 }
 
 export default function AppWithAuth() {
+  useEffect(() => {
+    document.body.dataset.theme = loadTheme();
+  }, []);
   return <PreferencesProvider userId={null}><AuthPanel>{(userId, signOut) => <PreferencesProvider userId={userId}><App userId={userId} signOut={signOut} /></PreferencesProvider>}</AuthPanel></PreferencesProvider>;
 }
