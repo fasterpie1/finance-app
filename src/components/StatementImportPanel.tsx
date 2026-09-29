@@ -79,7 +79,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
           const { base64, mimeType } = await fileToBase64(file);
           return extractPurchasesFromImage(base64, mimeType);
         })();
-      if (extracted.length === 0) throw new Error(file.type === 'application/pdf' ? 'Nenhuma compra encontrada no PDF. Se ele for escaneado, envie uma imagem ou um PDF com texto selecionável.' : 'Nenhuma compra encontrada na imagem. Verifique se a fatura está legível e tente novamente.');
+      if (extracted.length === 0) throw new Error(file.type === 'application/pdf' ? t('noItemsPdf') : t('noItemsImage'));
       setItems(extracted.map((p) => {
         const duplicate = findDuplicateTransaction({ ...p, amountCents: Math.round(p.amount * 100) }, existingTransactions);
         return { ...p, id: makeId(), selected: true, duplicateConfidence: duplicate?.confidence };
@@ -170,7 +170,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="M21 15l-5-5L5 21" />
           </svg>
-          <span style={{ fontSize: 13, fontWeight: 600 }}>Importar fatura</span>
+          <span style={{ fontSize: 13, fontWeight: 600 }}>{t('importInvoice')}</span>
         </div>
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
           <path d="M2 4l4 4 4-4" stroke="#555" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -183,7 +183,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
 
           {checkingKey && (
             <div className="import-info-box" style={{ background: '#111520', border: '1px solid #1e2a3e', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#60a5fa' }}>
-              Verificando o Assistente...
+              {t('checkingAssistant')}
             </div>
           )}
 
@@ -245,7 +245,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
           </button>
 
           {previewUrl && !previewIsPdf && (
-            <img src={previewUrl} alt="Preview da fatura" style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, border: '1px solid #1e1e1e' }} />
+            <img src={previewUrl} alt={t('invoicePreviewAlt')} style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, border: '1px solid #1e1e1e' }} />
           )}
           {previewUrl && previewIsPdf && (
             <div className="import-pdf" style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, padding: '14px', color: '#999', fontSize: 12 }}>{t('pdfSelected')}</div>
@@ -272,7 +272,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
                     </div>
                     {item.duplicateConfidence && (
                       <div className="cc-dup-warning" style={{ background: '#241a0b', border: '1px solid #5a3b12', borderRadius: 6, padding: '7px 9px', marginBottom: 8, color: '#f59e0b', fontSize: 11 }}>
-                        {item.duplicateConfidence === 'high' ? 'Possível duplicado: valor, parcela e identificadores coincidem.' : 'Possível duplicado: valor, tipo e parcela coincidem; confirme antes de lançar.'}
+                        {item.duplicateConfidence === 'high' ? `${t('possibleDuplicate')}: ${t('duplicateHigh')}` : `${t('possibleDuplicate')}: ${t('duplicatePossible')}`}
                       </div>
                     )}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 6 }}>
@@ -299,14 +299,14 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
                     </div>
                     {item.installmentTotal > 1 && (
                       <div style={{ fontSize: 10, color: '#555', marginTop: 6 }}>
-                        Parcela {item.installmentCurrent}/{item.installmentTotal} · {formatMoney(item.amount)}/mês
+                        {t('installmentSummary', { cur: item.installmentCurrent, total: item.installmentTotal, amount: formatMoney(item.amount) })}
                       </div>
                     )}
                     <div style={{ display: 'grid', gridTemplateColumns: item.owner === 'SHARED' || item.owner === 'THIRD_PARTY' ? '1fr 1fr' : '1fr', gap: 6, marginTop: 8 }}>
                       <div>
                         <div style={{ fontSize: 9, color: '#444', marginBottom: 2 }}>{t('responsibility')}</div>
                         <select style={fieldStyle} value={item.owner} onChange={(e) => updateItem(item.id, { owner: e.target.value as ExpenseOwner })}>
-                          <option value="ME">Eu</option>
+                          <option value="ME">{t('me')}</option>
                           <option value="THIRD_PARTY">{t('thirdParty')}</option>
                           <option value="SHARED">{t('shared')}</option>
                           <option value="UNCLASSIFIED">{t('unclassified')}</option>

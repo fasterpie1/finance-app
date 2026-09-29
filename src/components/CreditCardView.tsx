@@ -142,7 +142,7 @@ function InvoiceTransactions({ invoices, creditCardBills, onUpdate, onTogglePaid
               title={t('removeTransaction')}
               aria-label={`${t('removeTransaction')} ${transaction.merchant}`}
               onClick={() => {
-                if (window.confirm(`Remover ${transaction.merchant} da fatura?`)) {
+                if (window.confirm(t('removeFromInvoice', { merchant: transaction.merchant }))) {
                   updateTransaction(transaction.id, {}, true);
                 }
               }}
@@ -263,8 +263,8 @@ export const CreditCardView: React.FC<Props> = ({
             <span className="cc-merchant" style={{ fontSize: 13, fontWeight: 600, color: allCardPaid ? '#555' : '#d4d4d4', textDecoration: allCardPaid ? 'line-through' : 'none' }}>{t('monthlyInvoice')}</span>
             <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
               <span style={{ fontSize: 10, color: '#444' }}>
-                {creditCardBills.length} parcela{creditCardBills.length !== 1 ? 's' : ''}
-                {linkedFixedBills.length > 0 && ` + ${linkedFixedBills.length} fixa${linkedFixedBills.length !== 1 ? 's' : ''}`}
+                {creditCardBills.length} {creditCardBills.length !== 1 ? t('installmentPlural') : t('installmentSingular')}
+                {linkedFixedBills.length > 0 && ` + ${linkedFixedBills.length} ${linkedFixedBills.length !== 1 ? t('fixedPlural') : t('fixedSingular')}`}
               </span>
             </div>
           </div>
@@ -280,7 +280,7 @@ export const CreditCardView: React.FC<Props> = ({
       <div className="theme-card-due-setting">
         <div>
           <strong>{t('invoiceDueDate')}</strong>
-          <span>{creditCardDueDay ? `Todo dia ${creditCardDueDay} · replicado para o próximo mês` : t('setInvoiceDueDayHint')}</span>
+          <span>{creditCardDueDay ? t('invoiceDueEveryDay', { day: creditCardDueDay }) : t('setInvoiceDueDayHint')}</span>
         </div>
         {invoiceDueDayEditing ? (
           <div className="theme-card-due-form">
@@ -357,7 +357,7 @@ export const CreditCardView: React.FC<Props> = ({
             )}
 
             <button onClick={handleAdd} disabled={!name.trim() || !amount} className="cc-submit" style={{ background: name.trim() && amount ? '#3b82f6' : '#151520', border: 'none', borderRadius: 6, color: name.trim() && amount ? '#fff' : '#3a4a5a', cursor: name.trim() && amount ? 'pointer' : 'not-allowed', padding: '10px 20px', fontSize: 13, fontWeight: 600, alignSelf: 'flex-start', transition: 'all 0.15s' }}>
-              Lançar {affected.length > 1 ? `nos ${affected.length} meses` : 'no mês'}
+              {affected.length > 1 ? t('launchMultiMonth', { count: affected.length }) : t('launchSingleMonth')}
             </button>
           </div>
         )}

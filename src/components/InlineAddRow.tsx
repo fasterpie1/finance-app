@@ -32,7 +32,7 @@ const fieldStyle: React.CSSProperties = {
 };
 
 export const InlineAddRow: React.FC<Props> = ({ monthName, onSave, onCancel, defaultType = 'mensal' }) => {
-  const { parseAmount, currencySymbol, categoryLabel, typeLabel } = usePreferences();
+  const { parseAmount, currencySymbol, categoryLabel, typeLabel, t } = usePreferences();
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');
   const [dueDay, setDueDay] = useState('1');
@@ -74,7 +74,7 @@ export const InlineAddRow: React.FC<Props> = ({ monthName, onSave, onCancel, def
         <input inputMode="decimal" pattern="[0-9.,]*" placeholder="0,00" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.,]/g, ''))} onKeyDown={onKeyDown} style={{ ...fieldStyle, width: 90 }} />
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-        <span style={{ fontSize: 11, color: '#444' }}>Dia</span>
+        <span style={{ fontSize: 11, color: '#444' }}>{t('dayPlaceholder')}</span>
         <input inputMode="numeric" pattern="[0-9]*" value={dueDay} onChange={(e) => setDueDay(e.target.value.replace(/[^0-9]/g, ''))} onKeyDown={onKeyDown} style={{ ...fieldStyle, width: 48 }} />
       </div>
       <select value={category} onChange={(e) => setCategory(e.target.value as BillCategory)} style={{ ...fieldStyle, minWidth: 100 }}>
@@ -88,7 +88,7 @@ export const InlineAddRow: React.FC<Props> = ({ monthName, onSave, onCancel, def
         ))}
       </select>
       <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-        <button onClick={handleSave} style={{ background: '#3b82f6', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '6px 14px', fontSize: 12, fontWeight: 600 }}>Salvar</button>
+        <button onClick={handleSave} style={{ background: '#3b82f6', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '6px 14px', fontSize: 12, fontWeight: 600 }}>{t('save')}</button>
         <button onClick={onCancel} style={{ background: 'transparent', border: '1px solid #222', borderRadius: 6, color: '#555', cursor: 'pointer', padding: '6px 10px', fontSize: 12 }}>×</button>
       </div>
     </div>

@@ -28,14 +28,7 @@ const STORAGE_KEY_GROQ_STATUS = 'groq_configured';
 const CHAT_MODEL = 'openai/gpt-oss-20b';
 const MAX_CONTEXT_MESSAGES = 12;
 
-const SUGGESTIONS = [
-  'Como estou indo financeiramente este mês?',
-  'Onde posso economizar?',
-  'Quais contas ainda estão pendentes?',
-  'Como melhorar meu saldo no fim do mês?',
-  'Me dê 3 dicas para organizar meus gastos',
-  'Meus gastos estão altos? O que cortar?',
-];
+const SUGGESTION_KEYS = ['suggestion1', 'suggestion2', 'suggestion3', 'suggestion4', 'suggestion5', 'suggestion6'];
 
 function loadChat(userId: string | null): Message[] {
   try { const raw = readUserStorage(userId, STORAGE_KEY_CHAT); if (raw) return JSON.parse(raw) as Message[]; } catch { /* ignore */ }
@@ -175,10 +168,10 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
           <div className="theme-ai-info" style={{ background: '#0a1a0a', border: '1px solid #152515', borderRadius: 8, padding: '12px 14px' }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: '#4ade80', marginBottom: 8 }}>{t('setup')}</div>
             <ol style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: '#777', lineHeight: 1.8 }}>
-              <li>Acesse <a href="https://console.groq.com/keys" target="_blank" rel="noreferrer" style={{ color: '#60a5fa', textDecoration: 'none' }}>console.groq.com/keys</a></li>
-              <li>Crie conta com Google</li>
-              <li>Clique em <strong style={{ color: '#c0c0c0' }}>Create API Key</strong></li>
-              <li>Cole a chave aqui (começa com <code style={{ color: '#f59e0b', background: '#1a1a0a', padding: '1px 4px', borderRadius: 2 }}>gsk_</code>)</li>
+              <li>{t('setupAccess')} <a href="https://console.groq.com/keys" target="_blank" rel="noreferrer" style={{ color: '#60a5fa', textDecoration: 'none' }}>console.groq.com/keys</a></li>
+              <li>{t('setupCreateAccount')}</li>
+              <li>{t('setupClick')} <strong style={{ color: '#c0c0c0' }}>Create API Key</strong></li>
+              <li>{t('setupPaste')} <code style={{ color: '#f59e0b', background: '#1a1a0a', padding: '1px 4px', borderRadius: 2 }}>gsk_</code>{t('setupPasteEnd')}</li>
             </ol>
             <div style={{ fontSize: 10, color: '#3a3a3a', marginTop: 8 }}>Groq · GPT OSS 20B</div>
           </div>
@@ -215,7 +208,7 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 16 }}>
             <div style={{ textAlign: 'center', color: '#333', fontSize: 12 }}>{t('askAboutSpending')}</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center' }}>
-              {SUGGESTIONS.map((s) => (<button className="theme-ai-suggestion" key={s} onClick={() => sendMessage(s)} style={{ background: '#111', border: '1px solid #1e1e1e', borderRadius: 6, color: '#777', cursor: 'pointer', padding: '7px 12px', fontSize: 11, transition: 'all 0.15s', textAlign: 'left' }}>{s}</button>))}
+              {SUGGESTION_KEYS.map((key) => (<button className="theme-ai-suggestion" key={key} onClick={() => sendMessage(t(key))} style={{ background: '#111', border: '1px solid #1e1e1e', borderRadius: 6, color: '#777', cursor: 'pointer', padding: '7px 12px', fontSize: 11, transition: 'all 0.15s', textAlign: 'left' }}>{t(key)}</button>))}
             </div>
           </div>
         )}
@@ -246,7 +239,7 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
 
       {messages.length > 0 && !loading && (
         <div className="theme-chat-suggestions" style={{ display: 'flex', gap: 5, overflowX: 'auto', padding: '6px 0', borderTop: '1px solid #141414', flexShrink: 0 }}>
-          {SUGGESTIONS.slice(0, 3).map((s) => (<button className="theme-ai-suggestion" key={s} onClick={() => sendMessage(s)} style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 5, color: '#555', cursor: 'pointer', padding: '4px 10px', fontSize: 10, whiteSpace: 'nowrap', flexShrink: 0 }}>{s}</button>))}
+          {SUGGESTION_KEYS.slice(0, 3).map((key) => (<button className="theme-ai-suggestion" key={key} onClick={() => sendMessage(t(key))} style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 5, color: '#555', cursor: 'pointer', padding: '4px 10px', fontSize: 10, whiteSpace: 'nowrap', flexShrink: 0 }}>{t(key)}</button>))}
         </div>
       )}
 

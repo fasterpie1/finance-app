@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase, isSupabaseConfigured } from '../services/supabase';
 import { usePreferences } from '../i18n';
 
-const AUTH_REDIRECT_URL = 'https://finance-app-alpha-opal.vercel.app';
+const AUTH_REDIRECT_URL = typeof window !== 'undefined' ? window.location.origin : '';
 
 type AuthMode = 'signin' | 'signup' | 'checkEmail';
 

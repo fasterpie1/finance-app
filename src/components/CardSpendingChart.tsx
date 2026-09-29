@@ -41,7 +41,7 @@ function loadCategories(available: BillCategory[]): BillCategory[] {
 }
 
 export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, selectedMonthYear, hideValues }) => {
-  const { formatMoney, formatMonthShort, categoryLabel, locale } = usePreferences();
+  const { formatMoney, formatMonthShort, categoryLabel, locale, t } = usePreferences();
   const cardBills = (month: MonthData) => month.bills.filter((bill) =>
     (bill.type === 'parcela' && bill.category !== 'financiamento') || bill.isOnCreditCard === true
   );
@@ -118,7 +118,7 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
     <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
         <div>
-          <h3 style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#666', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Gastos no cartão por categoria</h3>
+          <h3 style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#666', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('cardSpendingByCategory')}</h3>
           <div style={{ marginTop: 5, fontSize: 12, color: '#4a4a4a' }}>Últimos 4 meses · selecione até 3 categorias</div>
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
