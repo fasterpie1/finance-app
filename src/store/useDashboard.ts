@@ -673,11 +673,71 @@ export function useDashboard(userId: string | null = null) {
   }, [selectedMonthId]);
 
   const addCreditCardInvoice = useCallback((invoice: CreditCardInvoice) => {
-    setMonths((prev) => prev.map((month) => (
-      month.id === selectedMonthId
-        ? { ...month, creditCardInvoices: [...(month.creditCardInvoices ?? []), invoice] }
-        : month
-    )));
+    setMonths((prev) => {
+      let updated = prev.map((month) => (
+        month.id === selectedMonthId
+          ? { ...month, creditCardInvoices: [...(month.creditCardInvoices ?? []), invoice] }
+          : month
+      ));
+
+      // A fatura importada só traz as parcelas cobradas no mês atual. Uma compra
+      // "4/5" importa apenas a 4/5; as demais (5/5) precisam ser lançadas nos
+      // meses seguintes, espelhando o comportamento do "Lançar compra no cartão".
+      const startName = invoice.month;
+      const startYear = invoice.year;
+      invoice.transactions.forEach((tx) => {
+        const cur = tx.installmentCurrent ?? 1;
+        const total = tx.installmentTotal ?? 1;
+        if (total <= cur) return;
+        const futureMonths = getMonthsFrom(startName, startYear, total - cur + 1).slice(1);
+        futureMonths.forEach((mi, i) => {
+          const installmentNum = cur + 1 + i;
+          const invoiceId = `manual-invoice-${mi.year}-${mi.name}`;
+          const futureTx: CreditCardTransaction = { ...tx, id: uuid(), invoiceId, installmentCurrent: installmentNum };
+          const mIdx = updated.findIndex(
+            (m) => m.name.toLowerCase() === mi.name.toLowerCase() && m.year === mi.year
+          );
+          // Evita duplicar ao reimportar a mesma fatura ou ao importar depois a
+          // fatura real do mês seguinte: pula se a parcela já existir no mês.
+          const alreadyExists = mIdx !== -1 && (updated[mIdx].creditCardInvoices ?? []).some((inv) =>
+            (inv.transactions ?? []).some((existing) =>
+              existing.merchant === futureTx.merchant
+              && existing.installmentCurrent === installmentNum
+              && existing.installmentTotal === total
+              && existing.amountCents === futureTx.amountCents
+            )
+          );
+          if (alreadyExists) return;
+          if (mIdx === -1) {
+            updated = [
+              ...updated,
+              {
+                id: uuid(),
+                name: mi.name,
+                year: mi.year,
+                income: updated[updated.length - 1]?.income ?? 8000,
+                bills: [],
+                savingsGoal: 0,
+                creditCardInvoices: [{ id: invoiceId, month: mi.name, year: mi.year, transactions: [futureTx] }],
+              },
+            ];
+          } else {
+            updated = updated.map((m, idx) =>
+              idx === mIdx
+                ? {
+                  ...m,
+                  creditCardInvoices: (m.creditCardInvoices ?? []).some((inv) => inv.id === invoiceId)
+                    ? (m.creditCardInvoices ?? []).map((inv) => inv.id === invoiceId ? { ...inv, transactions: [...inv.transactions, futureTx] } : inv)
+                    : [...(m.creditCardInvoices ?? []), { id: invoiceId, month: mi.name, year: mi.year, transactions: [futureTx] }],
+                }
+                : m
+            );
+          }
+        });
+      });
+
+      return sortMonths(updated);
+    });
   }, [selectedMonthId]);
 
   const updateCreditCardInvoice = useCallback((invoice: CreditCardInvoice) => {
