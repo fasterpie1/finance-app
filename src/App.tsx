@@ -118,6 +118,9 @@ function useKeyboardOpen() {
       // de antes do teclado e o navegador rola o documento, escondendo a última resposta.
       tallest = Math.max(tallest, vv.height);
       document.documentElement.style.setProperty('--vv-height', `${Math.round(vv.height)}px`);
+      // Com resizes-visual o navegador desloca o viewport visual (offsetTop) em vez de rolar o
+      // documento: sem compensar isso o chat ficava pendurado acima da borda superior.
+      document.documentElement.style.setProperty('--vv-offset', `${Math.round(vv.offsetTop)}px`);
       // Em resizes-content o innerHeight encolhe junto com o viewport, então a razão antiga
       // nunca disparava; a maior altura já medida funciona nos dois modos.
       setOpen(tallest - vv.height > 140);
