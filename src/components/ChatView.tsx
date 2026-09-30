@@ -74,13 +74,18 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState('');
-  const [showKeySetup, setShowKeySetup] = useState(true);
-  const [keyLoading, setKeyLoading] = useState(true);
+  const [showKeySetup, setShowKeySetup] = useState(() => readUserStorage(userId, STORAGE_KEY_GROQ_STATUS) !== 'true');
+  const [keyLoading, setKeyLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, loading]);
-  useEffect(() => { writeUserStorage(userId, STORAGE_KEY_CHAT, JSON.stringify(messages.slice(-50))); }, [messages, userId]);
+  useEffect(() => {
+    // offsetParent é null quando o chat está oculto (outra aba): não rolar a página.
+    if (bottomRef.current && bottomRef.current.offsetParent !== null) {
+      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, loading]);
+  useEffect(() => { if (userId) writeUserStorage(userId, STORAGE_KEY_CHAT, JSON.stringify(messages.slice(-50))); }, [messages, userId]);
   useEffect(() => {
     const cachedStatus = readUserStorage(userId, STORAGE_KEY_GROQ_STATUS);
     if (cachedStatus === 'true') {
@@ -173,7 +178,7 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
               <li>{t('setupClick')} <strong style={{ color: '#c0c0c0' }}>Create API Key</strong></li>
               <li>{t('setupPaste')} <code style={{ color: '#f59e0b', background: '#1a1a0a', padding: '1px 4px', borderRadius: 2 }}>gsk_</code>{t('setupPasteEnd')}</li>
             </ol>
-            <div style={{ fontSize: 10, color: '#3a3a3a', marginTop: 8 }}>Groq · GPT OSS 20B</div>
+            <div style={{ fontSize: 10, color: '#6f6f6f', marginTop: 8 }}>Groq · GPT OSS 20B</div>
           </div>
           <button className="chat-save" onClick={saveKey} disabled={keyLoading || !apiKeyInput.startsWith('gsk_')} style={{ background: apiKeyInput.startsWith('gsk_') && !keyLoading ? '#3b82f6' : '#151520', border: 'none', borderRadius: 6, color: apiKeyInput.startsWith('gsk_') && !keyLoading ? '#fff' : '#3a4a5a', cursor: apiKeyInput.startsWith('gsk_') && !keyLoading ? 'pointer' : 'not-allowed', padding: '10px', fontSize: 13, fontWeight: 600 }}>{keyLoading ? t('saving') : t('saveAndStart')}</button>
         </div>
@@ -188,16 +193,16 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
           <div className="chat-avatar" style={{ width: 28, height: 28, borderRadius: 8, background: '#111520', border: '1px solid #1e2a3e', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#60a5fa' }}><IconAI /></div>
           <div>
             <div className="chat-title" style={{ fontSize: 13, fontWeight: 600, color: '#c0c0c0' }}>{t('financialAssistant')}</div>
-            <div style={{ fontSize: 10, color: '#3a3a3a' }}>Groq · GPT OSS 20B</div>
+            <div style={{ fontSize: 10, color: '#6f6f6f' }}>Groq · GPT OSS 20B</div>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           {messages.length > 0 && (
-            <button onClick={clearChat} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#444', cursor: 'pointer', fontSize: 11, padding: '4px 8px' }} title={t('clearConversation')}>
+            <button onClick={clearChat} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#8b8b8b', cursor: 'pointer', fontSize: 11, padding: '6px 9px' }} title={t('clearConversation')}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>
             </button>
           )}
-          <button onClick={removeKey} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#444', cursor: 'pointer', fontSize: 11, padding: '4px 8px' }} title={t('changeKey')}>
+          <button onClick={removeKey} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#8b8b8b', cursor: 'pointer', fontSize: 11, padding: '6px 9px' }} title={t('changeKey')}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" /></svg>
             </button>
         </div>
@@ -206,7 +211,7 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
       <div className="theme-chat-messages" style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingRight: 4, paddingBottom: 8 }}>
         {messages.length === 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 16 }}>
-            <div style={{ textAlign: 'center', color: '#333', fontSize: 12 }}>{t('askAboutSpending')}</div>
+            <div style={{ textAlign: 'center', color: '#8b8b8b', fontSize: 12 }}>{t('askAboutSpending')}</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center' }}>
               {SUGGESTION_KEYS.map((key) => (<button className="theme-ai-suggestion" key={key} onClick={() => sendMessage(t(key))} style={{ background: '#111', border: '1px solid #1e1e1e', borderRadius: 6, color: '#777', cursor: 'pointer', padding: '7px 12px', fontSize: 11, transition: 'all 0.15s', textAlign: 'left' }}>{t(key)}</button>))}
             </div>
@@ -245,7 +250,7 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
 
       <div className="theme-chat-composer" style={{ display: 'flex', gap: 8, alignItems: 'flex-end', paddingTop: 8, borderTop: '1px solid #141414', flexShrink: 0 }}>
         <textarea ref={inputRef} placeholder={t('askAboutExpenses')} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onKeyDown} rows={2} style={{ flex: 1, background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, color: '#e0e0e0', padding: '9px 12px', fontSize: 14, outline: 'none', fontFamily: 'inherit', resize: 'none', lineHeight: 1.5, transition: 'border-color 0.15s' }} onFocus={(e) => { e.currentTarget.style.borderColor = '#2a3a4a'; }} onBlur={(e) => { e.currentTarget.style.borderColor = '#1e1e1e'; }} />
-        <button className="chat-send" onClick={() => sendMessage()} disabled={!input.trim() || loading} style={{ background: input.trim() && !loading ? '#3b82f6' : '#151520', border: 'none', borderRadius: 8, color: input.trim() && !loading ? '#fff' : '#3a4a5a', cursor: input.trim() && !loading ? 'pointer' : 'not-allowed', padding: '9px 14px', transition: 'all 0.15s', alignSelf: 'stretch', display: 'flex', alignItems: 'center' }}>
+        <button className="chat-send" type="button" aria-label="Enviar mensagem" onClick={() => sendMessage()} disabled={!input.trim() || loading} style={{ background: input.trim() && !loading ? '#3b82f6' : '#151520', border: 'none', borderRadius: 8, color: input.trim() && !loading ? '#fff' : '#3a4a5a', cursor: input.trim() && !loading ? 'pointer' : 'not-allowed', padding: '9px 14px', transition: 'all 0.15s', alignSelf: 'stretch', display: 'flex', alignItems: 'center' }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
         </button>
       </div>

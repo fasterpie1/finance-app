@@ -70,11 +70,11 @@ export const InlineAddRow: React.FC<Props> = ({ monthName, onSave, onCancel, def
       <div style={{ width: 8, height: 8, borderRadius: '50%', background: categoryColor, flexShrink: 0, opacity: 0.8 }} />
       <input ref={nameRef} placeholder="Nome da conta..." value={name} onChange={(e) => setName(e.target.value)} onKeyDown={onKeyDown} style={{ ...fieldStyle, flex: '1 1 140px', minWidth: 120 }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-        <span style={{ fontSize: 11, color: '#444' }}>{currencySymbol}</span>
+        <span style={{ fontSize: 11, color: '#8b8b8b' }}>{currencySymbol}</span>
         <input inputMode="decimal" pattern="[0-9.,]*" placeholder="0,00" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.,]/g, ''))} onKeyDown={onKeyDown} style={{ ...fieldStyle, width: 90 }} />
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-        <span style={{ fontSize: 11, color: '#444' }}>{t('dayPlaceholder')}</span>
+        <span style={{ fontSize: 11, color: '#8b8b8b' }}>{t('dayPlaceholder')}</span>
         <input inputMode="numeric" pattern="[0-9]*" value={dueDay} onChange={(e) => setDueDay(e.target.value.replace(/[^0-9]/g, ''))} onKeyDown={onKeyDown} style={{ ...fieldStyle, width: 48 }} />
       </div>
       <select value={category} onChange={(e) => setCategory(e.target.value as BillCategory)} style={{ ...fieldStyle, minWidth: 100 }}>

@@ -51,7 +51,7 @@ export const SummaryCard: React.FC<Props> = ({ title, value, accent = 'default',
       <span
         style={{
           fontSize: 10,
-          color: '#555',
+          color: '#8f8f8f',
           textTransform: 'uppercase',
           letterSpacing: '0.08em',
           fontWeight: 600,
@@ -71,7 +71,7 @@ export const SummaryCard: React.FC<Props> = ({ title, value, accent = 'default',
         {hidden ? '••••' : value}
       </div>
       {subtitle && (
-        <div style={{ fontSize: 11, color: '#444' }}>{subtitle}</div>
+        <div style={{ fontSize: 11, color: '#8b8b8b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{subtitle}</div>
       )}
     </div>
   );

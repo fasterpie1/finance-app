@@ -193,7 +193,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
             </div>
           )}
 
-          <p style={{ margin: 0, fontSize: 12, color: '#555', lineHeight: 1.5 }}>
+          <p style={{ margin: 0, fontSize: 12, color: '#8f8f8f', lineHeight: 1.5 }}>
             {t('importInvoiceDescription')}
           </p>
 
@@ -277,19 +277,19 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
                     )}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 6 }}>
                       <div>
-                        <div style={{ fontSize: 9, color: '#444', marginBottom: 2 }}>{t('amount')}</div>
+                        <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('amount')}</div>
                         <input style={fieldStyle} inputMode="decimal" value={item.amount.toFixed(2).replace('.', ',')} onChange={(e) => updateItem(item.id, { amount: parseAmount(e.target.value) })} />
                       </div>
                       <div>
-                        <div style={{ fontSize: 9, color: '#444', marginBottom: 2 }}>{t('installmentShort')}</div>
+                        <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('installmentShort')}</div>
                         <input style={fieldStyle} inputMode="numeric" value={String(item.installmentCurrent)} onChange={(e) => updateItem(item.id, { installmentCurrent: parseInt(e.target.value) || 1 })} />
                       </div>
                       <div>
-                        <div style={{ fontSize: 9, color: '#444', marginBottom: 2 }}>{t('installmentTotal')}</div>
+                        <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('installmentTotal')}</div>
                         <input style={fieldStyle} inputMode="numeric" value={String(item.installmentTotal)} onChange={(e) => updateItem(item.id, { installmentTotal: parseInt(e.target.value) || 1 })} />
                       </div>
                       <div>
-                        <div style={{ fontSize: 9, color: '#444', marginBottom: 2 }}>{t('category')}</div>
+                        <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('category')}</div>
                         <select style={fieldStyle} value={item.category} onChange={(e) => updateItem(item.id, { category: e.target.value as BillCategory })}>
                           {(Object.keys(BILL_CATEGORY_LABELS) as BillCategory[]).map((c) => (
                             <option key={c} value={c}>{BILL_CATEGORY_LABELS[c]}</option>
@@ -298,13 +298,13 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
                       </div>
                     </div>
                     {item.installmentTotal > 1 && (
-                      <div style={{ fontSize: 10, color: '#555', marginTop: 6 }}>
+                      <div style={{ fontSize: 10, color: '#8f8f8f', marginTop: 6 }}>
                         {t('installmentSummary', { cur: item.installmentCurrent, total: item.installmentTotal, amount: formatMoney(item.amount) })}
                       </div>
                     )}
                     <div style={{ display: 'grid', gridTemplateColumns: item.owner === 'SHARED' || item.owner === 'THIRD_PARTY' ? '1fr 1fr' : '1fr', gap: 6, marginTop: 8 }}>
                       <div>
-                        <div style={{ fontSize: 9, color: '#444', marginBottom: 2 }}>{t('responsibility')}</div>
+                        <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('responsibility')}</div>
                         <select style={fieldStyle} value={item.owner} onChange={(e) => updateItem(item.id, { owner: e.target.value as ExpenseOwner })}>
                           <option value="ME">{t('me')}</option>
                           <option value="THIRD_PARTY">{t('thirdParty')}</option>
@@ -314,13 +314,13 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
                       </div>
                       {item.owner === 'THIRD_PARTY' && (
                         <div>
-                          <div style={{ fontSize: 9, color: '#444', marginBottom: 2 }}>{t('thirdParty')}</div>
+                          <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('thirdParty')}</div>
                           <input style={fieldStyle} value={item.thirdPartyName ?? ''} onChange={(e) => updateItem(item.id, { thirdPartyName: e.target.value })} placeholder={t('optionalName')} />
                         </div>
                       )}
                       {item.owner === 'SHARED' && (
                         <div>
-                          <div style={{ fontSize: 9, color: '#444', marginBottom: 2 }}>{t('myShare')}</div>
+                          <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('myShare')}</div>
                           <input style={fieldStyle} inputMode="decimal" value={item.personalAmountCents == null ? '' : (item.personalAmountCents / 100).toFixed(2).replace('.', ',')} onChange={(e) => updateItem(item.id, { personalAmountCents: Math.round(parseAmount(e.target.value) * 100) })} placeholder="0,00" />
                         </div>
                       )}
