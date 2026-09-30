@@ -509,7 +509,7 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
     const cardDetails = cardTransactions
       .map((transaction) => ({
         amount: Math.abs(centsToAmount(getTransactionCategoryImpactCents(transaction))),
-        text: `${transaction.merchant} (${transaction.category ? BILL_CATEGORY_LABELS[transaction.category] : 'Sem categoria'}) — ${formatCurrency(centsToAmount(getTransactionCategoryImpactCents(transaction)))}${transaction.installmentTotal && transaction.installmentTotal > 1 ? ` — Parcela ${transaction.installmentCurrent ?? 1}/${transaction.installmentTotal}` : ''}`,
+        text: `${transaction.merchant} (${transaction.category ? BILL_CATEGORY_LABELS[transaction.category] : 'Sem categoria'}) — ${formatCurrency(centsToAmount(getTransactionCategoryImpactCents(transaction)))}${transaction.date ? ` — data ${transaction.date}` : ''}${transaction.installmentTotal && transaction.installmentTotal > 1 ? ` — Parcela ${transaction.installmentCurrent ?? 1}/${transaction.installmentTotal}` : ''}`,
       }))
       .sort((a, b) => b.amount - a.amount);
     const cardDetailsList = cardDetails.slice(0, 20);
@@ -560,7 +560,7 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
     .map(([label, amount]) => `- ${label}: ${formatCurrency(amount)}`)
     .join('\n') || 'sem gastos no cartão neste mês';
   const currentCardTransactionsList = currentCardTransactions
-    .map((transaction) => `- ${transaction.merchant} (${transaction.category ? BILL_CATEGORY_LABELS[transaction.category] : 'Sem categoria'}) — ${formatCurrency(centsToAmount(getTransactionCategoryImpactCents(transaction)))}${transaction.installmentTotal && transaction.installmentTotal > 1 ? ` — Parcela ${transaction.installmentCurrent ?? 1}/${transaction.installmentTotal}` : ''}`)
+    .map((transaction) => `- ${transaction.merchant} (${transaction.category ? BILL_CATEGORY_LABELS[transaction.category] : 'Sem categoria'}) — ${formatCurrency(centsToAmount(getTransactionCategoryImpactCents(transaction)))}${transaction.date ? ` — data ${transaction.date}` : ''}${transaction.installmentTotal && transaction.installmentTotal > 1 ? ` — Parcela ${transaction.installmentCurrent ?? 1}/${transaction.installmentTotal}` : ''}`)
     .join('\n') || 'nenhum lançamento importado neste mês';
 
   const financialContext = `Você é um assistente financeiro pessoal inteligente e simpático. Responda sempre em português do Brasil, de forma objetiva e prática.
@@ -590,6 +590,7 @@ ${currentCardTransactionsList}
 Meses cadastrados no aplicativo: ${availableMonths}
 "Mês passado" e meses citados pelo usuário (ex.: "agosto") se referem a esses mesmos meses; some os lançamentos e as categorias listados acima em vez de estimar. Se o mês pedido não estiver nessa lista, diga que não há dados dele e oriente a criar o mês ou importar a fatura — nunca invente valores nem categorias.
 Lançamentos marcados como "Sem categoria" são compras de fatura importada que o usuário ainda não classificou; nesse caso explique isso e oriente a escolher a categoria na linha do lançamento, na tela Cartão.
+A maioria dos lançamentos importados não traz data. Quando a pergunta for "quando" e não houver data no item, responda com os estabelecimentos e valores daquela categoria no mês pedido e diga que a data não foi registrada na importação — nunca invente dia.
 
 Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus gastos, dívidas, planejamento financeiro ou como economizar.${historicalContext}`;
 
