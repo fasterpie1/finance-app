@@ -29,15 +29,29 @@ export const AuthPanel: React.FC<Props> = ({ children }) => {
   const [message, setMessage] = useState('');
 
   useEffect(() => {
-    if (!supabase) return;
+    const client = supabase;
+    if (!client) return;
     let active = true;
-    supabase.auth.getSession().then(({ data, error }) => {
+    client.auth.getSession().then(async ({ data, error }) => {
       if (!active) return;
       if (error) {
         console.error('Falha ao restaurar a sessão do Supabase:', error);
         setMessage(t('restoreSessionError'));
       }
-      setUserId(data.session?.user.id ?? null);
+      let session = data.session;
+      // A sessão em cache pode sobreviver a um refresh token já rotacionado: o
+      // servidor recusa tudo, então validamos e pedimos novo login.
+      if (session) {
+        const { data: checked, error: checkError } = await client.auth.getUser();
+        if (!active) return;
+        if (checkError || !checked.user) {
+          console.warn('Sessão local inválida no servidor. Encerrando para exigir novo login.', checkError?.message);
+          await client.auth.signOut({ scope: 'local' });
+          session = null;
+          setMessage(t('restoreSessionError'));
+        }
+      }
+      setUserId(session?.user.id ?? null);
       setInitializing(false);
     }).catch((error: unknown) => {
       if (!active) return;
@@ -45,7 +59,7 @@ export const AuthPanel: React.FC<Props> = ({ children }) => {
       setMessage(t('restoreSessionError'));
       setInitializing(false);
     });
-    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: listener } = client.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') console.warn('Sessão encerrada pelo Supabase. Verifique expiração, armazenamento local e configuração do domínio.');
       setUserId(session?.user.id ?? null);
     });

@@ -141,7 +141,10 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
       else result = command.response ?? 'Não entendi o comando de agenda.';
       setMessages((prev) => [...prev, { role: 'assistant', content: result }]);
     } catch (err) {
-      setMessages((prev) => [...prev, { role: 'error', content: err instanceof Error ? err.message : 'Erro desconhecido' }]);
+      const raw = err instanceof Error ? err.message : 'Erro desconhecido';
+      // O proxy responde 401 quando a sessão local venceu: o texto cru não diz ao usuário o que fazer.
+      const content = /não autenticado|invalid login|401|jwt expired/i.test(raw) ? t('sessionExpiredAssistant') : raw;
+      setMessages((prev) => [...prev, { role: 'error', content }]);
     } finally { setLoading(false); setTimeout(() => inputRef.current?.focus(), 100); }
   };
 

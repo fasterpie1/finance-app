@@ -282,7 +282,10 @@ export function useDashboard(userId: string | null = null) {
           .select('revision').maybeSingle();
         if (error || !data) {
           console.error('Falha ao salvar dados no Supabase:', error);
-          setSyncError('Conflito de sincronização: os dados mudaram em outro dispositivo. Atualize antes de salvar novamente.');
+          const authLost = /jwt expired|invalid claim|401|not authenticated|failed to fetch/i.test(String(error?.message ?? ''));
+          setSyncError(authLost
+            ? 'Sessão expirada: os dados estão salvos apenas neste aparelho. Entre novamente para sincronizar.'
+            : 'Conflito de sincronização: os dados mudaram em outro dispositivo. Atualize antes de salvar novamente.');
         } else {
           remoteRevisionRef.current = data.revision;
           setRemoteRevision(data.revision);
