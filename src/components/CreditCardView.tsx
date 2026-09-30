@@ -9,7 +9,7 @@ import {
   getMonthIndex,
 } from '../types';
 import { type CreditCardPurchase, type MonthInfo } from '../store/useDashboard';
-import { centsToAmount, getInvoiceChargeTotalCents, getInvoicePersonalTotalCents, getInvoiceThirdPartyTotalCents, getInvoiceUnclassifiedTotalCents, getInvoiceTotalCents, getOwnerLabel, getTransactionDay, setTransactionDay } from '../services/cardTransactions';
+import { amountToCents, centsToAmount, getInvoiceChargeTotalCents, getInvoicePersonalTotalCents, getInvoiceThirdPartyTotalCents, getInvoiceTotalCents, getInvoiceUnclassifiedTotalCents, getOwnerLabel, getThirdPartyTotalsCents, getTransactionDay, getUnimportedCardBills, setTransactionDay } from '../services/cardTransactions';
 import { findDuplicateTransaction } from '../services/transactionDuplicates';
 import { BillRow } from './BillRow';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -51,6 +51,15 @@ const labelStyle: React.CSSProperties = {
   fontSize: 10, color: '#8f8f8f', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4, display: 'block',
 };
 
+/** 'person:Marcos' filtra uma pessoa nomeada; os demais valores são o dono do lançamento. */
+type OwnerFilter = 'ALL' | ExpenseOwner | `person:${string}`;
+
+interface OwnerChip {
+  value: OwnerFilter;
+  label: string;
+  cents: number;
+}
+
 const getOwnerOptions = (t: (key: string) => string): Array<{ value: ExpenseOwner; label: string }> => [
   { value: 'ME', label: t('me') },
   { value: 'THIRD_PARTY', label: t('thirdParty') },
@@ -58,15 +67,29 @@ const getOwnerOptions = (t: (key: string) => string): Array<{ value: ExpenseOwne
   { value: 'UNCLASSIFIED', label: t('unclassified') },
 ];
 
-function InvoiceTransactions({ invoices, creditCardBills, onUpdate, onTogglePaid, onSaveBill, onDeleteBill, hideValues }: { invoices: CreditCardInvoice[]; creditCardBills: Bill[]; onUpdate: (invoice: CreditCardInvoice) => void; onTogglePaid: (id: string) => void; onSaveBill: (bill: Bill) => void; onDeleteBill: (id: string) => void; hideValues?: boolean }) {
+function InvoiceTransactions({ invoices, creditCardBills, linkedFixedBills, onUpdate, onTogglePaid, onSaveBill, onDeleteBill, hideValues }: { invoices: CreditCardInvoice[]; creditCardBills: Bill[]; linkedFixedBills: Bill[]; onUpdate: (invoice: CreditCardInvoice) => void; onTogglePaid: (id: string) => void; onSaveBill: (bill: Bill) => void; onDeleteBill: (id: string) => void; hideValues?: boolean }) {
   const { formatMoney, parseAmount, typeLabel, categoryLabel, t } = usePreferences();
   const ownerOptions = getOwnerOptions(t);
-  const [filter, setFilter] = useState<'ALL' | ExpenseOwner>('ALL');
+  const [filter, setFilter] = useState<OwnerFilter>('ALL');
   const [pendingRemoval, setPendingRemoval] = useState<CreditCardTransaction | null>(null);
   const summaryRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef({ active: false, startX: 0, scrollLeft: 0 });
-  const transactions = invoices.flatMap((invoice) => invoice.transactions).filter((transaction) => filter === 'ALL' || transaction.owner === filter);
-  const visibleCreditCardBills = filter === 'ALL' ? creditCardBills : [];
+  const allTransactions = invoices.flatMap((invoice) => invoice.transactions);
+  // Conta fixa ligada ao cartão não tem dono, então é minha.
+  const cardBills = [...creditCardBills, ...linkedFixedBills];
+  const ownCardBills = getUnimportedCardBills(cardBills, allTransactions);
+  // O "Eu" traz o compartilhado junto: a parte pessoal dele também é minha.
+  const matchesFilter = (transaction: CreditCardTransaction) => {
+    if (filter === 'ALL') return true;
+    if (filter === 'ME') return transaction.owner === 'ME' || transaction.owner === 'SHARED';
+    if (filter.startsWith('person:')) {
+      const person = filter.slice('person:'.length);
+      return transaction.owner === 'THIRD_PARTY' && transaction.thirdPartyName?.trim().toLowerCase() === person.toLowerCase();
+    }
+    return transaction.owner === filter;
+  };
+  const transactions = allTransactions.filter(matchesFilter);
+  const visibleCreditCardBills = filter === 'ALL' || filter === 'ME' ? cardBills : [];
   const updateTransaction = (id: string, patch: Partial<CreditCardInvoice['transactions'][number]>, remove = false) => {
     const invoice = invoices.find((item) => item.transactions.some((transaction) => transaction.id === id));
     if (!invoice) return;
@@ -86,6 +109,22 @@ function InvoiceTransactions({ invoices, creditCardBills, onUpdate, onTogglePaid
     thirdParty: summary.thirdParty + getInvoiceThirdPartyTotalCents(invoice),
     unclassified: summary.unclassified + getInvoiceUnclassifiedTotalCents(invoice),
   }), { total: 0, personal: 0, thirdParty: 0, unclassified: 0 });
+  const personalCents = totals.personal + ownCardBills.reduce((total, bill) => total + amountToCents(bill.amount), 0);
+  const sharedCents = allTransactions.reduce((total, transaction) => (
+    transaction.owner === 'SHARED' ? total + transaction.amountCents : total
+  ), 0);
+  // Um chip por pessoa nomeada; os que não têm valor no mês somem para não ocupar espaço.
+  const ownerChips: OwnerChip[] = [
+    { value: 'ME', label: t('me'), cents: personalCents },
+    { value: 'THIRD_PARTY', label: t('thirdParty'), cents: totals.thirdParty },
+    ...getThirdPartyTotalsCents(allTransactions).map((group): OwnerChip => ({
+      value: `person:${group.name}`, label: group.name, cents: group.cents,
+    })),
+    { value: 'SHARED', label: t('shared'), cents: sharedCents },
+    { value: 'UNCLASSIFIED', label: t('unclassified'), cents: totals.unclassified },
+    { value: 'ALL', label: t('all'), cents: totals.total },
+  ];
+  const chips = ownerChips.filter((chip) => chip.value === 'ME' || chip.value === 'ALL' || chip.cents !== 0);
 
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -109,21 +148,27 @@ function InvoiceTransactions({ invoices, creditCardBills, onUpdate, onTogglePaid
         style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2, cursor: 'grab', touchAction: 'pan-x', userSelect: 'none' }}
       >
         {[
+          [t('mySpending'), personalCents],
           [t('invoice'), totals.total],
-          [t('mySpending'), totals.personal],
           [t('thirdParty'), totals.thirdParty],
           [t('unclassified'), totals.unclassified],
-        ].map(([label, cents]) => (
-          <div key={String(label)} className="cc-summary-tile" style={{ minWidth: 126, flex: '0 0 126px', background: '#131313', border: '1px solid #1e1e1e', borderRadius: 10, padding: '12px 14px' }}>
-            <div style={{ fontSize: 10, color: '#8f8f8f', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</div>
-            <div className="privacy-mask" style={{ marginTop: 5, fontSize: 16, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#e8e8e8' }}>{hideValues ? '••••' : formatMoney(centsToAmount(Number(cents)))}</div>
+        ].map(([label, cents], index) => (
+          <div key={String(label)} className="cc-summary-tile" style={{ minWidth: index === 0 ? 152 : 126, flex: `0 0 ${index === 0 ? 152 : 126}px`, background: '#131313', border: index === 0 ? '1px solid #23324a' : '1px solid #1e1e1e', borderRadius: 10, padding: '12px 14px' }}>
+            <div style={{ fontSize: 10, color: index === 0 ? '#93c5fd' : '#8f8f8f', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</div>
+            <div className="privacy-mask" style={{ marginTop: 5, fontSize: index === 0 ? 18 : 16, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#e8e8e8' }}>{hideValues ? '••••' : formatMoney(centsToAmount(Number(cents)))}</div>
           </div>
         ))}
       </div>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {([{ value: 'ALL', label: t('all') }, ...ownerOptions] as Array<{ value: 'ALL' | ExpenseOwner; label: string }>).map((option) => (
-          <button key={option.value} type="button" onClick={() => setFilter(option.value)} className={filter === option.value ? 'cc-filter-btn is-active' : 'cc-filter-btn'} style={{ background: filter === option.value ? '#1e2a3e' : '#151515', border: `1px solid ${filter === option.value ? '#3b82f6' : '#242424'}`, borderRadius: 5, color: filter === option.value ? '#93c5fd' : '#9a9a9a', cursor: 'pointer', padding: '6px 9px', fontSize: 11 }}>{option.label}</button>
-        ))}
+      <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2, touchAction: 'pan-x' }}>
+        {chips.map((chip) => {
+          const active = filter === chip.value;
+          return (
+            <button key={chip.value} type="button" aria-pressed={active} onClick={() => setFilter(chip.value)} className={active ? 'cc-filter-btn is-active' : 'cc-filter-btn'} style={{ flexShrink: 0, whiteSpace: 'nowrap', background: active ? '#1e2a3e' : '#151515', border: `1px solid ${active ? '#3b82f6' : '#242424'}`, borderRadius: 5, color: active ? '#93c5fd' : '#9a9a9a', cursor: 'pointer', padding: '6px 9px', fontSize: 11 }}>
+              {chip.label}
+              <span style={{ marginLeft: 5, fontSize: 10, opacity: 0.82, fontVariantNumeric: 'tabular-nums' }}>{hideValues ? '••••' : formatMoney(centsToAmount(chip.cents))}</span>
+            </button>
+          );
+        })}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: -6 }}>
         <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#8f8f8f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('invoiceItems')}</h3>
@@ -418,7 +463,7 @@ export const CreditCardView: React.FC<Props> = ({
       {/* Importar da fatura */}
       <StatementImportPanel userId={userId} month={selectedMonthName} year={selectedMonthYear} existingTransactions={creditCardInvoices.flatMap((invoice) => invoice.transactions)} onImport={onImportInvoice} />
 
-      {(creditCardInvoices.length > 0 || creditCardBills.length > 0) && <InvoiceTransactions invoices={creditCardInvoices} creditCardBills={creditCardBills} onUpdate={onUpdateInvoice} onTogglePaid={onTogglePaid} onSaveBill={onSaveBill} onDeleteBill={onDeleteBill} hideValues={hideValues} />}
+      {(creditCardInvoices.length > 0 || creditCardBills.length > 0 || linkedFixedBills.length > 0) && <InvoiceTransactions invoices={creditCardInvoices} creditCardBills={creditCardBills} linkedFixedBills={linkedFixedBills} onUpdate={onUpdateInvoice} onTogglePaid={onTogglePaid} onSaveBill={onSaveBill} onDeleteBill={onDeleteBill} hideValues={hideValues} />}
 
       {/* Contas fixas vinculadas ao cartão */}
       {linkedFixedBills.length > 0 && (

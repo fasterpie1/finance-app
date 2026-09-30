@@ -1,4 +1,5 @@
-import type { CreditCardInvoice, CreditCardTransaction, ExpenseOwner } from '../types';
+import type { Bill, CreditCardInvoice, CreditCardTransaction, ExpenseOwner } from '../types';
+import { findDuplicateTransaction } from './transactionDuplicates';
 
 export function centsToAmount(cents: number): number {
   return cents / 100;
@@ -41,6 +42,18 @@ export function getInvoiceUnclassifiedTotalCents(invoice: CreditCardInvoice): nu
   ), 0);
 }
 
+/** Conta fixa ligada ao cartão que ainda não apareceu como gasto importado da fatura.
+ *  Sem esse filtro, a academia parcelada entra duas vezes no "Meus gastos": uma como
+ *  conta fixa do usuário e outra como linha que veio na fatura lida pela IA. */
+export function getUnimportedCardBills(bills: Bill[], transactions: CreditCardTransaction[]): Bill[] {
+  return bills.filter((bill) => !findDuplicateTransaction({
+    amountCents: amountToCents(bill.amount),
+    type: (bill.installmentTotal ?? 1) > 1 ? 'INSTALLMENT' : 'PURCHASE',
+    installmentCurrent: bill.installmentCurrent,
+    installmentTotal: bill.installmentTotal,
+  }, transactions));
+}
+
 export function getOwnerLabel(owner: ExpenseOwner): string {
   return {
     ME: 'Eu',
@@ -48,6 +61,22 @@ export function getOwnerLabel(owner: ExpenseOwner): string {
     SHARED: 'Compartilhado',
     UNCLASSIFIED: 'Não classificado',
   }[owner];
+}
+
+/** Total devido por pessoa, agrupando "marcos " e "Marcos" como a mesma pessoa. */
+export function getThirdPartyTotalsCents(transactions: CreditCardTransaction[]): Array<{ name: string; cents: number }> {
+  const totals = new Map<string, { name: string; cents: number }>();
+  transactions.forEach((transaction) => {
+    if (transaction.owner !== 'THIRD_PARTY') return;
+    const name = transaction.thirdPartyName?.trim();
+    if (!name) return;
+    const key = name.toLowerCase();
+    const sign = transaction.type === 'REFUND' ? -1 : 1;
+    const group = totals.get(key) ?? { name, cents: 0 };
+    group.cents += sign * transaction.amountCents;
+    totals.set(key, group);
+  });
+  return [...totals.values()].sort((a, b) => b.cents - a.cents);
 }
 
 export function getTransactionCategoryImpactCents(transaction: CreditCardTransaction): number {
