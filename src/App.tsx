@@ -17,8 +17,8 @@ import { useModalA11y } from './hooks/useModalA11y';
 import { getBillNotifications, type BillNotification } from './store/useDashboard';
 import { createCalendarEvent, deleteCalendarEvent, listCalendarEvents, updateCalendarEvent } from './services/googleCalendar';
 import { billReminderInput, invoiceReminderInput } from './services/calendarReminders';
-import { type Bill, type BudgetMonth, BILL_CATEGORY_LABELS, getMonthIndex } from './types';
-import { centsToAmount, getInvoicePersonalTotalCents, getInvoiceTotalCents, getTransactionCategoryImpactCents } from './services/cardTransactions';
+import { type Bill, type BudgetMonth, type CreditCardTransaction, BILL_CATEGORY_LABELS, getMonthIndex } from './types';
+import { amountToCents, centsToAmount, getInvoicePersonalTotalCents, getInvoiceTotalCents, getTransactionCategoryImpactCents } from './services/cardTransactions';
 import { safeSetItem } from './services/safeStorage';
 import { PreferencesProvider, usePreferences, type AppLocale, type DisplayCurrency } from './i18n';
 
@@ -105,6 +105,46 @@ async function refreshAppOrData(refreshData: () => Promise<void>): Promise<void>
     // A missing version file should not prevent the data refresh.
   }
   await refreshData();
+}
+
+/*
+ * O modelo soma mal dezenas de valores: com a lista plana ele respondia R$ 707 no lugar do
+ * total real. Agrupar por categoria escreve o total já calculado na mesma linha dos itens.
+ */
+function formatCardBreakdown(
+  transactions: CreditCardTransaction[],
+  bills: Bill[],
+  money: (value: number) => string,
+  itemsPerCategory: number,
+): string {
+  const groups = new Map<string, { totalCents: number; items: Array<{ cents: number; text: string }> }>();
+  const push = (label: string, cents: number, text: string) => {
+    const group = groups.get(label) ?? { totalCents: 0, items: [] };
+    group.totalCents += cents;
+    // Terceiro, não classificado e item sem categoria têm impacto zero: listá-los gastaria
+    // tokens e sugeriria ao modelo um total diferente do que a própria linha escreve.
+    if (cents !== 0) group.items.push({ cents, text });
+    groups.set(label, group);
+  };
+  for (const transaction of transactions) {
+    const cents = getTransactionCategoryImpactCents(transaction);
+    push(transaction.category ? BILL_CATEGORY_LABELS[transaction.category] : 'Sem categoria', cents,
+      `${transaction.merchant} ${money(centsToAmount(cents))}${transaction.date ? ` (${transaction.date})` : ''}${transaction.installmentTotal && transaction.installmentTotal > 1 ? ` parc ${transaction.installmentCurrent ?? 1}/${transaction.installmentTotal}` : ''}`);
+  }
+  for (const bill of bills) {
+    push(BILL_CATEGORY_LABELS[bill.category], amountToCents(bill.amount),
+      `${bill.name} ${money(bill.amount)} conta no cartão${bill.installmentCurrent && bill.installmentTotal && bill.installmentTotal > 1 ? ` parc ${bill.installmentCurrent}/${bill.installmentTotal}` : ''}`);
+  }
+  return [...groups.entries()]
+    .filter(([, group]) => group.totalCents !== 0)
+    .sort((a, b) => b[1].totalCents - a[1].totalCents)
+    .map(([label, group]) => {
+      const sorted = [...group.items].sort((a, b) => b.cents - a.cents);
+      const shown = sorted.slice(0, itemsPerCategory);
+      const rest = sorted.length - shown.length;
+      return `- ${label}: TOTAL ${money(centsToAmount(group.totalCents))} em ${sorted.length} lançamento${sorted.length > 1 ? 's' : ''}: ${shown.map((item) => item.text).join(' · ')}${rest > 0 ? ` (+${rest} menores)` : ''}`;
+    })
+    .join('\n');
 }
 
 function useKeyboardOpen() {
@@ -487,11 +527,12 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
     const paidTotal = month.bills.filter((bill) => bill.isPaid).reduce((sum, bill) => sum + bill.amount, 0);
     const invoices = month.creditCardInvoices ?? [];
     const cardTransactions = invoices.flatMap((invoice) => invoice.transactions).filter((transaction) => transaction.type !== 'PAYMENT');
+    const monthCardBills = month.bills.filter((bill) => (bill.type === 'parcela' && bill.category !== 'financiamento') || bill.isOnCreditCard === true);
     const cardTotals = cardTransactions.reduce<Record<string, number>>((totals, transaction) => {
       const label = transaction.category ? BILL_CATEGORY_LABELS[transaction.category] : 'Sem categoria';
       totals[label] = (totals[label] || 0) + centsToAmount(getTransactionCategoryImpactCents(transaction));
       return totals;
-    }, month.bills.filter((bill) => (bill.type === 'parcela' && bill.category !== 'financiamento') || bill.isOnCreditCard === true)
+    }, monthCardBills
       .reduce<Record<string, number>>((totals, bill) => {
         const label = BILL_CATEGORY_LABELS[bill.category];
         totals[label] = (totals[label] || 0) + bill.amount;
@@ -509,13 +550,7 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
       .join(', ');
     // Detalhe por estabelecimento também dos meses antigos: sem isso o modelo só vê totais
     // e não consegue responder "onde gastei em lazer no mês passado".
-    const cardDetails = cardTransactions
-      .map((transaction) => ({
-        amount: Math.abs(centsToAmount(getTransactionCategoryImpactCents(transaction))),
-        text: `${transaction.merchant} (${transaction.category ? BILL_CATEGORY_LABELS[transaction.category] : 'Sem categoria'}) — ${formatCurrency(centsToAmount(getTransactionCategoryImpactCents(transaction)))}${transaction.date ? ` — data ${transaction.date}` : ''}${transaction.installmentTotal && transaction.installmentTotal > 1 ? ` — Parcela ${transaction.installmentCurrent ?? 1}/${transaction.installmentTotal}` : ''}`,
-      }))
-      .sort((a, b) => b.amount - a.amount);
-    const cardDetailsList = cardDetails.slice(0, 20);
+    const cardBreakdown = formatCardBreakdown(cardTransactions, monthCardBills, formatCurrency, 4);
     return {
       label: `${month.name} ${month.year}`,
       income: month.income,
@@ -524,9 +559,7 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
       cardTotal: Object.values(cardTotals).reduce((sum, amount) => sum + amount, 0),
       categories: formatTotals(billCategoryTotals) || 'sem contas',
       cardCategories: formatTotals(cardTotals) || 'sem gastos no cartão',
-      cardDetails: cardDetailsList.map((item) => item.text).join('\n')
-        + (cardDetails.length > cardDetailsList.length ? `\n(+${cardDetails.length - cardDetailsList.length} outros lançamentos neste mês)` : ''),
-      cardDetailCount: cardDetails.length,
+      cardBreakdown,
       invoices: invoices.length,
     };
   };
@@ -536,9 +569,12 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
     return getMonthIndex(month.name) < getMonthIndex(db.selectedMonth.name);
   }).slice(-6);
   const historicalContext = previousMonths.length > 0
-    ? `\n\nHistórico completo dos meses anteriores (contas mensais, fixas, variáveis e lançamentos importados do cartão):\n${previousMonths.map((month) => {
+    ? `\n\nHistórico completo dos meses anteriores (contas mensais, fixas, variáveis e lançamentos importados do cartão):\n${previousMonths.map((month, index) => {
       const s = summarizeMonth(month);
-      return `- ${s.label}: entrada ${formatCurrency(s.income)}; contas ${formatCurrency(s.billsTotal)} (pagas ${formatCurrency(s.paidTotal)}); cartão ${formatCurrency(s.cardTotal)}${s.invoices ? ` (${s.invoices} fatura(s) importada(s))` : ''}\n  Por categoria (todas as contas): ${s.categories}\n  Por categoria no cartão: ${s.cardCategories}${s.cardDetailCount ? `\n  Lançamentos do cartão (estabelecimento, categoria, valor):\n${s.cardDetails.split('\n').map((line) => `    ${line}`).join('\n')}` : ''}`;
+      // Só os três meses mais recentes vão com lista de itens: o prompt inteiro mais a resposta
+      // precisam caber nos 8k tokens/min do tier gratuito da Groq.
+      const withDetails = index >= previousMonths.length - 3 && s.cardBreakdown !== '';
+      return `- ${s.label}: entrada ${formatCurrency(s.income)}; contas ${formatCurrency(s.billsTotal)} (pagas ${formatCurrency(s.paidTotal)}); cartão ${formatCurrency(s.cardTotal)}${s.invoices ? ` (${s.invoices} fatura(s) importada(s))` : ''}\n  Por categoria (todas as contas): ${s.categories}\n  ${withDetails ? `Gastos no cartão, total já somado por categoria com os maiores itens:\n${s.cardBreakdown.split('\n').map((line) => `    ${line}`).join('\n')}` : `Por categoria no cartão (totais completos): ${s.cardCategories}`}`;
     }).join('\n')}`
     : '\n\nNão há meses anteriores cadastrados para comparação.';
   const availableMonths = db.months.map((month) => `${month.name} ${month.year}`).join(', ');
@@ -547,26 +583,11 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
     (bill.type === 'parcela' && bill.category !== 'financiamento') || bill.isOnCreditCard === true
   );
   const currentCardTransactions = selectedInvoices.flatMap((invoice) => invoice.transactions).filter((transaction) => transaction.type !== 'PAYMENT');
-  const currentCategoryTotals = currentCardTransactions.reduce<Record<string, number>>((totals, transaction) => {
-    if (!transaction.category) return totals;
-    const label = BILL_CATEGORY_LABELS[transaction.category];
-    totals[label] = (totals[label] || 0) + centsToAmount(getTransactionCategoryImpactCents(transaction));
-    return totals;
-  }, currentCardBills.reduce<Record<string, number>>((totals, bill) => {
-    const label = BILL_CATEGORY_LABELS[bill.category];
-    totals[label] = (totals[label] || 0) + bill.amount;
-    return totals;
-  }, {}));
-  const currentCategories = Object.entries(currentCategoryTotals)
-    .filter(([, amount]) => amount !== 0)
-    .sort((a, b) => b[1] - a[1])
-    .map(([label, amount]) => `- ${label}: ${formatCurrency(amount)}`)
-    .join('\n') || 'sem gastos no cartão neste mês';
-  const currentCardTransactionsList = currentCardTransactions
-    .map((transaction) => `- ${transaction.merchant} (${transaction.category ? BILL_CATEGORY_LABELS[transaction.category] : 'Sem categoria'}) — ${formatCurrency(centsToAmount(getTransactionCategoryImpactCents(transaction)))}${transaction.date ? ` — data ${transaction.date}` : ''}${transaction.installmentTotal && transaction.installmentTotal > 1 ? ` — Parcela ${transaction.installmentCurrent ?? 1}/${transaction.installmentTotal}` : ''}`)
-    .join('\n') || 'nenhum lançamento importado neste mês';
+  // O modelo somava a lista plana e devolvia R$ 707 no lugar do total real de lazer. Aqui o
+  // total é calculado no código e escrito na mesma linha dos itens, então não há soma a fazer.
+  const currentCardBreakdown = formatCardBreakdown(currentCardTransactions, currentCardBills, formatCurrency, 6);
 
-  const financialContext = `Você é um assistente financeiro pessoal inteligente e simpático. Responda sempre em português do Brasil, de forma objetiva e prática.
+  const financialContext = `Você é um assistente financeiro pessoal inteligente e simpático. Responda sempre em português do Brasil, de forma objetiva e prática. Responda curto: até cinco linhas, citando apenas os itens que a pergunta pediu, sem tabela e sem repetir o extrato.
 
 Mês atual: ${db.selectedMonth.name} ${db.selectedMonth.year}
 Renda mensal: ${formatCurrency(db.selectedMonth.income)}
@@ -581,19 +602,17 @@ Impacto pessoal da fatura: ${formatCurrency(invoicePersonalTotal)}
 Contas do mês:
 ${db.billsSorted.map((b) => `- ${b.name} (${BILL_CATEGORY_LABELS[b.category]}) — ${formatCurrency(b.amount)} — Dia ${b.dueDay}${b.installmentCurrent ? ` — Parcela ${b.installmentCurrent}/${b.installmentTotal}` : ''} — ${b.isPaid ? 'Pago' : 'Pendente'}`).join('\n')}
 
-Total por categoria neste mês (todas as contas):
+Total por categoria neste mês, somando todas as contas (use estes números):
 ${summarizeMonth(db.selectedMonth).categories}
 
-Gastos no cartão deste mês por categoria:
-${currentCategories}
-
-Lançamentos do cartão deste mês (estabelecimento, categoria, valor):
-${currentCardTransactionsList}
+Gastos no cartão deste mês — cada linha traz o TOTAL da categoria já somado e, na sequência, os maiores lançamentos dela:
+${currentCardBreakdown || 'nenhum gasto no cartão neste mês'}
 
 Meses cadastrados no aplicativo: ${availableMonths}
-"Mês passado" e meses citados pelo usuário (ex.: "agosto") se referem a esses mesmos meses; some os lançamentos e as categorias listados acima em vez de estimar. Se o mês pedido não estiver nessa lista, diga que não há dados dele e oriente a criar o mês ou importar a fatura — nunca invente valores nem categorias.
+"Mês passado" e meses citados pelo usuário (ex.: "agosto") se referem a esses mesmos meses; use os totais já listados acima em vez de estimar. Se o mês pedido não estiver nessa lista, diga que não há dados dele e oriente a criar o mês ou importar a fatura — nunca invente valores nem categorias.
 Lançamentos marcados como "Sem categoria" são compras de fatura importada que o usuário ainda não classificou; nesse caso explique isso e oriente a escolher a categoria na linha do lançamento, na tela Cartão.
 A maioria dos lançamentos importados não traz data. Quando a pergunta for "quando" e não houver data no item, responda com os estabelecimentos e valores daquela categoria no mês pedido e diga que a data não foi registrada na importação — nunca invente dia.
+Para dizer quanto foi gasto em uma categoria use SEMPRE o "TOTAL" escrito na própria linha da categoria — ele já vem calculado e inclui todos os lançamentos. Nunca some os itens listados depois do TOTAL para responder quanto foi gasto: a lista é parcial e serve apenas para citar estabelecimentos.
 
 Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus gastos, dívidas, planejamento financeiro ou como economizar.${historicalContext}`;
 
