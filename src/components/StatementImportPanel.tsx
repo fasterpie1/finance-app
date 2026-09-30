@@ -10,9 +10,8 @@ import {
   type ExtractedPurchase,
   extractPurchasesFromImage,
   extractPurchasesFromText,
-  fileToBase64,
-  pdfToText,
 } from '../services/statementImport';
+import { fileToBase64, pdfToText } from '../services/statementFiles';
 import { extractStatementTotalCents } from '../services/statementTotals';
 import { findDuplicateTransaction } from '../services/transactionDuplicates';
 import { hasGroqKey } from '../services/groq';
@@ -37,6 +36,9 @@ function makeId(): string {
 
 const STORAGE_KEY_GROQ_STATUS = 'groq_configured';
 const MAX_FILE_SIZE_MB = 20;
+/** A Groq responde com o texto cru do limite de plano (inclui id da organização e link de
+ *  cobrança). Esse texto não serve para o usuário final, então vira a mensagem traduzida. */
+const AI_LIMIT_ERROR = /request too large|output tokens per minute|otpm|rate limit|tokens per minute|try again in|upgrade to dev tier|service tier/i;
 
 export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month, year, existingTransactions }) => {
   const { formatMoney, parseAmount, t } = usePreferences();
@@ -44,6 +46,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [incomplete, setIncomplete] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewIsPdf, setPreviewIsPdf] = useState(false);
   const [items, setItems] = useState<ExtractedPurchase[]>([]);
@@ -64,6 +67,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
     }
     setLoading(true);
     setItems([]);
+    setIncomplete(false);
     setStatementTotalCents(undefined);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(URL.createObjectURL(file));
@@ -71,7 +75,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
 
     try {
       if (!apiKeyConfigured) throw new Error('Configure sua chave Groq na aba Assistente antes de importar.');
-      const extracted = file.type === 'application/pdf'
+      const outcome = file.type === 'application/pdf'
         ? await (async () => {
           const text = await pdfToText(file);
           setStatementTotalCents(extractStatementTotalCents(text));
@@ -81,13 +85,16 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
           const { base64, mimeType } = await fileToBase64(file);
           return extractPurchasesFromImage(base64, mimeType, getMonthIndex(month));
         })();
+      const extracted = outcome.purchases;
       if (extracted.length === 0) throw new Error(file.type === 'application/pdf' ? t('noItemsPdf') : t('noItemsImage'));
+      setIncomplete(!outcome.complete);
       setItems(extracted.map((p) => {
         const duplicate = findDuplicateTransaction({ ...p, amountCents: Math.round(p.amount * 100) }, existingTransactions);
         return { ...p, id: makeId(), selected: true, duplicateConfidence: duplicate?.confidence };
       }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao processar arquivo');
+      const message = err instanceof Error ? err.message : 'Erro ao processar arquivo';
+      setError(AI_LIMIT_ERROR.test(message) ? t('importAiLimit') : message);
     } finally {
       setLoading(false);
     }
@@ -138,6 +145,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
       if (prev) {
         setItems([]);
         setError('');
+        setIncomplete(false);
         if (previewUrl) URL.revokeObjectURL(previewUrl);
         setPreviewUrl(null);
         setPreviewIsPdf(false);
@@ -255,6 +263,10 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
 
           {error && (
             <div className="import-error-box" style={{ background: '#1a1010', border: '1px solid #2a1515', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#ef4444' }}>{error}</div>
+          )}
+
+          {incomplete && items.length > 0 && (
+            <div className="import-warn-box" style={{ background: '#1a150a', border: '1px solid #2a2010', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#f59e0b' }}>{t('importTruncated')}</div>
           )}
 
           {items.length > 0 && (

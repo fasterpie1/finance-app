@@ -113,6 +113,33 @@ export function normalizeCategory(raw: unknown): BillCategory {
   return 'compras';
 }
 
+/** O plano gratuito da Groq limita tokens de SAÍDA por minuto, então o modelo devolve vetores
+ *  posicionais: mesma informação com ~1/3 do tamanho do JSON rotulado.
+ *  Ordem: nome, valor, parcela atual, total de parcelas, categoria, tipo, data, cartão final. */
+const PURCHASE_TYPE_CODES: Record<string, CardTransactionType> = {
+  c: 'PURCHASE', p: 'INSTALLMENT', e: 'REFUND', g: 'PAYMENT', t: 'FEE', o: 'OTHER',
+};
+
+/** O formato compacto usa "" para "sem cartão"; normaliza para undefined. */
+function last4(raw: unknown): string | undefined {
+  const digits = String(raw ?? '').replace(/\D/g, '').slice(-4);
+  return digits || undefined;
+}
+
+function normalizePurchaseRow(row: unknown[], monthIndex: number): Omit<ExtractedPurchase, 'id' | 'selected'> | null {
+  const type = row[5];
+  return normalizePurchase({
+    name: row[0],
+    amount: row[1],
+    installmentCurrent: row[2],
+    installmentTotal: row[3],
+    category: row[4],
+    type: typeof type === 'string' ? PURCHASE_TYPE_CODES[type.trim().toLowerCase()] ?? type : type,
+    date: row[6],
+    cardLast4: row[7],
+  }, monthIndex);
+}
+
 export function normalizePurchase(raw: Record<string, unknown>, monthIndex = -1): Omit<ExtractedPurchase, 'id' | 'selected'> | null {
   const leadingDate = splitLeadingDate(typeof raw.name === 'string' ? raw.name : '');
   let name = leadingDate.name.trim();
@@ -152,7 +179,7 @@ export function normalizePurchase(raw: Record<string, unknown>, monthIndex = -1)
     category: normalizeCategory(raw.category),
     type,
     owner: 'ME',
-    cardLast4: typeof raw.cardLast4 === 'string' ? raw.cardLast4.slice(-4) : undefined,
+    cardLast4: last4(raw.cardLast4),
     date: normalizeStatementDate(raw.date, monthIndex) ?? leadingDate.date,
   };
 }
@@ -167,14 +194,20 @@ export function parseExtractedPurchases(content: string, monthIndex = -1): Omit<
     try { parsed = JSON.parse(match[0]); } catch { return []; }
   }
 
+  const wrapper = (parsed as { purchases?: unknown[]; p?: unknown[] } | null) ?? {};
   const arr = Array.isArray(parsed)
     ? parsed
-    : Array.isArray((parsed as { purchases?: unknown[] })?.purchases)
-      ? (parsed as { purchases: unknown[] }).purchases
-      : [];
+    : Array.isArray(wrapper.purchases)
+      ? wrapper.purchases
+      : Array.isArray(wrapper.p)
+        ? wrapper.p
+        : [];
 
   return arr
-    .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
-    .map((item) => normalizePurchase(item, monthIndex))
+    .map((item) => Array.isArray(item)
+      ? normalizePurchaseRow(item, monthIndex)
+      : typeof item === 'object' && item !== null
+        ? normalizePurchase(item as Record<string, unknown>, monthIndex)
+        : null)
     .filter((p): p is Omit<ExtractedPurchase, 'id' | 'selected'> => p !== null);
 }

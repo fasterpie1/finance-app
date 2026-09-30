@@ -48,3 +48,28 @@ describe('data dos lançamentos importados', () => {
     expect(items[0]?.date).toBe('12/03');
   });
 });
+
+describe('formato compacto de vetores posicionais', () => {
+  it('lê nome, valor, parcela, categoria, tipo, data e cartão por posição', () => {
+    const items = parseExtractedPurchases('{"p":[["GRUPO CASAS BAHIA S.A.",252.09,10,10,"outros","p","03/01","3397"],["MLP*NETSHOES",199.99,2,3,"compras","p","07/09","8649"]]}', SETEMBRO);
+    expect(items[0]).toMatchObject({
+      name: 'GRUPO CASAS BAHIA S.A.', amount: 252.09, installmentCurrent: 10, installmentTotal: 10,
+      category: 'outros', type: 'INSTALLMENT', date: '03/01', cardLast4: '3397',
+    });
+    expect(items[1]?.date).toBe('07/09');
+  });
+
+  it('converte os códigos de tipo e mantém o valor absoluto do estorno', () => {
+    const items = parseExtractedPurchases('{"p":[["ESTORNO SHOPIX",-59.9,1,1,"compras","e","11/09",""],["Inclusão de Pagamento",800,1,1,"outros","g","",""]]}', SETEMBRO);
+    expect(items[0]).toMatchObject({ type: 'REFUND', amount: 59.9, cardLast4: undefined });
+    expect(items[1]?.type).toBe('PAYMENT');
+    expect(items[1]?.date).toBeUndefined();
+  });
+
+  it('continua aceitando o formato rotulado e tipo por extenso', () => {
+    const compact = parseExtractedPurchases('{"p":[["SUBWAY",45.9,1,1,"alimentacao","PURCHASE","",""]]}', SETEMBRO);
+    expect(compact[0]).toMatchObject({ type: 'PURCHASE', category: 'alimentacao' });
+    const labeled = parseExtractedPurchases('{"purchases":[{"name":"SUBWAY","amount":45.9,"installmentCurrent":1,"installmentTotal":1,"category":"alimentacao","type":"PURCHASE","date":"18/09"}]}', SETEMBRO);
+    expect(labeled[0]).toMatchObject({ type: 'PURCHASE', date: '18/09' });
+  });
+});

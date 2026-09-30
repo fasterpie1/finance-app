@@ -1,8 +1,14 @@
 import { supabase } from './supabase';
 
 interface GroqResponse {
-  choices?: Array<{ message?: { content?: string } }>;
+  choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
   error?: string;
+}
+
+export interface ExtractionResult {
+  content: string;
+  /** true quando o modelo parou por esgotar o orçamento de saída, ou seja, a fatura veio incompleta. */
+  truncated: boolean;
 }
 
 async function functionErrorMessage(error: unknown, fallback: string): Promise<string> {
@@ -66,7 +72,8 @@ export async function sendGroqChat(request: Record<string, unknown>): Promise<st
   return content;
 }
 
-export async function extractWithGroq(request: Record<string, unknown>): Promise<string> {
+export async function extractWithGroq(request: Record<string, unknown>): Promise<ExtractionResult> {
   const data = await invokeGroq('extract', request);
-  return data.choices?.[0]?.message?.content ?? '';
+  const choice = data.choices?.[0];
+  return { content: choice?.message?.content ?? '', truncated: choice?.finish_reason === 'length' };
 }
