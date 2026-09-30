@@ -7,6 +7,8 @@ import { centsToAmount, getInvoicePersonalTotalCents } from '../services/cardTra
 
 const STORAGE_KEY = 'financa_months_v1';
 const SELECTED_KEY = 'financa_selected_v1';
+/** Carimbo da última escrita local ainda não confirmada no Supabase. */
+const PENDING_SYNC_KEY = 'financa_pending_sync_v1';
 
 /** Migra dados antigos (sem year) para o novo formato */
 function migrateLegacyCardBills(months: BudgetMonth[]): BudgetMonth[] {
@@ -181,6 +183,29 @@ function uuid(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
+/** Renda do mês imediatamente anterior (em ordem cronológica), para não nascer zerada. */
+function incomeOfPreviousMonth(months: BudgetMonth[], name: string, year: number): number {
+  const idx = getMonthIndex(name);
+  const prevIdx = idx <= 0 ? 11 : idx - 1;
+  const prevYear = idx <= 0 ? year - 1 : year;
+  const previous = months.find(
+    (m) => m.name.toLowerCase() === MONTH_NAMES[prevIdx].toLowerCase() && m.year === prevYear
+  );
+  const fallback = [...months].sort((a, b) => a.year - b.year || getMonthIndex(a.name) - getMonthIndex(b.name))[0]?.income;
+  return previous?.income ?? fallback ?? 0;
+}
+
+/** Mesma cobrança já lançada no mês (comprador, valor, parcela e data). */
+function hasSameCardTransaction(month: BudgetMonth, tx: CreditCardTransaction): boolean {
+  return (month.creditCardInvoices ?? []).some((invoice) => (invoice.transactions ?? []).some((existing) => (
+    existing.merchant === tx.merchant
+    && existing.amountCents === tx.amountCents
+    && (existing.installmentCurrent ?? 1) === (tx.installmentCurrent ?? 1)
+    && (existing.installmentTotal ?? 1) === (tx.installmentTotal ?? 1)
+    && (existing.date ?? '') === (tx.date ?? '')
+  )));
+}
+
 export interface CreditCardPurchase {
   name: string;
   amount: number;
@@ -223,12 +248,26 @@ export function useDashboard(userId: string | null = null) {
         setSyncError(`Falha ao carregar dados: ${error.message}`);
       } else if (data?.months && Array.isArray(data.months) && data.months.length > 0) {
         const remoteMonths = sortMonths(migrateMonths(data.months as BudgetMonth[]));
-        setMonths(remoteMonths);
-        setSelectedMonthId(loadSelectedId(remoteMonths));
-        setLastSyncedAt(data.updated_at ? new Date(data.updated_at) : new Date());
-        setRemoteRevision(data.revision ?? 0);
-        remoteRevisionRef.current = data.revision ?? 0;
-        setSyncError(null);
+        const pendingAt = readUserStorage(userId, PENDING_SYNC_KEY);
+        const pendingIsNewer = Boolean(pendingAt && data.updated_at
+          && new Date(pendingAt).getTime() > new Date(data.updated_at).getTime() + 2000);
+        if (pendingIsNewer) {
+          // Havia edição offline mais nova que o remoto: manter o local e deixá-la
+          // ser empurrada pelo efeito de salvamento, em vez de descartá-la.
+          setSyncNotice('Alterações deste aparelho eram mais novas e foram mantidas');
+          setRemoteRevision(data.revision ?? 0);
+          remoteRevisionRef.current = data.revision ?? 0;
+          setLastSyncedAt(data.updated_at ? new Date(data.updated_at) : new Date());
+          setSyncError(null);
+        } else {
+          setMonths(remoteMonths);
+          setSelectedMonthId(loadSelectedId(remoteMonths));
+          removeUserStorage(userId, PENDING_SYNC_KEY);
+          setLastSyncedAt(data.updated_at ? new Date(data.updated_at) : new Date());
+          setRemoteRevision(data.revision ?? 0);
+          remoteRevisionRef.current = data.revision ?? 0;
+          setSyncError(null);
+        }
       } else {
         const { error: insertError } = await client.from('user_finance_data').upsert({ user_id: userId, months: sampleMonths, selected_month_id: sampleMonths[0].id, revision: 0 });
         if (insertError) {
@@ -253,6 +292,16 @@ export function useDashboard(userId: string | null = null) {
     } else if (data?.months && Array.isArray(data.months) && data.months.length > 0) {
       const remoteMonths = sortMonths(migrateMonths(data.months as BudgetMonth[]));
       const hasChanges = JSON.stringify(months) !== JSON.stringify(remoteMonths);
+      const pendingAt = readUserStorage(userId, PENDING_SYNC_KEY);
+      if (pendingAt && data.updated_at && new Date(pendingAt).getTime() > new Date(data.updated_at).getTime() + 2000) {
+        // Atualizar não pode apagar edição feita offline: mantém a local e a empurra.
+        setMonths([...months]);
+        setSyncNotice('Suas alterações locais eram mais novas e foram mantidas');
+        setRemoteRevision(data.revision ?? 0);
+        remoteRevisionRef.current = data.revision ?? 0;
+        setIsRefreshing(false);
+        return;
+      }
       setMonths(remoteMonths);
       setSelectedMonthId(loadSelectedId(remoteMonths));
       setLastSyncedAt(data.updated_at ? new Date(data.updated_at) : new Date());
@@ -268,6 +317,7 @@ export function useDashboard(userId: string | null = null) {
   useEffect(() => {
     if (!remoteLoaded.current) return;
     writeUserStorage(userId, STORAGE_KEY, JSON.stringify(months));
+    writeUserStorage(userId, PENDING_SYNC_KEY, new Date().toISOString());
     const client = supabase;
     const uid = userId;
     if (!client || !uid) return;
@@ -287,6 +337,7 @@ export function useDashboard(userId: string | null = null) {
             ? 'Sessão expirada: os dados estão salvos apenas neste aparelho. Entre novamente para sincronizar.'
             : 'Conflito de sincronização: os dados mudaram em outro dispositivo. Atualize antes de salvar novamente.');
         } else {
+          removeUserStorage(uid, PENDING_SYNC_KEY);
           remoteRevisionRef.current = data.revision;
           setRemoteRevision(data.revision);
           setSyncError(null);
@@ -576,7 +627,7 @@ export function useDashboard(userId: string | null = null) {
             id: uuid(),
             name: mi.name,
             year: mi.year,
-            income: updated[updated.length - 1]?.income ?? 8000,
+            income: incomeOfPreviousMonth(updated, mi.name, mi.year),
             bills: isDebitPix ? [bill] : [],
             savingsGoal: 0,
             creditCardInvoices: isDebitPix ? [] : [{ id: invoiceId, month: mi.name, year: mi.year, transactions: [transaction] }],
@@ -678,11 +729,27 @@ export function useDashboard(userId: string | null = null) {
 
   const addCreditCardInvoice = useCallback((invoice: CreditCardInvoice) => {
     setMonths((prev) => {
-      let updated = prev.map((month) => (
-        month.id === selectedMonthId
-          ? { ...month, creditCardInvoices: [...(month.creditCardInvoices ?? []), invoice] }
-          : month
-      ));
+      // Reimportar a mesma fatura não pode contar o lançamento duas vezes no mês.
+      const target = prev.find((month) => month.id === selectedMonthId);
+      const seen = new Set<string>();
+      const freshTransactions = invoice.transactions.filter((tx) => {
+        const key = `${tx.merchant}|${tx.amountCents}|${tx.installmentCurrent ?? 1}|${tx.installmentTotal ?? 1}|${tx.date ?? ''}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return !target || !hasSameCardTransaction(target, tx);
+      });
+      let updated = prev.map((month) => {
+        if (month.id !== selectedMonthId) return month;
+        if (freshTransactions.length === 0) return month;
+        const merged: CreditCardInvoice = { ...invoice, transactions: freshTransactions };
+        const existingIndex = (month.creditCardInvoices ?? []).findIndex((item) => item.id === merged.id);
+        const invoices = existingIndex === -1
+          ? [...(month.creditCardInvoices ?? []), merged]
+          : (month.creditCardInvoices ?? []).map((item, idx) => idx === existingIndex
+            ? { ...item, transactions: [...item.transactions, ...freshTransactions] }
+            : item);
+        return { ...month, creditCardInvoices: invoices };
+      });
 
       // A fatura importada só traz as parcelas cobradas no mês atual. Uma compra
       // "4/5" importa apenas a 4/5; as demais (5/5) precisam ser lançadas nos
@@ -703,14 +770,7 @@ export function useDashboard(userId: string | null = null) {
           );
           // Evita duplicar ao reimportar a mesma fatura ou ao importar depois a
           // fatura real do mês seguinte: pula se a parcela já existir no mês.
-          const alreadyExists = mIdx !== -1 && (updated[mIdx].creditCardInvoices ?? []).some((inv) =>
-            (inv.transactions ?? []).some((existing) =>
-              existing.merchant === futureTx.merchant
-              && existing.installmentCurrent === installmentNum
-              && existing.installmentTotal === total
-              && existing.amountCents === futureTx.amountCents
-            )
-          );
+          const alreadyExists = mIdx !== -1 && hasSameCardTransaction(updated[mIdx], futureTx);
           if (alreadyExists) return;
           if (mIdx === -1) {
             updated = [
@@ -719,7 +779,7 @@ export function useDashboard(userId: string | null = null) {
                 id: uuid(),
                 name: mi.name,
                 year: mi.year,
-                income: updated[updated.length - 1]?.income ?? 8000,
+                income: incomeOfPreviousMonth(updated, mi.name, mi.year),
                 bills: [],
                 savingsGoal: 0,
                 creditCardInvoices: [{ id: invoiceId, month: mi.name, year: mi.year, transactions: [futureTx] }],
