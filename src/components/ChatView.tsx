@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { deleteGroqKey, hasGroqKey, saveGroqKey, sendGroqChat } from '../services/groq';
 import { readUserStorage, removeUserStorage, writeUserStorage } from '../services/userStorage';
 import { usePreferences } from '../i18n';
+import { MarkdownLite } from './MarkdownLite';
 
 interface Message {
   role: 'user' | 'assistant' | 'error';
@@ -228,7 +229,7 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
                 {m.role === 'error' ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" /></svg> : <IconAI />}
               </div>
             )}
-            <div className={`theme-ai-message theme-ai-message-${m.role}`} style={{ maxWidth: '85%', background: m.role === 'user' ? '#1a2a4a' : m.role === 'error' ? '#1a1010' : '#141414', border: `1px solid ${m.role === 'user' ? '#1e3050' : m.role === 'error' ? '#2a1515' : '#1e1e1e'}`, borderRadius: m.role === 'user' ? '12px 12px 4px 12px' : '12px 12px 12px 4px', padding: '9px 13px', fontSize: 13, color: m.role === 'error' ? '#ef4444' : '#c0c0c0', lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{m.content}</div>
+            <div className={`theme-ai-message theme-ai-message-${m.role}`} style={{ maxWidth: '85%', background: m.role === 'user' ? '#1a2a4a' : m.role === 'error' ? '#1a1010' : '#141414', border: `1px solid ${m.role === 'user' ? '#1e3050' : m.role === 'error' ? '#2a1515' : '#1e1e1e'}`, borderRadius: m.role === 'user' ? '12px 12px 4px 12px' : '12px 12px 12px 4px', padding: '9px 13px', fontSize: 13, color: m.role === 'error' ? '#ef4444' : '#c0c0c0', lineHeight: 1.6, whiteSpace: m.role === 'assistant' ? 'normal' : 'pre-wrap', wordBreak: 'break-word' }}>{m.role === 'assistant' ? <MarkdownLite text={m.content} /> : m.content}</div>
           </div>
         ))}
 

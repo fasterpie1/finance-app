@@ -12,6 +12,7 @@ import { AuthPanel } from './components/AuthPanel';
 import { DailyBillNotification } from './components/DailyBillNotification';
 import { GoogleCalendarSettings } from './components/GoogleCalendarSettings';
 import { CalendarReminderButton } from './components/CalendarReminderButton';
+import { ConfirmDialog } from './components/ConfirmDialog';
 import { useModalA11y } from './hooks/useModalA11y';
 import { getBillNotifications, type BillNotification } from './store/useDashboard';
 import { createCalendarEvent, deleteCalendarEvent, listCalendarEvents, updateCalendarEvent } from './services/googleCalendar';
@@ -230,6 +231,8 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
   const keyboardOpen = useKeyboardOpen();
   const [theme, setTheme] = useState<'dark' | 'light'>(loadTheme);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [confirmKind, setConfirmKind] = useState<null | 'reset' | 'copyBills'>(null);
+  const closeConfirm = useCallback(() => setConfirmKind(null), []);
   const [helpOpen, setHelpOpen] = useState(false);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
   const closeHelp = useCallback(() => setHelpOpen(false), []);
@@ -780,7 +783,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
               {addSection === 'fixed' && <InlineAddRow monthName={db.selectedMonth.name} onSave={handleAddBill} onCancel={() => setAddSection(null)} defaultType="mensal" />}
             </div>
             {hasFixedBills && (
-              <button className="theme-copy-previous" onClick={() => { if (confirm(`${t('copyFixedBills')}?`)) db.copyFixedBillsFromPrevious(); }} style={{ marginTop: 10, background: 'transparent', border: '1px dashed #1e1e1e', borderRadius: 6, color: '#8b8b8b', cursor: 'pointer', padding: '6px 12px', fontSize: 10, width: '100%' }}>
+              <button type="button" className="theme-copy-previous" onClick={() => setConfirmKind('copyBills')} style={{ marginTop: 10, background: 'transparent', border: '1px dashed #1e1e1e', borderRadius: 6, color: '#8b8b8b', cursor: 'pointer', padding: '6px 12px', fontSize: 10, width: '100%' }}>
                 {t('copyFixedBills')}
               </button>
             )}
@@ -1014,6 +1017,21 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
         </>
       )}
 
+      <ConfirmDialog
+        open={confirmKind !== null}
+        title={confirmKind === 'reset' ? t('reset') : t('copyFixedBills')}
+        message={confirmKind === 'reset' ? t('resetConfirm') : t('copyFixedBillsHint')}
+        confirmLabel={t('confirm')}
+        cancelLabel={t('cancel')}
+        tone={confirmKind === 'reset' ? 'danger' : 'primary'}
+        onClose={closeConfirm}
+        onConfirm={() => {
+          if (confirmKind === 'reset') db.resetData();
+          else db.copyFixedBillsFromPrevious();
+          closeConfirm();
+        }}
+      />
+
       {incomeModalOpen && (
         <IncomeSourcesModal
           open={incomeModalOpen}
@@ -1212,7 +1230,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
                 <span style={{ color: db.syncError ? '#ef4444' : undefined }}>{db.syncError || (userId ? t('savedToCloud') : t('savedAutomatically'))}</span>
                 <span style={{ color: '#6f6f6f' }}>·</span>
-                <button onClick={() => { if (confirm(t('resetConfirm'))) db.resetData(); }} style={{ background: 'transparent', border: 'none', color: '#9a9a9a', cursor: 'pointer', fontSize: 10, padding: 0, textDecoration: 'underline' }}>{t('reset')}</button>
+                <button type="button" onClick={() => setConfirmKind('reset')} style={{ background: 'transparent', border: 'none', color: '#9a9a9a', cursor: 'pointer', fontSize: 10, padding: 0, textDecoration: 'underline' }}>{t('reset')}</button>
                 {userId && <><span style={{ color: '#4b4b4b' }}>·</span><button onClick={signOut} style={{ background: 'transparent', border: 'none', color: '#9a9a9a', cursor: 'pointer', fontSize: 10, padding: 0, textDecoration: 'underline' }}>{t('signOutShort')}</button></>}
               </div>
               <button

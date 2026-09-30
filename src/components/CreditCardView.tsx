@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   type BillCategory,
   type CreditCardInvoice,
+  type CreditCardTransaction,
   type ExpenseOwner,
   BILL_CATEGORY_LABELS,
 } from '../types';
@@ -9,6 +10,7 @@ import { type CreditCardPurchase, type MonthInfo } from '../store/useDashboard';
 import { centsToAmount, getInvoiceChargeTotalCents, getInvoicePersonalTotalCents, getInvoiceThirdPartyTotalCents, getInvoiceUnclassifiedTotalCents, getInvoiceTotalCents, getOwnerLabel } from '../services/cardTransactions';
 import { findDuplicateTransaction } from '../services/transactionDuplicates';
 import { BillRow } from './BillRow';
+import { ConfirmDialog } from './ConfirmDialog';
 import { StatementImportPanel } from './StatementImportPanel';
 import { type Bill } from '../types';
 import { CalendarReminderButton } from './CalendarReminderButton';
@@ -58,6 +60,7 @@ function InvoiceTransactions({ invoices, creditCardBills, onUpdate, onTogglePaid
   const { formatMoney, parseAmount, typeLabel, t } = usePreferences();
   const ownerOptions = getOwnerOptions(t);
   const [filter, setFilter] = useState<'ALL' | ExpenseOwner>('ALL');
+  const [pendingRemoval, setPendingRemoval] = useState<CreditCardTransaction | null>(null);
   const summaryRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef({ active: false, startX: 0, scrollLeft: 0 });
   const transactions = invoices.flatMap((invoice) => invoice.transactions).filter((transaction) => filter === 'ALL' || transaction.owner === filter);
@@ -141,11 +144,7 @@ function InvoiceTransactions({ invoices, creditCardBills, onUpdate, onTogglePaid
               type="button"
               title={t('removeTransaction')}
               aria-label={`${t('removeTransaction')} ${transaction.merchant}`}
-              onClick={() => {
-                if (window.confirm(t('removeFromInvoice', { merchant: transaction.merchant }))) {
-                  updateTransaction(transaction.id, {}, true);
-                }
-              }}
+              onClick={() => setPendingRemoval(transaction)}
               style={{ background: 'transparent', border: '1px solid #2a1a1a', borderRadius: 6, color: '#a55', cursor: 'pointer', width: 28, height: 28, fontSize: 16, lineHeight: 1 }}
             >
               ×
@@ -156,6 +155,19 @@ function InvoiceTransactions({ invoices, creditCardBills, onUpdate, onTogglePaid
           <BillRow key={`legacy-card-bill-${bill.id}`} bill={bill} onTogglePaid={() => onTogglePaid(bill.id)} onSave={onSaveBill} onDelete={() => onDeleteBill(bill.id)} hideValues={hideValues} showPaidToggle={false} />
         ))}
       </div>
+      <ConfirmDialog
+        open={pendingRemoval !== null}
+        title={t('removeTransaction')}
+        message={t('removeFromInvoice', { merchant: pendingRemoval?.merchant ?? '' })}
+        confirmLabel={t('deleteBill')}
+        cancelLabel={t('cancel')}
+        tone="danger"
+        onClose={() => setPendingRemoval(null)}
+        onConfirm={() => {
+          if (pendingRemoval) updateTransaction(pendingRemoval.id, {}, true);
+          setPendingRemoval(null);
+        }}
+      />
     </section>
   );
 }
