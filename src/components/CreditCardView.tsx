@@ -114,7 +114,7 @@ function InvoiceTransactions({ invoices, creditCardBills, onUpdate, onTogglePaid
       </div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         {([{ value: 'ALL', label: t('all') }, ...ownerOptions] as Array<{ value: 'ALL' | ExpenseOwner; label: string }>).map((option) => (
-          <button key={option.value} type="button" onClick={() => setFilter(option.value)} className={filter === option.value ? 'cc-filter-btn is-active' : 'cc-filter-btn'} style={{ background: filter === option.value ? '#1e2a3e' : '#151515', border: `1px solid ${filter === option.value ? '#3b82f6' : '#242424'}`, borderRadius: 5, color: filter === option.value ? '#93c5fd' : '#666', cursor: 'pointer', padding: '6px 9px', fontSize: 11 }}>{option.label}</button>
+          <button key={option.value} type="button" onClick={() => setFilter(option.value)} className={filter === option.value ? 'cc-filter-btn is-active' : 'cc-filter-btn'} style={{ background: filter === option.value ? '#1e2a3e' : '#151515', border: `1px solid ${filter === option.value ? '#3b82f6' : '#242424'}`, borderRadius: 5, color: filter === option.value ? '#93c5fd' : '#9a9a9a', cursor: 'pointer', padding: '6px 9px', fontSize: 11 }}>{option.label}</button>
         ))}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: -6 }}>
@@ -127,8 +127,8 @@ function InvoiceTransactions({ invoices, creditCardBills, onUpdate, onTogglePaid
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <strong className="cc-merchant" style={{ fontSize: 13, color: '#d4d4d4' }}>{transaction.merchant}</strong>
-                {transaction.installmentCurrent && transaction.installmentTotal && transaction.installmentTotal > 1 && <span style={{ fontSize: 10, color: '#777' }}>{typeLabel('parcela')} {transaction.installmentCurrent}/{transaction.installmentTotal}</span>}
-                <span style={{ fontSize: 10, color: '#777' }}>{transaction.type}</span>
+                {transaction.installmentCurrent && transaction.installmentTotal && transaction.installmentTotal > 1 && <span style={{ fontSize: 10, color: '#9a9a9a' }}>{typeLabel('parcela')} {transaction.installmentCurrent}/{transaction.installmentTotal}</span>}
+                <span style={{ fontSize: 10, color: '#9a9a9a' }}>{transaction.type}</span>
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 5, flexWrap: 'wrap' }}>
                 <select value={transaction.owner} onChange={(event) => updateTransaction(transaction.id, { owner: event.target.value as ExpenseOwner, personalAmountCents: event.target.value === 'SHARED' ? transaction.personalAmountCents : undefined })} style={{ ...fieldStyle, width: 150, padding: '5px 8px', fontSize: 11 }}>
@@ -136,7 +136,7 @@ function InvoiceTransactions({ invoices, creditCardBills, onUpdate, onTogglePaid
                 </select>
                 {transaction.owner === 'THIRD_PARTY' && <input value={transaction.thirdPartyName ?? ''} onChange={(event) => updateTransaction(transaction.id, { thirdPartyName: event.target.value })} placeholder={t('who')} style={{ ...fieldStyle, width: 130, padding: '5px 8px', fontSize: 11 }} />}
                 {transaction.owner === 'SHARED' && <input inputMode="decimal" value={transaction.personalAmountCents == null ? '' : (transaction.personalAmountCents / 100).toFixed(2).replace('.', ',')} onChange={(event) => { const typed = event.target.value.trim(); updateTransaction(transaction.id, { personalAmountCents: typed ? Math.min(transaction.amountCents, Math.max(0, Math.round(parseAmount(typed) * 100))) : 0 }); }} placeholder={t('myShare')} style={{ ...fieldStyle, width: 110, padding: '5px 8px', fontSize: 11 }} />}
-                <span style={{ fontSize: 10, color: transaction.owner === 'UNCLASSIFIED' ? '#f59e0b' : '#555' }}>{getOwnerLabel(transaction.owner)}</span>
+                <span className={transaction.owner === 'UNCLASSIFIED' ? 'cc-owner-badge is-warning' : 'cc-owner-badge'} style={{ fontSize: 10, color: transaction.owner === 'UNCLASSIFIED' ? '#f59e0b' : '#9a9a9a' }}>{getOwnerLabel(transaction.owner)}</span>
               </div>
             </div>
             <strong className={transaction.type === 'REFUND' ? 'cc-amount-refund' : 'cc-amount'} style={{ fontSize: 14, color: transaction.type === 'REFUND' ? '#10b981' : '#d4d4d4', whiteSpace: 'nowrap' }}>{hideValues ? '••••' : formatMoney(centsToAmount(transaction.amountCents))}</strong>
@@ -145,7 +145,8 @@ function InvoiceTransactions({ invoices, creditCardBills, onUpdate, onTogglePaid
               title={t('removeTransaction')}
               aria-label={`${t('removeTransaction')} ${transaction.merchant}`}
               onClick={() => setPendingRemoval(transaction)}
-              style={{ background: 'transparent', border: '1px solid #2a1a1a', borderRadius: 6, color: '#a55', cursor: 'pointer', width: 36, height: 36, fontSize: 18, lineHeight: 1 }}
+              className="cc-transaction-remove"
+              style={{ background: 'transparent', border: '1px solid #2a1a1a', borderRadius: 6, color: '#e57373', cursor: 'pointer', width: 36, height: 36, fontSize: 18, lineHeight: 1 }}
             >
               ×
             </button>
@@ -284,7 +285,7 @@ export const CreditCardView: React.FC<Props> = ({
           </button>
           <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', flexShrink: 0, opacity: 0.8 }} />
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
-            <span className="cc-merchant" style={{ fontSize: 13, fontWeight: 600, color: allCardPaid ? '#555' : '#d4d4d4', textDecoration: allCardPaid ? 'line-through' : 'none' }}>{t('monthlyInvoice')}</span>
+            <span className="cc-merchant" style={{ fontSize: 13, fontWeight: 600, color: allCardPaid ? '#8f8f8f' : '#d4d4d4', textDecoration: allCardPaid ? 'line-through' : 'none' }}>{t('monthlyInvoice')}</span>
             <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
               <span style={{ fontSize: 10, color: '#8b8b8b' }}>
                 {creditCardBills.length} {creditCardBills.length !== 1 ? t('installmentPlural') : t('installmentSingular')}
@@ -322,13 +323,13 @@ export const CreditCardView: React.FC<Props> = ({
           <div style={{ position: 'absolute', top: 0, left: 0, width: 3, height: '100%', background: '#ef4444', borderRadius: '12px 0 0 12px' }} />
           <div style={{ fontSize: 10, color: '#8f8f8f', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, marginBottom: 6 }}>{t('installments')}</div>
           <div className="privacy-mask" style={{ fontSize: 20, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#e8e8e8', transition: 'color 0.2s' }}>{hideValues ? masked : formatMoney(monthlyFromCard)}</div>
-          <div style={{ fontSize: 11, color: '#6f6f6f', marginTop: 4 }}>{creditCardBills.length + creditCardInvoices.flatMap((invoice) => invoice.transactions).filter((transaction) => transaction.type !== 'PAYMENT').length} lançamento(s)</div>
+          <div className="theme-muted-text" style={{ fontSize: 11, marginTop: 4 }}>{creditCardBills.length + creditCardInvoices.flatMap((invoice) => invoice.transactions).filter((transaction) => transaction.type !== 'PAYMENT').length} lançamento(s)</div>
         </div>
         <div style={{ background: '#131313', border: '1px solid #1e1e1e', borderRadius: 12, padding: '16px 18px', position: 'relative', overflow: 'hidden' }}>
           <div style={{ position: 'absolute', top: 0, left: 0, width: 3, height: '100%', background: '#f59e0b', borderRadius: '12px 0 0 12px' }} />
           <div style={{ fontSize: 10, color: '#8f8f8f', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, marginBottom: 6 }}>{t('totalDebt')}</div>
           <div className="privacy-mask" style={{ fontSize: 20, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#e8e8e8', transition: 'color 0.2s' }}>{hideValues ? masked : formatMoney(totalDebt)}</div>
-          <div style={{ fontSize: 11, color: '#6f6f6f', marginTop: 4 }}>{t('openInstallments')}</div>
+          <div className="theme-muted-text" style={{ fontSize: 11, marginTop: 4 }}>{t('openInstallments')}</div>
         </div>
       </div>
 
@@ -365,7 +366,7 @@ export const CreditCardView: React.FC<Props> = ({
                 <div className="cc-charged-label" style={{ fontSize: 10, color: '#4ade80', fontWeight: 600, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('chargedIn')} {affected.length} {affected.length === 1 ? t('monthUnit') : t('monthsUnit')}</div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {affected.map((mi, i) => (
-                    <span key={`${mi.name}-${mi.year}-${i}`} className={i === 0 ? 'cc-month-chip is-first' : 'cc-month-chip'} style={{ background: i === 0 ? '#16a34a15' : '#131313', border: `1px solid ${i === 0 ? '#16a34a33' : '#1e1e1e'}`, borderRadius: 5, padding: '3px 10px', fontSize: 11, color: i === 0 ? '#4ade80' : '#555', fontWeight: i === 0 ? 600 : 400 }}>
+                    <span key={`${mi.name}-${mi.year}-${i}`} className={i === 0 ? 'cc-month-chip is-first' : 'cc-month-chip'} style={{ background: i === 0 ? '#16a34a15' : '#131313', border: `1px solid ${i === 0 ? '#16a34a33' : '#1e1e1e'}`, borderRadius: 5, padding: '3px 10px', fontSize: 11, color: i === 0 ? '#4ade80' : '#8f8f8f', fontWeight: i === 0 ? 600 : 400 }}>
                       {formatMonthShort(mi.name, mi.year)}
                     </span>
                   ))}
@@ -402,7 +403,7 @@ export const CreditCardView: React.FC<Props> = ({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {linkedFixedBills.map((bill) => (<BillRow key={bill.id} bill={bill} onTogglePaid={() => onTogglePaid(bill.id)} onSave={onSaveBill} onDelete={() => onDeleteBill(bill.id)} hideValues={hideValues} showPaidToggle={false} />))}
           </div>
-          <div style={{ fontSize: 11, color: '#6f6f6f', marginTop: 8, paddingLeft: 4 }}>{t('linkedFixedNote')}</div>
+          <div className="theme-muted-text" style={{ fontSize: 11, marginTop: 8, paddingLeft: 4 }}>{t('linkedFixedNote')}</div>
         </div>
       )}
 

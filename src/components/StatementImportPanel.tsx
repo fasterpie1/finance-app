@@ -330,7 +330,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                <span style={{ fontSize: 12, color: '#777' }}>
+                <span style={{ fontSize: 12, color: '#9a9a9a' }}>
                   {selectedCount} · {t('invoiceTotal')}: <strong className="import-total-strong" style={{ color: '#c0c0c0' }}>{formatMoney(displayedTotal)}</strong>
                 </span>
                 <button type="button"

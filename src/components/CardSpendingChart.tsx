@@ -119,7 +119,7 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
     <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
         <div>
-          <h3 style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#666', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('cardSpendingByCategory')}</h3>
+          <h3 style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('cardSpendingByCategory')}</h3>
           <div style={{ marginTop: 5, fontSize: 12, color: '#8b8b8b' }}>{t('lastFourMonthsHint')}</div>
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -127,7 +127,7 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
             const selected = selectedCategories.includes(category);
             const limitReached = selectedCategories.length === 3 && !selected;
             return (
-              <button className={`theme-chart-toggle ${selected ? 'is-selected' : ''}`} key={category} type="button" onClick={() => toggleCategory(category)} disabled={limitReached} style={{ display: 'flex', alignItems: 'center', gap: 7, border: `1px solid ${selected ? BILL_CATEGORY_COLORS[category] : '#242424'}`, background: selected ? `${BILL_CATEGORY_COLORS[category]}18` : '#151515', borderRadius: 5, color: selected ? '#d4d4d4' : '#666', cursor: limitReached ? 'not-allowed' : 'pointer', opacity: limitReached ? 0.45 : 1, padding: '7px 9px', fontSize: 11, transition: 'all 0.15s' }}>
+              <button className={`theme-chart-toggle ${selected ? 'is-selected' : ''}`} key={category} type="button" onClick={() => toggleCategory(category)} disabled={limitReached} style={{ display: 'flex', alignItems: 'center', gap: 7, border: `1px solid ${selected ? BILL_CATEGORY_COLORS[category] : '#242424'}`, background: selected ? `${BILL_CATEGORY_COLORS[category]}18` : '#151515', borderRadius: 5, color: selected ? '#e0e0e0' : '#9a9a9a', cursor: limitReached ? 'not-allowed' : 'pointer', opacity: limitReached ? 0.45 : 1, padding: '7px 9px', fontSize: 11, transition: 'all 0.15s' }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: BILL_CATEGORY_COLORS[category], flexShrink: 0 }} />
                 {categoryLabel(category)}
               </button>
@@ -148,7 +148,7 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
               return (
                 <g key={value}>
                   <line className="chart-grid" x1={padding.left} x2={chartWidth - padding.right} y1={y} y2={y} stroke="#202020" strokeDasharray="3 5" />
-                  <text className="chart-axis-label" x={padding.left - 8} y={y + 4} textAnchor="end" fill="#666" fontSize={axisFontSize}>{hideValues ? '•••' : stripCurrency(formatMoney(value))}</text>
+                  <text className="chart-axis-label" x={padding.left - 8} y={y + 4} textAnchor="end" fill="#8f8f8f" fontSize={axisFontSize}>{hideValues ? '•••' : stripCurrency(formatMoney(value))}</text>
                 </g>
               );
             })}

@@ -193,7 +193,7 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete,
 
           {!isCardInstallment && (
             <>
-              <span style={{ fontSize: 10, color: '#5a5a5a' }}>·</span>
+              <span className="theme-muted-text" style={{ fontSize: 10 }}>·</span>
               {editField === 'dueDay' ? (
                 <input ref={inputRef} inputMode="numeric" pattern="[0-9]*" value={editStr} onChange={(e) => setEditStr(e.target.value.replace(/[^0-9]/g, ''))} onBlur={commit} onKeyDown={onKeyDown} style={{ ...editInputStyle, width: 48, fontSize: 11 }} />
               ) : (
@@ -201,7 +201,7 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete,
                   {t('dueDate')} {bill.dueDay}
                 </span>
               )}
-              <span style={{ fontSize: 10, color: '#5a5a5a' }}>·</span>
+              <span className="theme-muted-text" style={{ fontSize: 10 }}>·</span>
             </>
           )}
 
@@ -220,7 +220,7 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete,
           {/* Tag Cartão — para contas fixas vinculadas ao cartão */}
           {showCreditCardToggle && (
             <>
-              <span style={{ fontSize: 10, color: '#5a5a5a' }}>·</span>
+              <span className="theme-muted-text" style={{ fontSize: 10 }}>·</span>
               <span
                 role="button"
                 tabIndex={0}
@@ -248,7 +248,7 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete,
           {/* Indicador visual quando está no cartão (fora do modo edit) */}
           {!showCreditCardToggle && bill.isOnCreditCard && (
             <>
-              <span style={{ fontSize: 10, color: '#5a5a5a' }}>·</span>
+              <span className="theme-muted-text" style={{ fontSize: 10 }}>·</span>
               <span className="theme-chip-card is-linked" style={{ fontSize: 9, fontWeight: 600, color: '#60a5fa', background: '#111520', border: '1px solid #1e2a3e', borderRadius: 4, padding: '1px 6px' }}>💳</span>
             </>
           )}

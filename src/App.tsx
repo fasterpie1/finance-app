@@ -858,20 +858,20 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
 
                     {/* Info */}
                     <div role="button" tabIndex={0} aria-label={t('monthlyInvoice')} onClick={() => setTab('cartao')} onKeyDown={(event) => activateOnKey(event, () => setTab('cartao'))} style={{ flex: 1, cursor: 'pointer', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: allCardPaid ? '#555' : '#d4d4d4', textDecoration: allCardPaid ? 'line-through' : 'none' }}>{t('monthlyInvoice')}</span>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: allCardPaid ? '#8f8f8f' : '#d4d4d4', textDecoration: allCardPaid ? 'line-through' : 'none' }}>{t('monthlyInvoice')}</span>
                       <div className="theme-card-invoice-details" style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
                         <span className="theme-card-count" style={{ fontSize: 10, color: '#8b8b8b', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 6px' }}>
                           {db.creditCardBills.length + importedCardTransactions.length} lançamento{db.creditCardBills.length + importedCardTransactions.length !== 1 ? 's' : ''}
                         </span>
                         {linkedFixedBills.length > 0 && (
                           <>
-                            <span style={{ fontSize: 10, color: '#5a5a5a' }}>·</span>
+                            <span className="theme-muted-text" style={{ fontSize: 10 }}>·</span>
                             <span className="theme-chip-card is-linked" style={{ fontSize: 10, color: '#60a5fa', background: '#111520', border: '1px solid #1e2a3e', borderRadius: 4, padding: '1px 6px' }}>
                               {linkedFixedBills.length} fixa{linkedFixedBills.length !== 1 ? 's' : ''}
                             </span>
                           </>
                         )}
-                        <span style={{ fontSize: 10, color: '#5a5a5a' }}>·</span>
+                        <span className="theme-muted-text" style={{ fontSize: 10 }}>·</span>
                         <span className="theme-card-details-link" style={{ fontSize: 10, color: '#8b8b8b' }}>{t('details')} →</span>
                       </div>
                     </div>
@@ -928,7 +928,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                 <input type="file" accept=".json" style={{ display: 'none' }} onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; const ok = await db.importData(file); setImportMsg(ok ? t('dataRestoredSuccess') : t('invalidBackupFile')); setTimeout(() => setImportMsg(null), 4000); e.target.value = ''; }} />
               </label>
             </div>
-            <p style={{ margin: '10px 0 0', fontSize: 10, color: '#5a5a5a', lineHeight: 1.5 }}>{t('backupHint')}</p>
+            <p className="theme-muted-text" style={{ margin: '10px 0 0', fontSize: 10, lineHeight: 1.5 }}>{t('backupHint')}</p>
           </CollapsibleSection>
         );
 
@@ -1150,7 +1150,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
             <div className="theme-progress-panel" style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 10, padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 12, color: '#8b8b8b' }}>{t('paidBills')}: <strong style={{ color: '#999' }}>{paidCount}</strong> {t('of')} <strong style={{ color: '#999' }}>{totalCount}</strong></span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: progressPct === 100 ? '#10b981' : '#666' }}>{progressPct}%</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: progressPct === 100 ? '#10b981' : '#8f8f8f' }}>{progressPct}%</span>
               </div>
               <ProgressBar value={paidCount} max={totalCount} />
             </div>
@@ -1258,9 +1258,9 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
             <footer className="app-footer" style={{ textAlign: 'center', fontSize: 10, color: '#7a7a7a', paddingTop: 10, borderTop: '1px solid #111', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
                 <span style={{ color: db.syncError ? '#ef4444' : undefined }}>{db.syncError || (userId ? t('savedToCloud') : t('savedAutomatically'))}</span>
-                <span style={{ color: '#6f6f6f' }}>·</span>
+                <span className="theme-muted-text">·</span>
                 <button type="button" onClick={() => setConfirmKind('reset')} style={{ background: 'transparent', border: 'none', color: '#9a9a9a', cursor: 'pointer', fontSize: 10, padding: '10px 4px', margin: '-10px 0', textDecoration: 'underline' }}>{t('reset')}</button>
-                {userId && <><span style={{ color: '#4b4b4b' }}>·</span><button type="button" onClick={signOut} style={{ background: 'transparent', border: 'none', color: '#9a9a9a', cursor: 'pointer', fontSize: 10, padding: '10px 4px', margin: '-10px 0', textDecoration: 'underline' }}>{t('signOutShort')}</button></>}
+                {userId && <><span className="theme-muted-text">·</span><button type="button" onClick={signOut} style={{ background: 'transparent', border: 'none', color: '#9a9a9a', cursor: 'pointer', fontSize: 10, padding: '10px 4px', margin: '-10px 0', textDecoration: 'underline' }}>{t('signOutShort')}</button></>}
               </div>
               <button type="button"
                 onClick={() => setEditMode((p) => !p)}

@@ -15,7 +15,7 @@ const fieldStyle: React.CSSProperties = {
   padding: '12px 14px', fontSize: 15, width: '100%', boxSizing: 'border-box', outline: 'none',
 };
 const labelStyle: React.CSSProperties = { display: 'block', color: '#bbb', fontSize: 13, fontWeight: 600, marginBottom: 6 };
-const hintStyle: React.CSSProperties = { color: '#777', fontSize: 12, marginTop: 4 };
+const hintStyle: React.CSSProperties = { color: '#8f8f8f', fontSize: 12, marginTop: 4 };
 
 export const AuthPanel: React.FC<Props> = ({ children }) => {
   const { t } = usePreferences();

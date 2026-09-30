@@ -89,7 +89,7 @@ export const InlineAddRow: React.FC<Props> = ({ monthName, onSave, onCancel, def
       </select>
       <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
         <button type="button" onClick={handleSave} style={{ background: '#3b82f6', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '6px 14px', fontSize: 12, fontWeight: 600 }}>{t('save')}</button>
-        <button type="button" onClick={onCancel} style={{ background: 'transparent', border: '1px solid #222', borderRadius: 6, color: '#555', cursor: 'pointer', padding: '6px 10px', fontSize: 12 }}>×</button>
+        <button type="button" onClick={onCancel} aria-label={t('cancel')} title={t('cancel')} style={{ background: 'transparent', border: '1px solid #222', borderRadius: 6, color: '#9a9a9a', cursor: 'pointer', padding: '6px 10px', fontSize: 12 }}>×</button>
       </div>
     </div>
   );
