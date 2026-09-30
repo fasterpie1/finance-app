@@ -145,7 +145,7 @@ function InvoiceTransactions({ invoices, creditCardBills, onUpdate, onTogglePaid
               title={t('removeTransaction')}
               aria-label={`${t('removeTransaction')} ${transaction.merchant}`}
               onClick={() => setPendingRemoval(transaction)}
-              style={{ background: 'transparent', border: '1px solid #2a1a1a', borderRadius: 6, color: '#a55', cursor: 'pointer', width: 28, height: 28, fontSize: 16, lineHeight: 1 }}
+              style={{ background: 'transparent', border: '1px solid #2a1a1a', borderRadius: 6, color: '#a55', cursor: 'pointer', width: 36, height: 36, fontSize: 18, lineHeight: 1 }}
             >
               ×
             </button>
@@ -254,21 +254,33 @@ export const CreditCardView: React.FC<Props> = ({
       {(creditCardBills.length > 0 || linkedFixedBills.length > 0) && (
         <div style={{ background: '#131313', border: `1px solid ${allCardPaid ? '#10b98122' : '#1e1e1e'}`, borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12, opacity: allCardPaid ? 0.55 : 1, transition: 'all 0.15s' }}>
           {/* Bolinha de pago */}
-          <button
+          <button type="button"
+            role="checkbox"
+            aria-checked={allCardPaid}
+            aria-label={allCardPaid ? t('markAsUnpaid') : t('markAsPaid')}
+            title={allCardPaid ? t('markAsUnpaid') : t('markAsPaid')}
             onClick={allCardPaid ? onUnpayCreditCard : onPayCreditCard}
             style={{
+              width: 44, height: 44, margin: -12, borderRadius: '50%',
+              border: 'none',
+              background: 'transparent',
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0, padding: 0,
+            }}
+          >
+            <span style={{
               width: 20, height: 20, borderRadius: '50%',
               border: `2px solid ${allCardPaid ? '#10b981' : '#2d2d2d'}`,
               background: allCardPaid ? '#10b981' : 'transparent',
-              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexShrink: 0, transition: 'all 0.15s', padding: 0,
-            }}
-          >
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              transition: 'all 0.15s',
+            }}>
             {allCardPaid && (
               <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
                 <path d="M2 6l3 3 5-5" stroke="#000" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             )}
+            </span>
           </button>
           <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', flexShrink: 0, opacity: 0.8 }} />
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -322,7 +334,7 @@ export const CreditCardView: React.FC<Props> = ({
 
       {/* Form */}
       <div style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 12, overflow: 'hidden' }}>
-        <button onClick={toggleForm} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'transparent', border: 'none', padding: '14px 18px', cursor: 'pointer', color: '#c0c0c0' }}>
+        <button type="button" onClick={toggleForm} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'transparent', border: 'none', padding: '14px 18px', cursor: 'pointer', color: '#c0c0c0' }}>
           <span style={{ fontSize: 13, fontWeight: 600 }}>{t('addCardPurchase')}</span>
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ transform: formOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
             <path d="M2 4l4 4 4-4" stroke="#555" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -368,7 +380,7 @@ export const CreditCardView: React.FC<Props> = ({
               </div>
             )}
 
-            <button onClick={handleAdd} disabled={!name.trim() || !amount} className="cc-submit" style={{ background: name.trim() && amount ? '#3b82f6' : '#151520', border: 'none', borderRadius: 6, color: name.trim() && amount ? '#fff' : '#3a4a5a', cursor: name.trim() && amount ? 'pointer' : 'not-allowed', padding: '10px 20px', fontSize: 13, fontWeight: 600, alignSelf: 'flex-start', transition: 'all 0.15s' }}>
+            <button type="button" onClick={handleAdd} disabled={!name.trim() || !amount} className="cc-submit" style={{ background: name.trim() && amount ? '#3b82f6' : '#151520', border: 'none', borderRadius: 6, color: name.trim() && amount ? '#fff' : '#3a4a5a', cursor: name.trim() && amount ? 'pointer' : 'not-allowed', padding: '10px 20px', fontSize: 13, fontWeight: 600, alignSelf: 'flex-start', transition: 'all 0.15s' }}>
               {affected.length > 1 ? t('launchMultiMonth', { count: affected.length }) : t('launchSingleMonth')}
             </button>
           </div>

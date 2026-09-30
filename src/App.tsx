@@ -196,7 +196,7 @@ function CollapsibleSection({ title, count, totalAmount, isOpen, onToggle, right
   return (
     <section className="app-section" style={{ background: '#111', border: `1px solid ${editMode ? '#2a3a4a' : '#1a1a1a'}`, borderRadius: 10, padding: '14px 16px', transition: 'border-color 0.2s', position: 'relative' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isOpen && !editMode ? 12 : 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: editMode ? 'default' : 'pointer', flex: 1 }} onClick={editMode ? undefined : onToggle}>
+        <div role={editMode ? undefined : 'button'} tabIndex={editMode ? -1 : 0} aria-expanded={isOpen} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: editMode ? 'default' : 'pointer', flex: 1 }} onClick={editMode ? undefined : onToggle} onKeyDown={editMode ? undefined : (event) => activateOnKey(event, onToggle)}>
           {!editMode && <IconChevron open={isOpen} />}
           <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{title}</h3>
           {count !== undefined && <span className="theme-count-pill" style={{ fontSize: 10, fontWeight: 600, color: '#8b8b8b', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 6px' }}>{count}</span>}
@@ -209,11 +209,19 @@ function CollapsibleSection({ title, count, totalAmount, isOpen, onToggle, right
   );
 }
 
+/** Elementos não interativos que respondem a clique precisam de atalho de teclado equivalente. */
+function activateOnKey(event: React.KeyboardEvent, handler: () => void) {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    handler();
+  }
+}
+
 function EmptyState({ label, action, onAction }: { label: string; action?: string; onAction?: () => void }) {
   return (
     <div className="theme-empty-state" style={{ background: '#0e0e0e', border: '1px dashed #1e1e1e', borderRadius: 8, padding: 20, textAlign: 'center', color: '#8b8b8b', fontSize: 12 }}>
       <div>{label}</div>
-      {action && onAction && <button className="theme-empty-action" onClick={onAction} style={{ marginTop: 10, background: '#111520', border: '1px solid #1e2a3e', borderRadius: 6, color: '#60a5fa', cursor: 'pointer', padding: '7px 14px', fontSize: 12, fontWeight: 600 }}>{action}</button>}
+      {action && onAction && <button type="button" className="theme-empty-action" onClick={onAction} style={{ marginTop: 10, background: '#111520', border: '1px solid #1e2a3e', borderRadius: 6, color: '#60a5fa', cursor: 'pointer', padding: '7px 14px', fontSize: 12, fontWeight: 600 }}>{action}</button>}
     </div>
   );
 }
@@ -701,7 +709,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
       case 'savings':
         return (
           <CollapsibleSection key="savings" title={t('savingsGoal')} isOpen={isSectionOpen('savings', false)} onToggle={() => toggleSection('savings')} hideValues={hideValues} editMode={editMode} rightAction={
-            <button onClick={() => { setGoalInput(savingsGoal > 0 ? String(savingsGoal) : ''); setGoalEditing(true); }} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#8b8b8b', cursor: 'pointer', fontSize: 11, padding: '3px 10px' }}>
+            <button type="button" onClick={() => { setGoalInput(savingsGoal > 0 ? String(savingsGoal) : ''); setGoalEditing(true); }} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#8b8b8b', cursor: 'pointer', fontSize: 11, padding: '3px 10px' }}>
               {savingsGoalIsManual ? t('editGoal') : t('setFixedGoal')}
             </button>
           }>
@@ -734,17 +742,17 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                       <div style={{ fontSize: 10, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('savedIn')} {db.selectedMonth.name}</div>
                       <div style={{ fontSize: 12, color: '#8b8b8b', marginTop: 3 }}>{t('savedInNote')}</div>
                     </div>
-                    <button onClick={() => { setSavedAmountInput(savedAmount > 0 ? String(savedAmount) : ''); setSavedAmountEditing(true); }} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#60a5fa', cursor: 'pointer', padding: '5px 10px', fontSize: 11, whiteSpace: 'nowrap' }}>{t('enterAmount')}</button>
+                    <button type="button" onClick={() => { setSavedAmountInput(savedAmount > 0 ? String(savedAmount) : ''); setSavedAmountEditing(true); }} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#60a5fa', cursor: 'pointer', padding: '5px 10px', fontSize: 11, whiteSpace: 'nowrap' }}>{t('enterAmount')}</button>
                   </div>
                   {savedAmountEditing && (
                     <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                       <input autoFocus inputMode="decimal" placeholder={t('savedAmountPlaceholder')} value={savedAmountInput} onChange={(event) => setSavedAmountInput(event.target.value.replace(/[^0-9.,]/g, ''))} onKeyDown={(event) => { if (event.key === 'Enter') { db.updateSavedAmount(parseAmount(savedAmountInput)); setSavedAmountEditing(false); } if (event.key === 'Escape') setSavedAmountEditing(false); }} style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 6, color: '#e0e0e0', padding: '8px 10px', fontSize: 13, flex: 1, outline: 'none' }} />
-                      <button onClick={() => { db.updateSavedAmount(parseAmount(savedAmountInput)); setSavedAmountEditing(false); }} style={{ background: '#10b981', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '8px 12px', fontSize: 11, fontWeight: 600 }}>{t('save')}</button>
+                      <button type="button" onClick={() => { db.updateSavedAmount(parseAmount(savedAmountInput)); setSavedAmountEditing(false); }} style={{ background: '#10b981', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '8px 12px', fontSize: 11, fontWeight: 600 }}>{t('save')}</button>
                     </div>
                   )}
                 </div>
                 {savingsGoalIsManual && (
-                  <button onClick={() => { db.usePredictedSavingsGoal(); setGoalEditing(false); }} style={{ background: 'transparent', border: '1px dashed #1e1e1e', borderRadius: 6, color: '#8b8b8b', cursor: 'pointer', padding: '6px 10px', fontSize: 10, alignSelf: 'flex-start' }}>{t('backToPredicted')}</button>
+                  <button type="button" onClick={() => { db.usePredictedSavingsGoal(); setGoalEditing(false); }} style={{ background: 'transparent', border: '1px dashed #1e1e1e', borderRadius: 6, color: '#8b8b8b', cursor: 'pointer', padding: '6px 10px', fontSize: 10, alignSelf: 'flex-start' }}>{t('backToPredicted')}</button>
                 )}
               </div>
             ) : goalEditing ? null : (
@@ -753,8 +761,8 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
             {goalEditing && (
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: savingsGoal > 0 ? 8 : 0 }}>
                 <input autoFocus inputMode="decimal" placeholder={t('goalPlaceholder')} value={goalInput} onChange={(event) => setGoalInput(event.target.value.replace(/[^0-9.,]/g, ''))} onKeyDown={(event) => { if (event.key === 'Enter') { db.updateSavingsGoal(parseAmount(goalInput)); setGoalEditing(false); } if (event.key === 'Escape') setGoalEditing(false); }} style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 6, color: '#e0e0e0', padding: '8px 12px', fontSize: 14, fontWeight: 700, flex: 1, outline: 'none' }} />
-                <button onClick={() => { db.updateSavingsGoal(parseAmount(goalInput)); setGoalEditing(false); }} style={{ background: '#10b981', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '8px 14px', fontSize: 12, fontWeight: 600 }}>{t('save')}</button>
-                <button onClick={() => setGoalEditing(false)} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#8b8b8b', cursor: 'pointer', padding: '8px 12px', fontSize: 12 }}>{t('cancel')}</button>
+                <button type="button" onClick={() => { db.updateSavingsGoal(parseAmount(goalInput)); setGoalEditing(false); }} style={{ background: '#10b981', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '8px 14px', fontSize: 12, fontWeight: 600 }}>{t('save')}</button>
+                <button type="button" onClick={() => setGoalEditing(false)} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#8b8b8b', cursor: 'pointer', padding: '8px 12px', fontSize: 12 }}>{t('cancel')}</button>
               </div>
             )}
           </CollapsibleSection>
@@ -763,7 +771,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
       case 'fixed':
         return (
           <CollapsibleSection key="fixed" title={t('monthlyFixedBills')} count={db.fixedBills.length} totalAmount={fixedTotal} isOpen={isSectionOpen('fixed')} onToggle={() => toggleSection('fixed')} hideValues={hideValues} editMode={editMode} rightAction={
-            <button onClick={() => toggleAdd('fixed')} className={addSection === 'fixed' ? 'theme-add-toggle is-active' : 'theme-add-toggle'} style={{ background: addSection === 'fixed' ? '#111520' : 'transparent', border: `1px solid ${addSection === 'fixed' ? '#1e2a3e' : '#1e1e1e'}`, borderRadius: 6, color: addSection === 'fixed' ? '#60a5fa' : '#8b8b8b', cursor: 'pointer', fontSize: 11, padding: '3px 10px', transition: 'all 0.15s' }}>
+            <button type="button" onClick={() => toggleAdd('fixed')} className={addSection === 'fixed' ? 'theme-add-toggle is-active' : 'theme-add-toggle'} style={{ background: addSection === 'fixed' ? '#111520' : 'transparent', border: `1px solid ${addSection === 'fixed' ? '#1e2a3e' : '#1e1e1e'}`, borderRadius: 6, color: addSection === 'fixed' ? '#60a5fa' : '#8b8b8b', cursor: 'pointer', fontSize: 11, padding: '7px 12px', minHeight: 32, transition: 'all 0.15s' }}>
               {addSection === 'fixed' ? t('cancel') : t('add')}
             </button>
           }>
@@ -797,17 +805,21 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
               <>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                   <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('card')}</h3>
-                  <button onClick={() => setTab('cartao')} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#8b8b8b', cursor: 'pointer', fontSize: 10, padding: '3px 10px' }}>{t('details')}</button>
+                  <button type="button" onClick={() => setTab('cartao')} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#8b8b8b', cursor: 'pointer', fontSize: 10, padding: '8px 12px' }}>{t('details')}</button>
                 </div>
                 {db.creditCardBills.length === 0 && linkedFixedBills.length === 0 && importedCardTransactions.length === 0 ? (
-                  <div onClick={() => setTab('cartao')} style={{ background: '#111', border: '1px dashed #1e1e1e', borderRadius: 10, padding: '18px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
+                  <button type="button" onClick={() => setTab('cartao')} style={{ background: '#111', border: '1px dashed #1e1e1e', borderRadius: 10, padding: '18px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', width: '100%', font: 'inherit', textAlign: 'left' }}>
                     <span style={{ fontSize: 12, color: '#8b8b8b' }}>{t('noInstallments')} {t('in')} {db.selectedMonth.name}</span>
                     <span style={{ fontSize: 11, color: '#8b8b8b' }}>{t('addPurchase')} →</span>
-                  </div>
+                  </button>
                 ) : (
                   <div className="theme-card-invoice-preview" style={{ background: '#131313', border: `1px solid ${allCardPaid ? '#10b98122' : '#1a1a1a'}`, borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12, opacity: allCardPaid ? 0.55 : 1, transition: 'all 0.15s' }}>
                     {/* Bolinha de pago — igual às contas */}
-                    <button
+                    <button type="button"
+                      role="checkbox"
+                      aria-checked={allCardPaid}
+                      aria-label={allCardPaid ? t('markAsUnpaid') : t('markAsPaid')}
+                      title={allCardPaid ? t('markAsUnpaid') : t('markAsPaid')}
                       onClick={(e) => {
                         e.stopPropagation();
                         if (allCardPaid) {
@@ -817,25 +829,33 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                         }
                       }}
                       style={{
+                        width: 44, height: 44, margin: -12, borderRadius: '50%',
+                        border: 'none',
+                        background: 'transparent',
+                        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        flexShrink: 0, padding: 0,
+                      }}
+                    >
+                      <span style={{
                         width: 20, height: 20, borderRadius: '50%',
                         border: `2px solid ${allCardPaid ? '#10b981' : '#2d2d2d'}`,
                         background: allCardPaid ? '#10b981' : 'transparent',
-                        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        flexShrink: 0, transition: 'all 0.15s', padding: 0,
-                      }}
-                    >
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        transition: 'all 0.15s',
+                      }}>
                       {allCardPaid && (
                         <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
                           <path d="M2 6l3 3 5-5" stroke="#000" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
                         </svg>
                       )}
+                      </span>
                     </button>
 
                     {/* Color dot */}
                     <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', flexShrink: 0, opacity: 0.8 }} />
 
                     {/* Info */}
-                    <div onClick={() => setTab('cartao')} style={{ flex: 1, cursor: 'pointer', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    <div role="button" tabIndex={0} aria-label={t('monthlyInvoice')} onClick={() => setTab('cartao')} onKeyDown={(event) => activateOnKey(event, () => setTab('cartao'))} style={{ flex: 1, cursor: 'pointer', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
                       <span style={{ fontSize: 13, fontWeight: 600, color: allCardPaid ? '#555' : '#d4d4d4', textDecoration: allCardPaid ? 'line-through' : 'none' }}>{t('monthlyInvoice')}</span>
                       <div className="theme-card-invoice-details" style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
                         <span className="theme-card-count" style={{ fontSize: 10, color: '#8b8b8b', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 6px' }}>
@@ -873,7 +893,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
         if (db.variableBills.length === 0 && addSection !== 'variable' && !editMode) return null;
         return (
           <CollapsibleSection key="variable" title={t('variableExpenses')} count={db.variableBills.length} totalAmount={db.variableBills.reduce((s, b) => s + b.amount, 0)} isOpen={isSectionOpen('variable')} onToggle={() => toggleSection('variable')} hideValues={hideValues} editMode={editMode} rightAction={
-            <button onClick={() => toggleAdd('variable')} className={addSection === 'variable' ? 'theme-add-toggle is-active' : 'theme-add-toggle'} style={{ background: addSection === 'variable' ? '#111520' : 'transparent', border: `1px solid ${addSection === 'variable' ? '#1e2a3e' : '#1e1e1e'}`, borderRadius: 6, color: addSection === 'variable' ? '#60a5fa' : '#8b8b8b', cursor: 'pointer', fontSize: 11, padding: '3px 10px', transition: 'all 0.15s' }}>
+            <button type="button" onClick={() => toggleAdd('variable')} className={addSection === 'variable' ? 'theme-add-toggle is-active' : 'theme-add-toggle'} style={{ background: addSection === 'variable' ? '#111520' : 'transparent', border: `1px solid ${addSection === 'variable' ? '#1e2a3e' : '#1e1e1e'}`, borderRadius: 6, color: addSection === 'variable' ? '#60a5fa' : '#8b8b8b', cursor: 'pointer', fontSize: 11, padding: '7px 12px', minHeight: 32, transition: 'all 0.15s' }}>
               {addSection === 'variable' ? t('cancel') : t('add')}
             </button>
           }>
@@ -900,7 +920,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
               <div className={importMsg === t('dataRestoredSuccess') ? 'theme-import-msg is-success' : 'theme-import-msg is-error'} style={{ background: importMsg === t('dataRestoredSuccess') ? '#0a1a0a' : '#1a1010', border: `1px solid ${importMsg === t('dataRestoredSuccess') ? '#152515' : '#2a1515'}`, borderRadius: 6, padding: '8px 12px', fontSize: 11, color: importMsg === t('dataRestoredSuccess') ? '#4ade80' : '#ef4444', marginBottom: 10 }}>{importMsg}</div>
             )}
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button className="theme-export-backup" onClick={db.exportData} style={{ flex: 1, minWidth: 130, background: '#111520', border: '1px solid #1e2a3e', borderRadius: 6, color: '#60a5fa', cursor: 'pointer', padding: '10px 14px', fontSize: 12, fontWeight: 600 }}>{t('exportBackup')}</button>
+              <button type="button" className="theme-export-backup" onClick={db.exportData} style={{ flex: 1, minWidth: 130, background: '#111520', border: '1px solid #1e2a3e', borderRadius: 6, color: '#60a5fa', cursor: 'pointer', padding: '10px 14px', fontSize: 12, fontWeight: 600 }}>{t('exportBackup')}</button>
               <label className="theme-backup-import" style={{ flex: 1, minWidth: 130, background: '#131313', border: '1px solid #1e1e1e', borderRadius: 6, color: '#777', cursor: 'pointer', padding: '10px 14px', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
                 {t('importBackup')}
                 <input type="file" accept=".json" style={{ display: 'none' }} onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; const ok = await db.importData(file); setImportMsg(ok ? t('dataRestoredSuccess') : t('invalidBackupFile')); setTimeout(() => setImportMsg(null), 4000); e.target.value = ''; }} />
@@ -935,12 +955,12 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
           {userId && (
             <>
               {db.syncNotice && <span style={{ fontSize: 10, color: '#4b8f73' }}>{db.syncNotice}</span>}
-              <button onClick={() => void refreshAppOrData(db.refreshData)} disabled={db.isRefreshing} title={t('update')} aria-label={t('update')} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 7, color: db.isRefreshing ? '#3b82f6' : '#666', cursor: db.isRefreshing ? 'wait' : 'pointer', width: 40, height: 38, display: 'grid', placeItems: 'center' }}>
+              <button type="button" onClick={() => void refreshAppOrData(db.refreshData)} disabled={db.isRefreshing} title={t('update')} aria-label={t('update')} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 7, color: db.isRefreshing ? '#3b82f6' : '#666', cursor: db.isRefreshing ? 'wait' : 'pointer', width: 40, height: 38, display: 'grid', placeItems: 'center' }}>
                 <IconRefresh spinning={db.isRefreshing} />
               </button>
             </>
           )}
-          <button onClick={() => setSettingsOpen(true)} title={t('openSettings')} aria-label={t('openSettings')} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 7, color: '#666', cursor: 'pointer', width: 40, height: 38, display: 'grid', placeItems: 'center' }}><IconSettings /></button>
+          <button type="button" onClick={() => setSettingsOpen(true)} title={t('openSettings')} aria-label={t('openSettings')} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 7, color: '#666', cursor: 'pointer', width: 40, height: 38, display: 'grid', placeItems: 'center' }}><IconSettings /></button>
         </div>
       </header>
 
@@ -969,7 +989,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
           { key: 'cartao' as Tab, icon: IconCard, label: t('card') },
           { key: 'chat' as Tab, icon: IconChat, label: t('assistant') },
         ]).map(({ key, icon: Icon, label }) => (
-          <button key={key} onClick={() => { setTab(key); setEditMode(false); }} className={tab === key ? 'is-active' : undefined} style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '6px 18px', minWidth: 70, transition: 'all 0.15s', color: tab === key ? '#e0e0e0' : '#555' }}>
+          <button type="button" key={key} onClick={() => { setTab(key); setEditMode(false); }} className={tab === key ? 'is-active' : undefined} style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '6px 18px', minWidth: 70, transition: 'all 0.15s', color: tab === key ? '#e0e0e0' : '#555' }}>
             <Icon />
             <span style={{ fontSize: 9, fontWeight: tab === key ? 600 : 400, color: tab === key ? '#c0c0c0' : '#8b8b8b', letterSpacing: '0.02em', textTransform: 'uppercase' }}>{label}</span>
         </button>
@@ -978,14 +998,14 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
 
       {settingsOpen && (
         <>
-          <button className="settings-backdrop" aria-label={t('closeSettings')} onClick={() => setSettingsOpen(false)} />
+          <button type="button" className="settings-backdrop" aria-label={t('closeSettings')} onClick={() => setSettingsOpen(false)} />
           <aside ref={settingsRef} className="settings-drawer" role="dialog" aria-modal="true" aria-label={t('settings')}>
             <div className="settings-heading">
               <div>
                 <div className="settings-eyebrow">{t('preferences')}</div>
                 <h2>{t('settings')}</h2>
               </div>
-              <button onClick={() => setSettingsOpen(false)} title={t('close')} aria-label={`${t('close')} ${t('settings').toLowerCase()}`} className="settings-icon-button"><IconClose /></button>
+              <button type="button" onClick={() => setSettingsOpen(false)} title={t('close')} aria-label={`${t('close')} ${t('settings').toLowerCase()}`} className="settings-icon-button"><IconClose /></button>
             </div>
             <div className="settings-group">
               <div className="settings-label">{t('languageAndCurrency')}</div>
@@ -1001,17 +1021,17 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                   <span className="theme-switch-icon" aria-hidden="true">{theme === 'light' ? <IconSun /> : <IconMoon />}</span>
                   <div><strong>{theme === 'light' ? t('lightMode') : t('darkMode')}</strong><small>{theme === 'light' ? t('lightModeDescription') : t('darkModeDescription')}</small></div>
                 </div>
-                <button className={`theme-switch ${theme === 'light' ? 'is-light' : ''}`} role="switch" aria-checked={theme === 'light'} aria-label={t('toggleTheme')} onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}><span /></button>
+                <button type="button" className={`theme-switch ${theme === 'light' ? 'is-light' : ''}`} role="switch" aria-checked={theme === 'light'} aria-label={t('toggleTheme')} onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}><span /></button>
               </div>
             </div>
             <GoogleCalendarSettings userId={userId} onClearCalendarEventIds={db.clearCalendarEventIds} />
             <div className="settings-group">
               <div className="settings-label">{t('help')}</div>
-              <button className="settings-action" onClick={() => setHelpOpen(true)}><span>{t('useApp')}</span><span className="settings-action-arrow">→</span></button>
+              <button type="button" className="settings-action" onClick={() => setHelpOpen(true)}><span>{t('useApp')}</span><span className="settings-action-arrow">→</span></button>
             </div>
             <div className="settings-group">
               <div className="settings-label">{t('account')}</div>
-              <button className="settings-action" onClick={() => { setSettingsOpen(false); signOut(); }} disabled={!userId}><span>{t('signOut')}</span><span className="settings-action-arrow">→</span></button>
+              <button type="button" className="settings-action" onClick={() => { setSettingsOpen(false); signOut(); }} disabled={!userId}><span>{t('signOut')}</span><span className="settings-action-arrow">→</span></button>
             </div>
           </aside>
         </>
@@ -1066,7 +1086,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                 <div className="settings-eyebrow">{t('quickGuide')}</div>
                 <h2 id="help-modal-title">{t('helpTitle')}</h2>
               </div>
-              <button className="settings-icon-button" onClick={() => setHelpOpen(false)} title={t('closeGuide')} aria-label={t('closeGuide')}><IconClose /></button>
+              <button type="button" className="settings-icon-button" onClick={() => setHelpOpen(false)} title={t('closeGuide')} aria-label={t('closeGuide')}><IconClose /></button>
             </div>
             <div className="help-modal-content">
               <section><h3>{t('helpStep1Title')}</h3><p>{t('helpStep1Body')}</p></section>
@@ -1080,7 +1100,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
               <section><h3>{t('helpStep9Title')}</h3><p>{t('helpStep9BodyA')}<a className="help-modal-link" href="https://console.groq.com/keys" target="_blank" rel="noreferrer">console.groq.com/keys</a>{t('helpStep9BodyB')}<strong>Create API Key</strong>{t('helpStep9BodyC')}<strong>{t('groqKey')}</strong>{t('helpStep9BodyD')}<strong>{t('saveAndStart')}</strong>{t('helpStep9BodyE')}</p></section>
               <section><h3>{t('helpStep10Title')}</h3><p>{t('helpStep10Body')}</p></section>
             </div>
-            <button className="help-modal-close" onClick={() => setHelpOpen(false)}>{t('closeGuide')}</button>
+            <button type="button" className="help-modal-close" onClick={() => setHelpOpen(false)}>{t('closeGuide')}</button>
           </article>
         </div>
       )}
@@ -1091,7 +1111,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
         {/* Month selector */}
         {tab !== 'chat' && <div className="theme-month-selector" style={{ display: 'flex', gap: 5, overflowX: 'auto', paddingBottom: 2, alignItems: 'center' }}>
           {db.months.map((m) => (
-            <button key={m.id} ref={(element) => { monthButtonRefs.current[m.id] = element; }} className={db.selectedMonthId === m.id ? 'theme-month-active' : undefined} onClick={() => db.selectMonth(m.id)} style={{
+            <button type="button" key={m.id} ref={(element) => { monthButtonRefs.current[m.id] = element; }} className={db.selectedMonthId === m.id ? 'theme-month-active' : undefined} onClick={() => db.selectMonth(m.id)} style={{
               background: db.selectedMonthId === m.id ? '#1a1a1a' : 'transparent',
               border: `1px solid ${db.selectedMonthId === m.id ? '#2a2a2a' : '#151515'}`,
               borderRadius: 6, color: db.selectedMonthId === m.id ? '#e0e0e0' : '#8b8b8b',
@@ -1100,7 +1120,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
               {formatMonthShort(m.name, m.year)}
             </button>
           ))}
-          <button onClick={db.addNextMonth} aria-label={t('addMonth')} style={{ background: 'transparent', border: '1px dashed #1e1e1e', borderRadius: 6, color: '#8b8b8b', cursor: 'pointer', padding: '5px 10px', minHeight: 44, fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 }} title={t('addMonth')}>+</button>
+          <button type="button" onClick={db.addNextMonth} aria-label={t('addMonth')} style={{ background: 'transparent', border: '1px dashed #1e1e1e', borderRadius: 6, color: '#8b8b8b', cursor: 'pointer', padding: '5px 10px', minHeight: 44, fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 }} title={t('addMonth')}>+</button>
         </div>}
 
         {/* ──── DASHBOARD ──── */}
@@ -1113,7 +1133,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                   <GripIcon />
                   <span style={{ fontSize: 12, color: '#60a5fa', fontWeight: 500 }}>{t('dragToReorder')}</span>
                 </div>
-                <button onClick={() => setEditMode(false)} style={{ background: '#3b82f6', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '5px 14px', fontSize: 11, fontWeight: 600 }}>{t('done')}</button>
+                <button type="button" onClick={() => setEditMode(false)} style={{ background: '#3b82f6', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '5px 14px', fontSize: 11, fontWeight: 600 }}>{t('done')}</button>
               </div>
             )}
 
@@ -1129,7 +1149,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
             {/* Summary cards 2×2 com olhinho no centro */}
             <div style={{ position: 'relative' }}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
-                <div onClick={() => setIncomeModalOpen(true)} style={{ cursor: 'pointer' }}>
+                <div role="button" tabIndex={0} aria-label={`${t('monthlyIncome')} · ${t('tapToEdit')}`} onClick={() => setIncomeModalOpen(true)} onKeyDown={(event) => activateOnKey(event, () => setIncomeModalOpen(true))} style={{ cursor: 'pointer' }}>
                   <SummaryCard title={t('monthlyIncome')} value={formatCurrency(db.selectedMonth.income)} accent="green" subtitle={t('tapToEdit')} valueColor="#10b981" hidden={hideValues} />
                 </div>
 
@@ -1139,7 +1159,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
               </div>
 
               {/* Olhinho flutuante no centro exato dos 4 cards */}
-              <button
+              <button type="button"
                 onClick={togglePrivacy}
                   className="theme-privacy-toggle"
                   aria-label={hideValues ? t('showValues') : t('hideValues')}
@@ -1148,8 +1168,8 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                   top: '50%',
                   left: '50%',
                   transform: 'translate(-50%, -50%)',
-                  width: 38,
-                  height: 38,
+                  width: 40,
+                  height: 40,
                   borderRadius: '50%',
                   background: hideValues ? '#3b82f6' : '#1a1a1a',
                   border: `2px solid ${hideValues ? '#3b82f6' : '#2a2a2a'}`,
@@ -1230,10 +1250,10 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
                 <span style={{ color: db.syncError ? '#ef4444' : undefined }}>{db.syncError || (userId ? t('savedToCloud') : t('savedAutomatically'))}</span>
                 <span style={{ color: '#6f6f6f' }}>·</span>
-                <button type="button" onClick={() => setConfirmKind('reset')} style={{ background: 'transparent', border: 'none', color: '#9a9a9a', cursor: 'pointer', fontSize: 10, padding: 0, textDecoration: 'underline' }}>{t('reset')}</button>
-                {userId && <><span style={{ color: '#4b4b4b' }}>·</span><button onClick={signOut} style={{ background: 'transparent', border: 'none', color: '#9a9a9a', cursor: 'pointer', fontSize: 10, padding: 0, textDecoration: 'underline' }}>{t('signOutShort')}</button></>}
+                <button type="button" onClick={() => setConfirmKind('reset')} style={{ background: 'transparent', border: 'none', color: '#9a9a9a', cursor: 'pointer', fontSize: 10, padding: '10px 4px', margin: '-10px 0', textDecoration: 'underline' }}>{t('reset')}</button>
+                {userId && <><span style={{ color: '#4b4b4b' }}>·</span><button type="button" onClick={signOut} style={{ background: 'transparent', border: 'none', color: '#9a9a9a', cursor: 'pointer', fontSize: 10, padding: '10px 4px', margin: '-10px 0', textDecoration: 'underline' }}>{t('signOutShort')}</button></>}
               </div>
-              <button
+              <button type="button"
                 onClick={() => setEditMode((p) => !p)}
                 className={editMode ? 'theme-edit-layout is-active' : 'theme-edit-layout'}
                 style={{
@@ -1242,7 +1262,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                   borderRadius: 6,
                   color: editMode ? '#60a5fa' : '#8b8b8b',
                   cursor: 'pointer',
-                  padding: '5px 14px',
+                  padding: '10px 16px',
                   fontSize: 10,
                   fontWeight: 600,
                   transition: 'all 0.15s',

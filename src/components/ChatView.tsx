@@ -28,6 +28,7 @@ const STORAGE_KEY_CHAT = 'finance_chat_history';
 const STORAGE_KEY_GROQ_STATUS = 'groq_configured';
 const CHAT_MODEL = 'openai/gpt-oss-20b';
 const MAX_CONTEXT_MESSAGES = 12;
+const MAX_STORED_MESSAGES = 50;
 
 const SUGGESTION_KEYS = ['suggestion1', 'suggestion2', 'suggestion3', 'suggestion4', 'suggestion5', 'suggestion6'];
 
@@ -86,7 +87,7 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
       bottomRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages, loading]);
-  useEffect(() => { if (userId) writeUserStorage(userId, STORAGE_KEY_CHAT, JSON.stringify(messages.slice(-50))); }, [messages, userId]);
+  useEffect(() => { if (userId) writeUserStorage(userId, STORAGE_KEY_CHAT, JSON.stringify(messages.slice(-MAX_STORED_MESSAGES))); }, [messages, userId]);
   useEffect(() => {
     const cachedStatus = readUserStorage(userId, STORAGE_KEY_GROQ_STATUS);
     if (cachedStatus === 'true') {
@@ -184,7 +185,7 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
             </ol>
             <div style={{ fontSize: 10, color: '#6f6f6f', marginTop: 8 }}>Groq · GPT OSS 20B</div>
           </div>
-          <button className="chat-save" onClick={saveKey} disabled={keyLoading || !apiKeyInput.startsWith('gsk_')} style={{ background: apiKeyInput.startsWith('gsk_') && !keyLoading ? '#3b82f6' : '#151520', border: 'none', borderRadius: 6, color: apiKeyInput.startsWith('gsk_') && !keyLoading ? '#fff' : '#3a4a5a', cursor: apiKeyInput.startsWith('gsk_') && !keyLoading ? 'pointer' : 'not-allowed', padding: '10px', fontSize: 13, fontWeight: 600 }}>{keyLoading ? t('saving') : t('saveAndStart')}</button>
+          <button type="button" className="chat-save" onClick={saveKey} disabled={keyLoading || !apiKeyInput.startsWith('gsk_')} style={{ background: apiKeyInput.startsWith('gsk_') && !keyLoading ? '#3b82f6' : '#151520', border: 'none', borderRadius: 6, color: apiKeyInput.startsWith('gsk_') && !keyLoading ? '#fff' : '#3a4a5a', cursor: apiKeyInput.startsWith('gsk_') && !keyLoading ? 'pointer' : 'not-allowed', padding: '10px', fontSize: 13, fontWeight: 600 }}>{keyLoading ? t('saving') : t('saveAndStart')}</button>
         </div>
       </div>
     );
@@ -202,11 +203,11 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           {messages.length > 0 && (
-            <button onClick={clearChat} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#8b8b8b', cursor: 'pointer', fontSize: 11, padding: '6px 9px' }} title={t('clearConversation')}>
+            <button type="button" onClick={clearChat} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#8b8b8b', cursor: 'pointer', fontSize: 11, padding: '6px 9px', minWidth: 40, minHeight: 40, display: 'grid', placeItems: 'center' }} title={t('clearConversation')}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>
             </button>
           )}
-          <button onClick={removeKey} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#8b8b8b', cursor: 'pointer', fontSize: 11, padding: '6px 9px' }} title={t('changeKey')}>
+          <button type="button" onClick={removeKey} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#8b8b8b', cursor: 'pointer', fontSize: 11, padding: '6px 9px', minWidth: 40, minHeight: 40, display: 'grid', placeItems: 'center' }} title={t('changeKey')}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" /></svg>
             </button>
         </div>
@@ -217,7 +218,7 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 16 }}>
             <div style={{ textAlign: 'center', color: '#8b8b8b', fontSize: 12 }}>{t('askAboutSpending')}</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center' }}>
-              {SUGGESTION_KEYS.map((key) => (<button className="theme-ai-suggestion" key={key} onClick={() => sendMessage(t(key))} style={{ background: '#111', border: '1px solid #1e1e1e', borderRadius: 6, color: '#777', cursor: 'pointer', padding: '7px 12px', fontSize: 11, transition: 'all 0.15s', textAlign: 'left' }}>{t(key)}</button>))}
+              {SUGGESTION_KEYS.map((key) => (<button type="button" className="theme-ai-suggestion" key={key} onClick={() => sendMessage(t(key))} style={{ background: '#111', border: '1px solid #1e1e1e', borderRadius: 6, color: '#777', cursor: 'pointer', padding: '7px 12px', fontSize: 11, minHeight: 34, transition: 'all 0.15s', textAlign: 'left' }}>{t(key)}</button>))}
             </div>
           </div>
         )}
@@ -246,9 +247,15 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
         <div ref={bottomRef} />
       </div>
 
+      {messages.length > MAX_STORED_MESSAGES - 5 && (
+        <div className="chat-history-note" style={{ fontSize: 10, color: '#6f6f6f', padding: '4px 0', textAlign: 'center', flexShrink: 0 }}>
+          {t('chatHistoryLimit')}
+        </div>
+      )}
+
       {messages.length > 0 && !loading && (
         <div className="theme-chat-suggestions" style={{ display: 'flex', gap: 5, overflowX: 'auto', padding: '6px 0', borderTop: '1px solid #141414', flexShrink: 0 }}>
-          {SUGGESTION_KEYS.slice(0, 3).map((key) => (<button className="theme-ai-suggestion" key={key} onClick={() => sendMessage(t(key))} style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 5, color: '#555', cursor: 'pointer', padding: '4px 10px', fontSize: 10, whiteSpace: 'nowrap', flexShrink: 0 }}>{t(key)}</button>))}
+          {SUGGESTION_KEYS.slice(0, 3).map((key) => (<button type="button" className="theme-ai-suggestion" key={key} onClick={() => sendMessage(t(key))} style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 5, color: '#555', cursor: 'pointer', padding: '8px 12px', fontSize: 10, minHeight: 34, whiteSpace: 'nowrap', flexShrink: 0 }}>{t(key)}</button>))}
         </div>
       )}
 

@@ -102,7 +102,7 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete,
     >
       {/* Toggle pago — alvo de 44px com círculo visual de 20px dentro */}
       {showPaidToggle ? (
-        <button
+        <button type="button"
           onClick={onTogglePaid}
           role="checkbox"
           aria-checked={bill.isPaid}
@@ -274,7 +274,7 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete,
 
       {/* Deletar — ícone sempre visível e alvo de 44px: invisível só no hover
           quebrava o uso por toque e o botão não tinha nome acessível. */}
-      <button
+      <button type="button"
         onClick={onDelete}
         aria-label={t('deleteBill')}
         title={t('deleteBill')}

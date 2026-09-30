@@ -165,7 +165,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
 
   return (
     <div className="theme-import-panel" style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 12, overflow: 'hidden' }}>
-      <button onClick={toggleOpen} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'transparent', border: 'none', padding: '14px 18px', cursor: 'pointer', color: '#c0c0c0' }}>
+      <button type="button" onClick={toggleOpen} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'transparent', border: 'none', padding: '14px 18px', cursor: 'pointer', color: '#c0c0c0' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="M21 15l-5-5L5 21" />
@@ -209,7 +209,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
             }}
           />
 
-          <button
+          <button type="button"
             onClick={() => fileRef.current?.click()}
             disabled={loading || checkingKey || !apiKeyConfigured}
             className="import-upload"
@@ -333,7 +333,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
                 <span style={{ fontSize: 12, color: '#777' }}>
                   {selectedCount} · {t('invoiceTotal')}: <strong className="import-total-strong" style={{ color: '#c0c0c0' }}>{formatMoney(displayedTotal)}</strong>
                 </span>
-                <button
+                <button type="button"
                   onClick={handleConfirm}
                   disabled={selectedCount === 0}
                   className="import-confirm"
