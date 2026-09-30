@@ -4,6 +4,7 @@ import {
   type CreditCardInvoice,
   type CreditCardTransaction,
   type ExpenseOwner,
+  BILL_CATEGORY_COLORS,
   BILL_CATEGORY_LABELS,
 } from '../types';
 import { type CreditCardPurchase, type MonthInfo } from '../store/useDashboard';
@@ -57,7 +58,7 @@ const getOwnerOptions = (t: (key: string) => string): Array<{ value: ExpenseOwne
 ];
 
 function InvoiceTransactions({ invoices, creditCardBills, onUpdate, onTogglePaid, onSaveBill, onDeleteBill, hideValues }: { invoices: CreditCardInvoice[]; creditCardBills: Bill[]; onUpdate: (invoice: CreditCardInvoice) => void; onTogglePaid: (id: string) => void; onSaveBill: (bill: Bill) => void; onDeleteBill: (id: string) => void; hideValues?: boolean }) {
-  const { formatMoney, parseAmount, typeLabel, t } = usePreferences();
+  const { formatMoney, parseAmount, typeLabel, categoryLabel, t } = usePreferences();
   const ownerOptions = getOwnerOptions(t);
   const [filter, setFilter] = useState<'ALL' | ExpenseOwner>('ALL');
   const [pendingRemoval, setPendingRemoval] = useState<CreditCardTransaction | null>(null);
@@ -131,6 +132,13 @@ function InvoiceTransactions({ invoices, creditCardBills, onUpdate, onTogglePaid
                 <span style={{ fontSize: 10, color: '#9a9a9a' }}>{transaction.type}</span>
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 5, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                  <span aria-hidden style={{ flexShrink: 0, width: 8, height: 8, borderRadius: '50%', background: transaction.category ? BILL_CATEGORY_COLORS[transaction.category] : '#3f3f3f' }} />
+                  <select value={transaction.category ?? ''} aria-label={t('categoryAria')} onChange={(event) => updateTransaction(transaction.id, { category: (event.target.value || undefined) as BillCategory | undefined })} style={{ ...fieldStyle, width: 138, padding: '5px 8px', fontSize: 11 }}>
+                    <option value="">{t('noCategory')}</option>
+                    {(Object.keys(BILL_CATEGORY_LABELS) as BillCategory[]).map((key) => <option key={key} value={key}>{categoryLabel(key)}</option>)}
+                  </select>
+                </div>
                 <select value={transaction.owner} onChange={(event) => updateTransaction(transaction.id, { owner: event.target.value as ExpenseOwner, personalAmountCents: event.target.value === 'SHARED' ? transaction.personalAmountCents : undefined })} style={{ ...fieldStyle, width: 150, padding: '5px 8px', fontSize: 11 }}>
                   {ownerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
