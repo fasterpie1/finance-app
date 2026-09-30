@@ -18,7 +18,7 @@ import { getBillNotifications, type BillNotification } from './store/useDashboar
 import { createCalendarEvent, deleteCalendarEvent, listCalendarEvents, updateCalendarEvent } from './services/googleCalendar';
 import { billReminderInput, invoiceReminderInput } from './services/calendarReminders';
 import { type Bill, type BudgetMonth, type CreditCardTransaction, BILL_CATEGORY_LABELS, getMonthIndex } from './types';
-import { amountToCents, centsToAmount, getInvoicePersonalTotalCents, getInvoiceTotalCents, getTransactionCategoryImpactCents } from './services/cardTransactions';
+import { amountToCents, centsToAmount, getInvoicePersonalTotalCents, getInvoiceTotalCents, getPersonalCardSpendCents, getTransactionCategoryImpactCents } from './services/cardTransactions';
 import { safeSetItem } from './services/safeStorage';
 import { PreferencesProvider, usePreferences, type AppLocale, type DisplayCurrency } from './i18n';
 
@@ -636,6 +636,8 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
   const creditCardTotal = db.creditCardBills.reduce((s, b) => s + b.amount, 0)
     + linkedFixedBills.reduce((s, b) => s + b.amount, 0)
     + (db.selectedMonth.creditCardInvoices ?? []).reduce((total, invoice) => total + centsToAmount(getInvoiceTotalCents(invoice)), 0);
+  // O banco cobra a fatura inteira; o que importa no painel e a minha parte, sem terceiro.
+  const myInvoiceTotal = centsToAmount(getPersonalCardSpendCents(selectedInvoices, [...db.creditCardBills, ...linkedFixedBills]));
   const importedCardTransactions = (db.selectedMonth.creditCardInvoices ?? []).flatMap((invoice) => invoice.transactions).filter((transaction) => transaction.type !== 'PAYMENT');
   const hasCardItems = db.creditCardBills.length > 0 || linkedFixedBills.length > 0 || importedCardTransactions.length > 0;
   const allCardPaid = hasCardItems
@@ -919,8 +921,8 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                     <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', flexShrink: 0, opacity: 0.8 }} />
 
                     {/* Info */}
-                    <div role="button" tabIndex={0} aria-label={t('monthlyInvoice')} onClick={() => setTab('cartao')} onKeyDown={(event) => activateOnKey(event, () => setTab('cartao'))} style={{ flex: 1, cursor: 'pointer', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: allCardPaid ? '#8f8f8f' : '#d4d4d4', textDecoration: allCardPaid ? 'line-through' : 'none' }}>{t('monthlyInvoice')}</span>
+                    <div role="button" tabIndex={0} aria-label={t('myMonthlyInvoice')} onClick={() => setTab('cartao')} onKeyDown={(event) => activateOnKey(event, () => setTab('cartao'))} style={{ flex: 1, cursor: 'pointer', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: allCardPaid ? '#8f8f8f' : '#d4d4d4', textDecoration: allCardPaid ? 'line-through' : 'none' }}>{t('myMonthlyInvoice')}</span>
                       <div className="theme-card-invoice-details" style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
                         <span className="theme-card-count" style={{ fontSize: 10, color: '#8b8b8b', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 6px' }}>
                           {db.creditCardBills.length + importedCardTransactions.length} lançamento{db.creditCardBills.length + importedCardTransactions.length !== 1 ? 's' : ''}
@@ -933,6 +935,14 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                             </span>
                           </>
                         )}
+                        {Math.abs(creditCardTotal - myInvoiceTotal) >= 0.01 && (
+                          <>
+                            <span className="theme-muted-text" style={{ fontSize: 10 }}>·</span>
+                            <span className="theme-card-count" style={{ fontSize: 10, color: '#8b8b8b', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 6px' }}>
+                              {t('invoice')} {hideValues ? masked : formatCurrency(creditCardTotal)}
+                            </span>
+                          </>
+                        )}
                         <span className="theme-muted-text" style={{ fontSize: 10 }}>·</span>
                         <span className="theme-card-details-link" style={{ fontSize: 10, color: '#8b8b8b' }}>{t('details')} →</span>
                       </div>
@@ -940,7 +950,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
 
                     {/* Valor */}
                     <span className={`theme-card-invoice-amount privacy-mask${allCardPaid ? ' theme-value-green' : ''}`} style={{ fontSize: 14, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : (allCardPaid ? '#10b981' : '#d4d4d4'), flexShrink: 0, letterSpacing: '-0.01em', transition: 'color 0.2s' }}>
-                      {hideValues ? masked : formatCurrency(creditCardTotal)}
+                      {hideValues ? masked : formatCurrency(myInvoiceTotal)}
                     </span>
                     {!allCardPaid && (
                       <CalendarReminderButton added={Boolean(db.selectedMonth.creditCardCalendarEventId)} loading={calendarWorkingId === `invoice:${db.selectedMonth.id}`} onClick={() => void addInvoiceReminder()} />

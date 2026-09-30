@@ -54,6 +54,17 @@ export function getUnimportedCardBills(bills: Bill[], transactions: CreditCardTr
   }, transactions));
 }
 
+/** Quanto do cartão é meu: a parte pessoal dos lançamentos importados mais as contas fixas
+ *  ligadas ao cartão que ainda não vieram na fatura. Terceiro e não classificado ficam fora,
+ *  porque não são gasto meu — e é o número que o app todo mostra em primeiro lugar. */
+export function getPersonalCardSpendCents(invoices: CreditCardInvoice[], cardBills: Bill[]): number {
+  const transactions = invoices.flatMap((invoice) => invoice.transactions);
+  const invoicesCents = invoices.reduce((total, invoice) => total + getInvoicePersonalTotalCents(invoice), 0);
+  const billsCents = getUnimportedCardBills(cardBills, transactions)
+    .reduce((total, bill) => total + amountToCents(bill.amount), 0);
+  return invoicesCents + billsCents;
+}
+
 export function getOwnerLabel(owner: ExpenseOwner): string {
   return {
     ME: 'Eu',

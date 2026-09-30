@@ -9,7 +9,7 @@ import {
   getMonthIndex,
 } from '../types';
 import { type CreditCardPurchase, type MonthInfo } from '../store/useDashboard';
-import { amountToCents, centsToAmount, getInvoiceChargeTotalCents, getInvoicePersonalTotalCents, getInvoiceThirdPartyTotalCents, getInvoiceTotalCents, getInvoiceUnclassifiedTotalCents, getOwnerLabel, getThirdPartyTotalsCents, getTransactionDay, getUnimportedCardBills, setTransactionDay } from '../services/cardTransactions';
+import { centsToAmount, getInvoiceChargeTotalCents, getInvoicePersonalTotalCents, getInvoiceThirdPartyTotalCents, getInvoiceTotalCents, getInvoiceUnclassifiedTotalCents, getOwnerLabel, getPersonalCardSpendCents, getThirdPartyTotalsCents, getTransactionDay, setTransactionDay } from '../services/cardTransactions';
 import { findDuplicateTransaction } from '../services/transactionDuplicates';
 import { BillRow } from './BillRow';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -77,7 +77,6 @@ function InvoiceTransactions({ invoices, creditCardBills, linkedFixedBills, onUp
   const allTransactions = invoices.flatMap((invoice) => invoice.transactions);
   // Conta fixa ligada ao cartão não tem dono, então é minha.
   const cardBills = [...creditCardBills, ...linkedFixedBills];
-  const ownCardBills = getUnimportedCardBills(cardBills, allTransactions);
   // O "Eu" traz o compartilhado junto: a parte pessoal dele também é minha.
   const matchesFilter = (transaction: CreditCardTransaction) => {
     if (filter === 'ALL') return true;
@@ -109,7 +108,7 @@ function InvoiceTransactions({ invoices, creditCardBills, linkedFixedBills, onUp
     thirdParty: summary.thirdParty + getInvoiceThirdPartyTotalCents(invoice),
     unclassified: summary.unclassified + getInvoiceUnclassifiedTotalCents(invoice),
   }), { total: 0, personal: 0, thirdParty: 0, unclassified: 0 });
-  const personalCents = totals.personal + ownCardBills.reduce((total, bill) => total + amountToCents(bill.amount), 0);
+  const personalCents = getPersonalCardSpendCents(invoices, cardBills);
   const sharedCents = allTransactions.reduce((total, transaction) => (
     transaction.owner === 'SHARED' ? total + transaction.amountCents : total
   ), 0);
