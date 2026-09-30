@@ -133,7 +133,7 @@ function formatCardBreakdown(
   }
   for (const bill of bills) {
     push(BILL_CATEGORY_LABELS[bill.category], amountToCents(bill.amount),
-      `${bill.name} ${money(bill.amount)} conta no cartão${bill.installmentCurrent && bill.installmentTotal && bill.installmentTotal > 1 ? ` parc ${bill.installmentCurrent}/${bill.installmentTotal}` : ''}`);
+      `${bill.name} ${money(bill.amount)} conta no cartão (dia ${bill.dueDay})${bill.installmentCurrent && bill.installmentTotal && bill.installmentTotal > 1 ? ` parc ${bill.installmentCurrent}/${bill.installmentTotal}` : ''}`);
   }
   return [...groups.entries()]
     .filter(([, group]) => group.totalCents !== 0)
@@ -302,6 +302,7 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
   const settingsRef = useModalA11y<HTMLElement>(settingsOpen && !helpOpen, closeSettings);
   const helpRef = useModalA11y<HTMLElement>(helpOpen, closeHelp);
   const monthButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const headerRef = useRef<HTMLElement>(null);
   const [dailyNotifications, setDailyNotifications] = useState<BillNotification[]>([]);
   const [dailyNotificationOpen, setDailyNotificationOpen] = useState(false);
   const [goalEditing, setGoalEditing] = useState(false);
@@ -321,6 +322,17 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
   useEffect(() => {
     monthButtonRefs.current[db.selectedMonthId]?.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'center' });
   }, [db.months, db.selectedMonthId]);
+
+  // A barra de meses cola embaixo do header, cuja altura muda com a safe area do dispositivo.
+  useEffect(() => {
+    const header = headerRef.current;
+    if (!header) return;
+    const publish = () => document.documentElement.style.setProperty('--app-header-height', `${Math.round(header.getBoundingClientRect().height)}px`);
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const todayKey = getLocalDateKey();
@@ -991,7 +1003,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
     <div className={`app-shell${tab === 'chat' ? ' app-shell-chat' : ''}${tab === 'chat' && keyboardOpen ? ' app-shell-chat-keyboard' : ''}`} style={{ minHeight: '100vh', background: '#0a0a0a', color: '#e0e0e0', fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif" }}>
 
       {/* ─── Header (simples, com safe area) ─── */}
-      <header className="app-header" style={{
+      <header ref={headerRef} className="app-header" style={{
         borderBottom: '1px solid #151515',
         paddingLeft: 16, paddingRight: 16,
         paddingTop: 'max(env(safe-area-inset-top, 0px), 12px)',
@@ -1168,7 +1180,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
       <div className={`app-content${tab === 'chat' ? ' app-content-chat' : ''}`} style={{ maxWidth: 900, margin: '0 auto', padding: '16px 16px calc(56px + env(safe-area-inset-bottom, 0px) + 24px)', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
         {/* Month selector */}
-        {tab !== 'chat' && <div className="theme-month-selector" style={{ display: 'flex', gap: 5, overflowX: 'auto', paddingBottom: 2, alignItems: 'center' }}>
+        {tab !== 'chat' && <div className="theme-month-selector" style={{ display: 'flex', gap: 5, overflowX: 'auto', alignItems: 'center' }}>
           {db.months.map((m) => (
             <button type="button" key={m.id} ref={(element) => { monthButtonRefs.current[m.id] = element; }} className={db.selectedMonthId === m.id ? 'theme-month-active' : undefined} onClick={() => db.selectMonth(m.id)} style={{
               background: db.selectedMonthId === m.id ? '#1a1a1a' : 'transparent',

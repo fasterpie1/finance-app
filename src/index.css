@@ -60,6 +60,21 @@
   padding-bottom: 0 !important;
 }
 
+/* A barra de meses fica logo abaixo do header: em páginas longas do dashboard e do cartão
+   ela sumia e trocar de mês exigia voltar ao topo. --app-header-height é medido no App. */
+.theme-month-selector {
+  position: sticky;
+  top: var(--app-header-height, 56px);
+  z-index: 40;
+  background: #0a0a0a;
+  margin: -16px -16px -20px;
+  padding: 16px 16px 20px;
+}
+
+body[data-theme='light'] .theme-month-selector {
+  background: #f4f5f7;
+}
+
 body {
   background: #0a0a0a;
   color: #e0e0e0;
