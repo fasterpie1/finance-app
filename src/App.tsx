@@ -112,7 +112,17 @@ function useKeyboardOpen() {
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
-    const check = () => setOpen(vv.height < window.innerHeight * 0.75);
+    let tallest = vv.height;
+    const check = () => {
+      // O chat precisa medir exatamente o que aparece: com 100dvh o shell continua do tamanho
+      // de antes do teclado e o navegador rola o documento, escondendo a última resposta.
+      tallest = Math.max(tallest, vv.height);
+      document.documentElement.style.setProperty('--vv-height', `${Math.round(vv.height)}px`);
+      // Em resizes-content o innerHeight encolhe junto com o viewport, então a razão antiga
+      // nunca disparava; a maior altura já medida funciona nos dois modos.
+      setOpen(tallest - vv.height > 140);
+    };
+    check();
     vv.addEventListener('resize', check);
     vv.addEventListener('scroll', check);
     return () => { vv.removeEventListener('resize', check); vv.removeEventListener('scroll', check); };
@@ -494,6 +504,15 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
       .sort((a, b) => b[1] - a[1])
       .map(([label, amount]) => `${label} ${formatCurrency(amount)}`)
       .join(', ');
+    // Detalhe por estabelecimento também dos meses antigos: sem isso o modelo só vê totais
+    // e não consegue responder "onde gastei em lazer no mês passado".
+    const cardDetails = cardTransactions
+      .map((transaction) => ({
+        amount: Math.abs(centsToAmount(getTransactionCategoryImpactCents(transaction))),
+        text: `${transaction.merchant} (${transaction.category ? BILL_CATEGORY_LABELS[transaction.category] : 'Sem categoria'}) — ${formatCurrency(centsToAmount(getTransactionCategoryImpactCents(transaction)))}${transaction.installmentTotal && transaction.installmentTotal > 1 ? ` — Parcela ${transaction.installmentCurrent ?? 1}/${transaction.installmentTotal}` : ''}`,
+      }))
+      .sort((a, b) => b.amount - a.amount);
+    const cardDetailsList = cardDetails.slice(0, 20);
     return {
       label: `${month.name} ${month.year}`,
       income: month.income,
@@ -502,6 +521,9 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
       cardTotal: Object.values(cardTotals).reduce((sum, amount) => sum + amount, 0),
       categories: formatTotals(billCategoryTotals) || 'sem contas',
       cardCategories: formatTotals(cardTotals) || 'sem gastos no cartão',
+      cardDetails: cardDetailsList.map((item) => item.text).join('\n')
+        + (cardDetails.length > cardDetailsList.length ? `\n(+${cardDetails.length - cardDetailsList.length} outros lançamentos neste mês)` : ''),
+      cardDetailCount: cardDetails.length,
       invoices: invoices.length,
     };
   };
@@ -513,9 +535,10 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
   const historicalContext = previousMonths.length > 0
     ? `\n\nHistórico completo dos meses anteriores (contas mensais, fixas, variáveis e lançamentos importados do cartão):\n${previousMonths.map((month) => {
       const s = summarizeMonth(month);
-      return `- ${s.label}: entrada ${formatCurrency(s.income)}; contas ${formatCurrency(s.billsTotal)} (pagas ${formatCurrency(s.paidTotal)}); cartão ${formatCurrency(s.cardTotal)}${s.invoices ? ` (${s.invoices} fatura(s) importada(s))` : ''}\n  Por categoria (todas as contas): ${s.categories}\n  Por categoria no cartão: ${s.cardCategories}`;
+      return `- ${s.label}: entrada ${formatCurrency(s.income)}; contas ${formatCurrency(s.billsTotal)} (pagas ${formatCurrency(s.paidTotal)}); cartão ${formatCurrency(s.cardTotal)}${s.invoices ? ` (${s.invoices} fatura(s) importada(s))` : ''}\n  Por categoria (todas as contas): ${s.categories}\n  Por categoria no cartão: ${s.cardCategories}${s.cardDetailCount ? `\n  Lançamentos do cartão (estabelecimento, categoria, valor):\n${s.cardDetails.split('\n').map((line) => `    ${line}`).join('\n')}` : ''}`;
     }).join('\n')}`
     : '\n\nNão há meses anteriores cadastrados para comparação.';
+  const availableMonths = db.months.map((month) => `${month.name} ${month.year}`).join(', ');
 
   const currentCardBills = db.selectedMonth.bills.filter((bill) =>
     (bill.type === 'parcela' && bill.category !== 'financiamento') || bill.isOnCreditCard === true
@@ -563,6 +586,10 @@ ${currentCategories}
 
 Lançamentos do cartão deste mês (estabelecimento, categoria, valor):
 ${currentCardTransactionsList}
+
+Meses cadastrados no aplicativo: ${availableMonths}
+"Mês passado" e meses citados pelo usuário (ex.: "agosto") se referem a esses mesmos meses; some os lançamentos e as categorias listados acima em vez de estimar. Se o mês pedido não estiver nessa lista, diga que não há dados dele e oriente a criar o mês ou importar a fatura — nunca invente valores nem categorias.
+Lançamentos marcados como "Sem categoria" são compras de fatura importada que o usuário ainda não classificou; nesse caso explique isso e oriente a escolher a categoria na linha do lançamento, na tela Cartão.
 
 Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus gastos, dívidas, planejamento financeiro ou como economizar.${historicalContext}`;
 

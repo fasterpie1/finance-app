@@ -7,8 +7,9 @@
 
 /* The chat owns the viewport so only its message history can scroll. */
 .app-shell-chat {
-  height: 100dvh;
-  min-height: 100dvh !important;
+  /* --vv-height vem do visualViewport (App.tsx); sem ele cai em 100dvh. */
+  height: var(--vv-height, 100dvh);
+  min-height: var(--vv-height, 100dvh) !important;
   display: flex;
   flex-direction: column;
   overflow: hidden;

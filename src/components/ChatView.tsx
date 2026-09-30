@@ -87,6 +87,20 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
       bottomRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages, loading]);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    let lastHeight = vv.height;
+    const onResize = () => {
+      const node = bottomRef.current;
+      // O teclado encolhe o chat depois da última resposta; sem reposicionar, a mensagem
+      // final ficava atrás das sugestões. Só age quando a altura diminui (teclado abrindo).
+      if (node && node.offsetParent !== null && lastHeight - vv.height > 140) node.scrollIntoView({ block: 'end' });
+      lastHeight = vv.height;
+    };
+    vv.addEventListener('resize', onResize);
+    return () => vv.removeEventListener('resize', onResize);
+  }, []);
   useEffect(() => { if (userId) writeUserStorage(userId, STORAGE_KEY_CHAT, JSON.stringify(messages.slice(-MAX_STORED_MESSAGES))); }, [messages, userId]);
   useEffect(() => {
     const cachedStatus = readUserStorage(userId, STORAGE_KEY_GROQ_STATUS);
