@@ -241,6 +241,8 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [confirmKind, setConfirmKind] = useState<null | 'reset' | 'copyBills'>(null);
   const closeConfirm = useCallback(() => setConfirmKind(null), []);
+  const [dismissedSyncMessage, setDismissedSyncMessage] = useState<string | null>(null);
+  const syncBannerMessage = db.syncError ?? db.syncNotice;
   const [helpOpen, setHelpOpen] = useState(false);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
   const closeHelp = useCallback(() => setHelpOpen(false), []);
@@ -954,8 +956,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {userId && (
             <>
-              {db.syncNotice && <span style={{ fontSize: 10, color: '#4b8f73' }}>{db.syncNotice}</span>}
-              <button type="button" onClick={() => void refreshAppOrData(db.refreshData)} disabled={db.isRefreshing} title={t('update')} aria-label={t('update')} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 7, color: db.isRefreshing ? '#3b82f6' : '#666', cursor: db.isRefreshing ? 'wait' : 'pointer', width: 40, height: 38, display: 'grid', placeItems: 'center' }}>
+              <button type="button" onClick={() => void refreshAppOrData(db.refreshData)} disabled={db.isRefreshing} title={t('update')} aria-label={t('update')} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 7, color: '#666', cursor: db.isRefreshing ? 'wait' : 'pointer', width: 40, height: 38, display: 'grid', placeItems: 'center' }}>
                 <IconRefresh spinning={db.isRefreshing} />
               </button>
             </>
@@ -974,6 +975,14 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
       {calendarError && (
         <div role="alert" className="theme-alert-error" style={{ margin: '8px 0', padding: '8px 12px', border: '1px solid #2a1515', borderRadius: 6, background: '#1a1010', color: '#ef4444', fontSize: 11 }}>
           {calendarError}
+        </div>
+      )}
+
+      {/* A falha de sincronização vale para qualquer aba: esconder só do rodapé do dashboard deixava o resto do app silencioso. */}
+      {syncBannerMessage && syncBannerMessage !== dismissedSyncMessage && (
+        <div role={db.syncError ? 'alert' : 'status'} className={`sync-banner ${db.syncError ? 'sync-banner-error' : 'sync-banner-notice'}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '9px 14px', fontSize: 11, lineHeight: 1.5 }}>
+          <span>{syncBannerMessage}</span>
+          <button type="button" className="sync-banner-close" onClick={() => setDismissedSyncMessage(syncBannerMessage)} aria-label={t('close')} title={t('close')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: '6px 4px', flexShrink: 0 }}>×</button>
         </div>
       )}
 

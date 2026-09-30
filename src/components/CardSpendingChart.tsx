@@ -120,7 +120,7 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
         <div>
           <h3 style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#666', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('cardSpendingByCategory')}</h3>
-          <div style={{ marginTop: 5, fontSize: 12, color: '#8b8b8b' }}>Últimos 4 meses · selecione até 3 categorias</div>
+          <div style={{ marginTop: 5, fontSize: 12, color: '#8b8b8b' }}>{t('lastFourMonthsHint')}</div>
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           {availableCategories.map((category) => {
@@ -137,9 +137,9 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
       </div>
 
       {selectedCategories.length === 0 ? (
-        <div className="chart-empty" style={{ border: '1px dashed #242424', borderRadius: 8, padding: 28, textAlign: 'center', color: '#8b8b8b', fontSize: 12 }}>Selecione uma categoria para visualizar a evolução.</div>
+        <div className="chart-empty" style={{ border: '1px dashed #242424', borderRadius: 8, padding: 28, textAlign: 'center', color: '#8b8b8b', fontSize: 12 }}>{t('selectCategoryToCompare')}</div>
       ) : chartMonths.length === 0 ? (
-        <div className="chart-empty" style={{ border: '1px dashed #242424', borderRadius: 8, padding: 28, textAlign: 'center', color: '#8b8b8b', fontSize: 12 }}>Ainda não há lançamentos de cartão suficientes para comparar.</div>
+        <div className="chart-empty" style={{ border: '1px dashed #242424', borderRadius: 8, padding: 28, textAlign: 'center', color: '#8b8b8b', fontSize: 12 }}>{t('noCardPurchasesYet')}</div>
       ) : (
         <div>
           <svg viewBox={`0 0 ${chartWidth} ${CHART_HEIGHT}`} width="100%" role="img" aria-label="Evolução mensal dos gastos no cartão por categoria" style={{ display: 'block' }}>
