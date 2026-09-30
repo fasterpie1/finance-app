@@ -66,6 +66,7 @@ function loadMonths(userId: string | null): BudgetMonth[] {
     const raw = readUserStorage(userId, STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as BudgetMonth[];
+      if (!Array.isArray(parsed) || parsed.length === 0) return sampleMonths;
       const isOldDemo = parsed.length === 3 && parsed.some((month) => month.id === '1') && parsed.some((month) => month.id === '2') && parsed.some((month) => month.id === '3');
       if (!isOldDemo) return migrateMonths(parsed);
     }
@@ -784,9 +785,10 @@ export function useDashboard(userId: string | null = null) {
           const raw = e.target?.result;
           if (typeof raw !== 'string') { resolve(false); return; }
           const data = JSON.parse(raw);
-          if (!data.months || !Array.isArray(data.months)) { resolve(false); return; }
-          setMonths(sortMonths(migrateMonths(data.months)));
-          if (data.selectedMonthId) setSelectedMonthId(data.selectedMonthId);
+          if (!data.months || !Array.isArray(data.months) || data.months.length === 0) { resolve(false); return; }
+          const imported = sortMonths(migrateMonths(data.months as BudgetMonth[]));
+          setMonths(imported);
+          setSelectedMonthId(imported.some((month) => month.id === data.selectedMonthId) ? data.selectedMonthId : imported[0].id);
           resolve(true);
         } catch {
           resolve(false);

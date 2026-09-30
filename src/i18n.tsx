@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { readUserStorage, writeUserStorage } from './services/userStorage';
-import { formatCurrency as formatStoredCurrency, formatMonthShort as formatStoredMonthShort, formatMonthFull as formatStoredMonthFull, parseBRL, type BillCategory, type BillType } from './types';
+import { formatCurrency as formatStoredCurrency, formatMonthShort as formatStoredMonthShort, formatMonthFull as formatStoredMonthFull, type BillCategory, type BillType } from './types';
 
 export type AppLocale = 'pt-BR' | 'en';
 export type DisplayCurrency = 'BRL' | 'USD' | 'EUR';
@@ -13,6 +13,30 @@ export interface Preferences {
 
 const DEFAULT_PREFERENCES: Preferences = { locale: 'pt-BR', currency: 'BRL' };
 const PREFERENCES_KEY = 'financa_preferences_v1';
+
+/**
+ * Aceita 'pt-BR' e 'en' independentemente do locale: separador de milhar é o que
+ * vem primeiro, decimal é o último bloco com tamanho != 3.
+ */
+function parseAmountAgnostic(input: string): number {
+  const raw = String(input).replace(/[^\d.,-]/g, '');
+  if (!raw || /^-?$/.test(raw)) return 0;
+  const hasDot = raw.includes('.');
+  const hasComma = raw.includes(',');
+  let normalized = raw;
+  if (hasDot && hasComma) {
+    const [first, last] = raw.indexOf('.') < raw.indexOf(',') ? ['.', ','] : [',', '.'];
+    normalized = raw.split(first).join('').replace(last, '.');
+  } else if (hasComma) {
+    const decimals = raw.slice(raw.lastIndexOf(',') + 1);
+    normalized = decimals.length === 3 ? raw.replace(/,/g, '') : raw.replace(',', '.');
+  } else if (hasDot) {
+    const decimals = raw.slice(raw.lastIndexOf('.') + 1);
+    normalized = decimals.length === 3 ? raw.replace(/\./g, '') : raw;
+  }
+  const value = Number.parseFloat(normalized);
+  return Number.isFinite(value) ? value : 0;
+}
 
 const copy: Record<AppLocale, Record<string, string>> = {
   'pt-BR': {
@@ -118,9 +142,7 @@ export const PreferencesProvider: React.FC<{ userId: string | null; children: Re
       formatMoney: (amount) => formatStoredCurrency(amount, currencyCodes[preferences.currency], preferences.locale === 'en' ? 'en-US' : 'pt-BR'),
       formatMonthShort: (name, year) => formatStoredMonthShort(name, year, preferences.locale),
       formatMonthFull: (name, year) => formatStoredMonthFull(name, year, preferences.locale),
-      parseAmount: (input) => preferences.locale === 'en'
-        ? parseFloat(input.replace(/,/g, '').replace(/[^0-9.-]/g, '')) || 0
-        : parseBRL(input),
+      parseAmount: parseAmountAgnostic,
       currencySymbol: currencySymbols[preferences.currency],
       categoryLabel: (category) => {
         const labels: Record<AppLocale, Record<BillCategory, string>> = {

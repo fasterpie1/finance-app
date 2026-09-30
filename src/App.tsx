@@ -16,8 +16,9 @@ import { useModalA11y } from './hooks/useModalA11y';
 import { getBillNotifications, type BillNotification } from './store/useDashboard';
 import { createCalendarEvent, deleteCalendarEvent, listCalendarEvents, updateCalendarEvent } from './services/googleCalendar';
 import { billReminderInput, invoiceReminderInput } from './services/calendarReminders';
-import { type Bill, BILL_CATEGORY_LABELS, getMonthIndex } from './types';
+import { type Bill, type BudgetMonth, BILL_CATEGORY_LABELS, getMonthIndex } from './types';
 import { centsToAmount, getInvoicePersonalTotalCents, getInvoiceTotalCents, getTransactionCategoryImpactCents } from './services/cardTransactions';
+import { safeSetItem } from './services/safeStorage';
 import { PreferencesProvider, usePreferences, type AppLocale, type DisplayCurrency } from './i18n';
 
 type Tab = 'dashboard' | 'cartao' | 'chat';
@@ -40,7 +41,7 @@ function loadSections(): Record<string, boolean> {
   return {};
 }
 function saveSections(sections: Record<string, boolean>) {
-  localStorage.setItem(SECTIONS_KEY, JSON.stringify(sections));
+  safeSetItem(SECTIONS_KEY, JSON.stringify(sections));
 }
 function loadPrivacy(): boolean {
   try { return localStorage.getItem(PRIVACY_KEY) === 'true'; } catch { return false; }
@@ -67,7 +68,7 @@ function loadLayoutOrder(): SectionId[] {
   return DEFAULT_ORDER;
 }
 function saveLayoutOrder(order: SectionId[]) {
-  localStorage.setItem(LAYOUT_KEY, JSON.stringify(order));
+  safeSetItem(LAYOUT_KEY, JSON.stringify(order));
 }
 
 function refreshPwaAssets(version: string): void {
@@ -97,7 +98,7 @@ async function refreshAppOrData(refreshData: () => Promise<void>): Promise<void>
         window.location.reload();
         return;
       }
-      if (version) localStorage.setItem(APP_VERSION_KEY, version);
+      if (version) safeSetItem(APP_VERSION_KEY, version);
     }
   } catch {
     // A missing version file should not prevent the data refresh.
@@ -247,7 +248,7 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
 
   useEffect(() => {
     document.body.dataset.theme = theme;
-    localStorage.setItem(THEME_KEY, theme);
+    safeSetItem(THEME_KEY, theme);
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'light' ? '#f4f5f7' : '#0a0a0a');
   }, [theme]);
 
@@ -264,7 +265,7 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
       if (upcoming.length === 0) return;
       const timer = window.setTimeout(() => {
         if (cancelled) return;
-        localStorage.setItem(DAILY_NOTIFICATION_KEY, todayKey);
+        safeSetItem(DAILY_NOTIFICATION_KEY, todayKey);
         setDailyNotifications(upcoming);
         setDailyNotificationOpen(true);
       }, 0);
@@ -281,7 +282,7 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
   const togglePrivacy = () => {
     setHideValues((prev) => {
       const next = !prev;
-      localStorage.setItem(PRIVACY_KEY, String(next));
+      safeSetItem(PRIVACY_KEY, String(next));
       return next;
     });
   };
@@ -455,19 +456,51 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
     .reduce((total, month) => total + (month.savedAmount ?? 0), 0);
   const monthlySavingsPct = savingsGoal > 0 ? Math.min(Math.round((savedAmount / savingsGoal) * 100), 100) : 0;
 
+  const summarizeMonth = (month: BudgetMonth) => {
+    const billsTotal = month.bills.reduce((sum, bill) => sum + bill.amount, 0);
+    const paidTotal = month.bills.filter((bill) => bill.isPaid).reduce((sum, bill) => sum + bill.amount, 0);
+    const invoices = month.creditCardInvoices ?? [];
+    const cardTransactions = invoices.flatMap((invoice) => invoice.transactions).filter((transaction) => transaction.type !== 'PAYMENT');
+    const cardTotals = cardTransactions.reduce<Record<string, number>>((totals, transaction) => {
+      const label = transaction.category ? BILL_CATEGORY_LABELS[transaction.category] : 'Sem categoria';
+      totals[label] = (totals[label] || 0) + centsToAmount(getTransactionCategoryImpactCents(transaction));
+      return totals;
+    }, month.bills.filter((bill) => (bill.type === 'parcela' && bill.category !== 'financiamento') || bill.isOnCreditCard === true)
+      .reduce<Record<string, number>>((totals, bill) => {
+        const label = BILL_CATEGORY_LABELS[bill.category];
+        totals[label] = (totals[label] || 0) + bill.amount;
+        return totals;
+      }, {}));
+    const billCategoryTotals = month.bills.reduce<Record<string, number>>((totals, bill) => {
+      const label = BILL_CATEGORY_LABELS[bill.category];
+      totals[label] = (totals[label] || 0) + bill.amount;
+      return totals;
+    }, {});
+    const formatTotals = (totals: Record<string, number>) => Object.entries(totals)
+      .filter(([, amount]) => amount !== 0)
+      .sort((a, b) => b[1] - a[1])
+      .map(([label, amount]) => `${label} ${formatCurrency(amount)}`)
+      .join(', ');
+    return {
+      label: `${month.name} ${month.year}`,
+      income: month.income,
+      billsTotal,
+      paidTotal,
+      cardTotal: Object.values(cardTotals).reduce((sum, amount) => sum + amount, 0),
+      categories: formatTotals(billCategoryTotals) || 'sem contas',
+      cardCategories: formatTotals(cardTotals) || 'sem gastos no cartão',
+      invoices: invoices.length,
+    };
+  };
+
   const previousMonths = db.months.filter((month) => {
     if (month.year !== db.selectedMonth.year) return month.year < db.selectedMonth.year;
     return getMonthIndex(month.name) < getMonthIndex(db.selectedMonth.name);
-  }).slice(-5);
+  }).slice(-6);
   const historicalContext = previousMonths.length > 0
-    ? `\n\nHistórico dos meses anteriores para comparação:\n${previousMonths.map((month) => {
-      const cardBills = month.bills.filter((bill) => (bill.type === 'parcela' && bill.category !== 'financiamento') || bill.isOnCreditCard === true);
-      const categoryTotals = cardBills.reduce<Record<string, number>>((totals, bill) => {
-        totals[BILL_CATEGORY_LABELS[bill.category]] = (totals[BILL_CATEGORY_LABELS[bill.category]] || 0) + bill.amount;
-        return totals;
-      }, {});
-      const categories = Object.entries(categoryTotals).map(([category, amount]) => `${category}: ${formatCurrency(amount)}`).join(', ') || 'sem gastos no cartão';
-      return `- ${month.name} ${month.year}: contas ${formatCurrency(month.bills.reduce((sum, bill) => sum + bill.amount, 0))}; cartão ${formatCurrency(cardBills.reduce((sum, bill) => sum + bill.amount, 0))}; categorias do cartão: ${categories}`;
+    ? `\n\nHistórico completo dos meses anteriores (contas mensais, fixas, variáveis e lançamentos importados do cartão):\n${previousMonths.map((month) => {
+      const s = summarizeMonth(month);
+      return `- ${s.label}: entrada ${formatCurrency(s.income)}; contas ${formatCurrency(s.billsTotal)} (pagas ${formatCurrency(s.paidTotal)}); cartão ${formatCurrency(s.cardTotal)}${s.invoices ? ` (${s.invoices} fatura(s) importada(s))` : ''}\n  Por categoria (todas as contas): ${s.categories}\n  Por categoria no cartão: ${s.cardCategories}`;
     }).join('\n')}`
     : '\n\nNão há meses anteriores cadastrados para comparação.';
 
@@ -508,6 +541,9 @@ Impacto pessoal da fatura: ${formatCurrency(invoicePersonalTotal)}
 
 Contas do mês:
 ${db.billsSorted.map((b) => `- ${b.name} (${BILL_CATEGORY_LABELS[b.category]}) — ${formatCurrency(b.amount)} — Dia ${b.dueDay}${b.installmentCurrent ? ` — Parcela ${b.installmentCurrent}/${b.installmentTotal}` : ''} — ${b.isPaid ? 'Pago' : 'Pendente'}`).join('\n')}
+
+Total por categoria neste mês (todas as contas):
+${summarizeMonth(db.selectedMonth).categories}
 
 Gastos no cartão deste mês por categoria:
 ${currentCategories}
@@ -1172,12 +1208,12 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
             })}
 
             {/* Footer */}
-            <footer className="app-footer" style={{ textAlign: 'center', fontSize: 10, color: '#1e1e1e', paddingTop: 10, borderTop: '1px solid #111', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+            <footer className="app-footer" style={{ textAlign: 'center', fontSize: 10, color: '#7a7a7a', paddingTop: 10, borderTop: '1px solid #111', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
                 <span style={{ color: db.syncError ? '#ef4444' : undefined }}>{db.syncError || (userId ? t('savedToCloud') : t('savedAutomatically'))}</span>
-                <span style={{ color: '#151515' }}>·</span>
-                <button onClick={() => { if (confirm(t('resetConfirm'))) db.resetData(); }} style={{ background: 'transparent', border: 'none', color: '#1e1e1e', cursor: 'pointer', fontSize: 10, padding: 0, textDecoration: 'underline' }}>{t('reset')}</button>
-                {userId && <><span style={{ color: '#151515' }}>·</span><button onClick={signOut} style={{ background: 'transparent', border: 'none', color: '#1e1e1e', cursor: 'pointer', fontSize: 10, padding: 0, textDecoration: 'underline' }}>{t('signOutShort')}</button></>}
+                <span style={{ color: '#6f6f6f' }}>·</span>
+                <button onClick={() => { if (confirm(t('resetConfirm'))) db.resetData(); }} style={{ background: 'transparent', border: 'none', color: '#9a9a9a', cursor: 'pointer', fontSize: 10, padding: 0, textDecoration: 'underline' }}>{t('reset')}</button>
+                {userId && <><span style={{ color: '#4b4b4b' }}>·</span><button onClick={signOut} style={{ background: 'transparent', border: 'none', color: '#9a9a9a', cursor: 'pointer', fontSize: 10, padding: 0, textDecoration: 'underline' }}>{t('signOutShort')}</button></>}
               </div>
               <button
                 onClick={() => setEditMode((p) => !p)}
@@ -1200,7 +1236,9 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
           </>
         )}
 
-        {tab === 'chat' && <ChatView financialContext={financialContext} userId={userId} calendarActions={calendarAssistantActions} />}
+        <div className={tab === 'chat' ? undefined : 'chat-offscreen'}>
+          <ChatView financialContext={financialContext} userId={userId} calendarActions={calendarAssistantActions} />
+        </div>
         {tab === 'cartao' && (
           <CreditCardView
             userId={userId}

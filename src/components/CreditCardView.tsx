@@ -44,7 +44,7 @@ const fieldStyle: React.CSSProperties = {
   background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 6, color: '#e0e0e0', padding: '8px 12px', fontSize: 13, outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box',
 };
 const labelStyle: React.CSSProperties = {
-  fontSize: 10, color: '#555', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4, display: 'block',
+  fontSize: 10, color: '#8f8f8f', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4, display: 'block',
 };
 
 const getOwnerOptions = (t: (key: string) => string): Array<{ value: ExpenseOwner; label: string }> => [
@@ -104,7 +104,7 @@ function InvoiceTransactions({ invoices, creditCardBills, onUpdate, onTogglePaid
           [t('unclassified'), totals.unclassified],
         ].map(([label, cents]) => (
           <div key={String(label)} className="cc-summary-tile" style={{ minWidth: 126, flex: '0 0 126px', background: '#131313', border: '1px solid #1e1e1e', borderRadius: 10, padding: '12px 14px' }}>
-            <div style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</div>
+            <div style={{ fontSize: 10, color: '#8f8f8f', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</div>
             <div className="privacy-mask" style={{ marginTop: 5, fontSize: 16, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#e8e8e8' }}>{hideValues ? '••••' : formatMoney(centsToAmount(Number(cents)))}</div>
           </div>
         ))}
@@ -115,8 +115,8 @@ function InvoiceTransactions({ invoices, creditCardBills, onUpdate, onTogglePaid
         ))}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: -6 }}>
-        <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('invoiceItems')}</h3>
-        <span className="theme-card-count" style={{ fontSize: 10, color: '#444', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 7px', fontWeight: 600 }}>{transactions.length + visibleCreditCardBills.length}</span>
+        <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#8f8f8f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('invoiceItems')}</h3>
+        <span className="theme-card-count" style={{ fontSize: 10, color: '#8b8b8b', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 7px', fontWeight: 600 }}>{transactions.length + visibleCreditCardBills.length}</span>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {transactions.map((transaction) => (
@@ -132,7 +132,7 @@ function InvoiceTransactions({ invoices, creditCardBills, onUpdate, onTogglePaid
                   {ownerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
                 {transaction.owner === 'THIRD_PARTY' && <input value={transaction.thirdPartyName ?? ''} onChange={(event) => updateTransaction(transaction.id, { thirdPartyName: event.target.value })} placeholder={t('who')} style={{ ...fieldStyle, width: 130, padding: '5px 8px', fontSize: 11 }} />}
-                {transaction.owner === 'SHARED' && <input inputMode="decimal" value={transaction.personalAmountCents == null ? '' : (transaction.personalAmountCents / 100).toFixed(2).replace('.', ',')} onChange={(event) => updateTransaction(transaction.id, { personalAmountCents: Math.round(parseAmount(event.target.value) * 100) })} placeholder={t('myShare')} style={{ ...fieldStyle, width: 110, padding: '5px 8px', fontSize: 11 }} />}
+                {transaction.owner === 'SHARED' && <input inputMode="decimal" value={transaction.personalAmountCents == null ? '' : (transaction.personalAmountCents / 100).toFixed(2).replace('.', ',')} onChange={(event) => { const typed = event.target.value.trim(); updateTransaction(transaction.id, { personalAmountCents: typed ? Math.min(transaction.amountCents, Math.max(0, Math.round(parseAmount(typed) * 100))) : 0 }); }} placeholder={t('myShare')} style={{ ...fieldStyle, width: 110, padding: '5px 8px', fontSize: 11 }} />}
                 <span style={{ fontSize: 10, color: transaction.owner === 'UNCLASSIFIED' ? '#f59e0b' : '#555' }}>{getOwnerLabel(transaction.owner)}</span>
               </div>
             </div>
@@ -262,7 +262,7 @@ export const CreditCardView: React.FC<Props> = ({
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
             <span className="cc-merchant" style={{ fontSize: 13, fontWeight: 600, color: allCardPaid ? '#555' : '#d4d4d4', textDecoration: allCardPaid ? 'line-through' : 'none' }}>{t('monthlyInvoice')}</span>
             <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-              <span style={{ fontSize: 10, color: '#444' }}>
+              <span style={{ fontSize: 10, color: '#8b8b8b' }}>
                 {creditCardBills.length} {creditCardBills.length !== 1 ? t('installmentPlural') : t('installmentSingular')}
                 {linkedFixedBills.length > 0 && ` + ${linkedFixedBills.length} ${linkedFixedBills.length !== 1 ? t('fixedPlural') : t('fixedSingular')}`}
               </span>
@@ -296,15 +296,15 @@ export const CreditCardView: React.FC<Props> = ({
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
         <div style={{ background: '#131313', border: '1px solid #1e1e1e', borderRadius: 12, padding: '16px 18px', position: 'relative', overflow: 'hidden' }}>
           <div style={{ position: 'absolute', top: 0, left: 0, width: 3, height: '100%', background: '#ef4444', borderRadius: '12px 0 0 12px' }} />
-          <div style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, marginBottom: 6 }}>{t('installments')}</div>
+          <div style={{ fontSize: 10, color: '#8f8f8f', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, marginBottom: 6 }}>{t('installments')}</div>
           <div className="privacy-mask" style={{ fontSize: 20, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#e8e8e8', transition: 'color 0.2s' }}>{hideValues ? masked : formatMoney(monthlyFromCard)}</div>
-          <div style={{ fontSize: 11, color: '#3a3a3a', marginTop: 4 }}>{creditCardBills.length + creditCardInvoices.flatMap((invoice) => invoice.transactions).filter((transaction) => transaction.type !== 'PAYMENT').length} lançamento(s)</div>
+          <div style={{ fontSize: 11, color: '#6f6f6f', marginTop: 4 }}>{creditCardBills.length + creditCardInvoices.flatMap((invoice) => invoice.transactions).filter((transaction) => transaction.type !== 'PAYMENT').length} lançamento(s)</div>
         </div>
         <div style={{ background: '#131313', border: '1px solid #1e1e1e', borderRadius: 12, padding: '16px 18px', position: 'relative', overflow: 'hidden' }}>
           <div style={{ position: 'absolute', top: 0, left: 0, width: 3, height: '100%', background: '#f59e0b', borderRadius: '12px 0 0 12px' }} />
-          <div style={{ fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, marginBottom: 6 }}>{t('totalDebt')}</div>
+          <div style={{ fontSize: 10, color: '#8f8f8f', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, marginBottom: 6 }}>{t('totalDebt')}</div>
           <div className="privacy-mask" style={{ fontSize: 20, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#e8e8e8', transition: 'color 0.2s' }}>{hideValues ? masked : formatMoney(totalDebt)}</div>
-          <div style={{ fontSize: 11, color: '#3a3a3a', marginTop: 4 }}>{t('openInstallments')}</div>
+          <div style={{ fontSize: 11, color: '#6f6f6f', marginTop: 4 }}>{t('openInstallments')}</div>
         </div>
       </div>
 
@@ -346,7 +346,7 @@ export const CreditCardView: React.FC<Props> = ({
                     </span>
                   ))}
                 </div>
-                <div style={{ fontSize: 11, color: '#333', marginTop: 8 }}>{t('totalCommitted')}: <strong style={{ color: '#777' }}>{formatMoney(parseAmount(amount) * affected.length)}</strong></div>
+                <div style={{ fontSize: 11, color: '#8b8b8b', marginTop: 8 }}>{t('totalCommitted')}: <strong style={{ color: '#777' }}>{formatMoney(parseAmount(amount) * affected.length)}</strong></div>
               </div>
             )}
 
@@ -372,20 +372,20 @@ export const CreditCardView: React.FC<Props> = ({
       {linkedFixedBills.length > 0 && (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-            <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('linkedFixedTitle')}</h3>
+            <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#8f8f8f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('linkedFixedTitle')}</h3>
             <span className="theme-card-count" style={{ fontSize: 10, color: '#60a5fa', background: '#111520', border: '1px solid #1e2a3e', borderRadius: 4, padding: '1px 7px', fontWeight: 600 }}>{linkedFixedBills.length}</span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {linkedFixedBills.map((bill) => (<BillRow key={bill.id} bill={bill} onTogglePaid={() => onTogglePaid(bill.id)} onSave={onSaveBill} onDelete={() => onDeleteBill(bill.id)} hideValues={hideValues} showPaidToggle={false} />))}
           </div>
-          <div style={{ fontSize: 11, color: '#3a3a3a', marginTop: 8, paddingLeft: 4 }}>{t('linkedFixedNote')}</div>
+          <div style={{ fontSize: 11, color: '#6f6f6f', marginTop: 8, paddingLeft: 4 }}>{t('linkedFixedNote')}</div>
         </div>
       )}
 
       {debitPixBills.length > 0 && (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-            <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('debitPixPurchases')}</h3>
+            <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#8f8f8f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('debitPixPurchases')}</h3>
             <span className="cc-debit-chip" style={{ fontSize: 10, color: '#f59e0b', background: '#1a150a', border: '1px solid #2a2010', borderRadius: 4, padding: '1px 7px', fontWeight: 600 }}>{debitPixBills.length}</span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -396,7 +396,7 @@ export const CreditCardView: React.FC<Props> = ({
 
       {/* Visão geral */}
       <div>
-        <h3 style={{ margin: '0 0 10px', fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('monthlyOverview')}</h3>
+        <h3 style={{ margin: '0 0 10px', fontSize: 11, fontWeight: 600, color: '#8f8f8f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('monthlyOverview')}</h3>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           {allMonths
             .filter((m) => m.bills.some((b) => b.type === 'parcela' && b.category !== 'financiamento'))
