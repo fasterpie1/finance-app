@@ -54,6 +54,27 @@ export function getTransactionCategoryImpactCents(transaction: CreditCardTransac
   return transaction.category ? getPersonalImpactCents(transaction) : 0;
 }
 
+/** Data de lançamento no formato canônico DD/MM; o mês vem da fatura do lançamento. */
+export function formatTransactionDay(day: number, monthIndex: number): string {
+  return `${String(Math.max(1, Math.min(31, day))).padStart(2, '0')}/${String(monthIndex + 1).padStart(2, '0')}`;
+}
+
+export function getTransactionDay(date?: string): number | undefined {
+  const day = Number(date?.match(/^\s*(\d{1,2})\//)?.[1]);
+  return day >= 1 && day <= 31 ? day : undefined;
+}
+
+export function getTransactionMonthIndex(date?: string): number | undefined {
+  const month = Number(date?.match(/^\s*\d{1,2}\/(\d{1,2})/)?.[1]);
+  return month >= 1 && month <= 12 ? month - 1 : undefined;
+}
+
+/** Troca só o dia: o mês já registrado na importação continua valendo. */
+export function setTransactionDay(date: string | undefined, day: number | undefined, monthIndex: number): string | undefined {
+  if (!day || day < 1 || day > 31) return undefined;
+  return formatTransactionDay(day, getTransactionMonthIndex(date) ?? monthIndex);
+}
+
 export function getInvoiceChargeTotalCents(invoice: CreditCardInvoice): number {
   return invoice.transactions.reduce((total, transaction) => {
     if (transaction.type === 'PAYMENT') return total;

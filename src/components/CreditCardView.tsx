@@ -6,9 +6,10 @@ import {
   type ExpenseOwner,
   BILL_CATEGORY_COLORS,
   BILL_CATEGORY_LABELS,
+  getMonthIndex,
 } from '../types';
 import { type CreditCardPurchase, type MonthInfo } from '../store/useDashboard';
-import { centsToAmount, getInvoiceChargeTotalCents, getInvoicePersonalTotalCents, getInvoiceThirdPartyTotalCents, getInvoiceUnclassifiedTotalCents, getInvoiceTotalCents, getOwnerLabel } from '../services/cardTransactions';
+import { centsToAmount, getInvoiceChargeTotalCents, getInvoicePersonalTotalCents, getInvoiceThirdPartyTotalCents, getInvoiceUnclassifiedTotalCents, getInvoiceTotalCents, getOwnerLabel, getTransactionDay, setTransactionDay } from '../services/cardTransactions';
 import { findDuplicateTransaction } from '../services/transactionDuplicates';
 import { BillRow } from './BillRow';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -73,6 +74,12 @@ function InvoiceTransactions({ invoices, creditCardBills, onUpdate, onTogglePaid
       ? invoice.transactions.filter((transaction) => transaction.id !== id)
       : invoice.transactions.map((transaction) => transaction.id === id ? { ...transaction, ...patch } : transaction) });
   };
+  // Sem mês na data importada, o mês da própria fatura é o do lançamento.
+  const invoiceMonthIndex = (id: string) => {
+    const invoice = invoices.find((item) => item.transactions.some((transaction) => transaction.id === id));
+    const index = getMonthIndex(invoice?.month ?? '');
+    return index >= 0 ? index : new Date().getMonth();
+  };
   const totals = invoices.reduce((summary, invoice) => ({
     total: summary.total + getInvoiceTotalCents(invoice),
     personal: summary.personal + getInvoicePersonalTotalCents(invoice),
@@ -132,6 +139,10 @@ function InvoiceTransactions({ invoices, creditCardBills, onUpdate, onTogglePaid
                 <span style={{ fontSize: 10, color: '#9a9a9a' }}>{transaction.type}</span>
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 5, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                  <span style={{ fontSize: 10, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{t('dayPlaceholder')}</span>
+                  <input inputMode="numeric" pattern="[0-9]*" aria-label={`${t('transactionDayAria')} — ${transaction.merchant}`} placeholder="--" value={getTransactionDay(transaction.date) ?? ''} onChange={(event) => updateTransaction(transaction.id, { date: setTransactionDay(transaction.date, parseInt(event.target.value) || undefined, invoiceMonthIndex(transaction.id)) })} style={{ ...fieldStyle, width: 42, padding: '5px 6px', fontSize: 11, textAlign: 'center' }} />
+                </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
                   <span aria-hidden style={{ flexShrink: 0, width: 8, height: 8, borderRadius: '50%', background: transaction.category ? BILL_CATEGORY_COLORS[transaction.category] : '#3f3f3f' }} />
                   <select value={transaction.category ?? ''} aria-label={t('categoryAria')} onChange={(event) => updateTransaction(transaction.id, { category: (event.target.value || undefined) as BillCategory | undefined })} style={{ ...fieldStyle, width: 138, padding: '5px 8px', fontSize: 11 }}>
@@ -194,6 +205,11 @@ export const CreditCardView: React.FC<Props> = ({
   const [owner, setOwner] = useState<ExpenseOwner>('ME');
   const [personalAmount, setPersonalAmount] = useState('');
   const [thirdPartyName, setThirdPartyName] = useState('');
+  const [purchaseDay, setPurchaseDay] = useState(() => {
+    const today = new Date();
+    const isCurrentMonth = selectedMonthYear === today.getFullYear() && getMonthIndex(selectedMonthName) === today.getMonth();
+    return isCurrentMonth ? String(today.getDate()) : '';
+  });
   const [curInstallment, setCurInstallment] = useState('1');
   const [totalInstallment, setTotalInstallment] = useState('1');
   const [invoiceDueDayInput, setInvoiceDueDayInput] = useState(String(creditCardDueDay ?? ''));
@@ -251,7 +267,7 @@ export const CreditCardView: React.FC<Props> = ({
     const t = Math.max(c, total);
     const parsedAmount = parseAmount(amount);
     const amountCents = Math.round(parsedAmount * 100);
-    onAddPurchase({ name: trimmed, amount: parsedAmount, category, installmentCurrent: paymentMethod === 'debito_pix' ? 1 : c, installmentTotal: paymentMethod === 'debito_pix' ? 1 : t, paymentMethod, owner: paymentMethod === 'debito_pix' ? 'ME' : owner, personalAmountCents: owner === 'SHARED' ? Math.min(amountCents, Math.max(0, Math.round(parseAmount(personalAmount) * 100))) : undefined, thirdPartyName: owner === 'THIRD_PARTY' ? thirdPartyName.trim() || undefined : undefined });
+    onAddPurchase({ name: trimmed, amount: parsedAmount, category, dueDay: parseInt(purchaseDay) || undefined, installmentCurrent: paymentMethod === 'debito_pix' ? 1 : c, installmentTotal: paymentMethod === 'debito_pix' ? 1 : t, paymentMethod, owner: paymentMethod === 'debito_pix' ? 'ME' : owner, personalAmountCents: owner === 'SHARED' ? Math.min(amountCents, Math.max(0, Math.round(parseAmount(personalAmount) * 100))) : undefined, thirdPartyName: owner === 'THIRD_PARTY' ? thirdPartyName.trim() || undefined : undefined });
     setName(''); setAmount(''); setCurInstallment('1'); setTotalInstallment('1'); setPaymentMethod('credito'); setOwner('ME'); setPersonalAmount(''); setThirdPartyName('');
   };
 
@@ -356,7 +372,10 @@ export const CreditCardView: React.FC<Props> = ({
               <div><label style={labelStyle}>{t('purchaseName')}</label><input style={fieldStyle} placeholder={t('purchaseNamePlaceholder')} value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdd()} /></div>
               <div><label style={labelStyle}>{t('category')}</label><select style={fieldStyle} value={category} onChange={(e) => setCategory(e.target.value as BillCategory)}>{(Object.keys(BILL_CATEGORY_LABELS) as BillCategory[]).map((c) => (<option key={c} value={c}>{categoryLabel(c)}</option>))}</select></div>
             </div>
-            <div><label style={labelStyle}>{t('paymentMethod')}</label><select style={fieldStyle} value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as 'credito' | 'debito_pix')}><option value="credito">{t('creditCard')}</option><option value="debito_pix">{t('debitPix')}</option></select></div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 104px', gap: 12 }}>
+              <div><label style={labelStyle}>{t('paymentMethod')}</label><select style={fieldStyle} value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as 'credito' | 'debito_pix')}><option value="credito">{t('creditCard')}</option><option value="debito_pix">{t('debitPix')}</option></select></div>
+              <div><label style={labelStyle}>{t('purchaseDay')}</label><input style={fieldStyle} inputMode="numeric" pattern="[0-9]*" aria-label={t('transactionDayAria')} placeholder="--" maxLength={2} value={purchaseDay} onChange={(e) => setPurchaseDay(e.target.value.replace(/[^0-9]/g, ''))} onKeyDown={(e) => e.key === 'Enter' && handleAdd()} /></div>
+            </div>
             {paymentMethod === 'credito' && (
               <>
                 <div><label style={labelStyle}>{t('responsibility')}</label><select style={fieldStyle} value={owner} onChange={(e) => setOwner(e.target.value as ExpenseOwner)}><option value="ME">{t('me')}</option><option value="THIRD_PARTY">{t('thirdParty')}</option><option value="SHARED">{t('shared')}</option><option value="UNCLASSIFIED">{t('unclassified')}</option></select></div>

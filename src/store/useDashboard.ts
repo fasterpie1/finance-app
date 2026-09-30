@@ -3,7 +3,7 @@ import { type Bill, type BudgetMonth, type BillCategory, type CardPaymentMethod,
 import { sampleMonths } from '../data/sampleData';
 import { supabase } from '../services/supabase';
 import { readUserStorage, removeUserStorage, writeUserStorage } from '../services/userStorage';
-import { centsToAmount, getInvoicePersonalTotalCents } from '../services/cardTransactions';
+import { centsToAmount, formatTransactionDay, getInvoicePersonalTotalCents } from '../services/cardTransactions';
 
 const STORAGE_KEY = 'financa_months_v1';
 const SELECTED_KEY = 'financa_selected_v1';
@@ -599,6 +599,8 @@ export function useDashboard(userId: string | null = null) {
   ): BudgetMonth[] => {
     const count = purchase.installmentTotal - purchase.installmentCurrent + 1;
     const monthInfos = getMonthsFrom(startName, startYear, count);
+    // A data é única para a série: todas as parcelas nasceram no mesmo dia da compra.
+    const purchaseDate = purchase.dueDay ? formatTransactionDay(purchase.dueDay, getMonthIndex(startName)) : undefined;
 
     monthInfos.forEach((mi, i) => {
       const installmentNum = purchase.installmentCurrent + i;
@@ -614,7 +616,7 @@ export function useDashboard(userId: string | null = null) {
         id: uuid(), invoiceId, merchant: purchase.name, amountCents: Math.round(purchase.amount * 100),
         type: purchase.installmentTotal > 1 ? 'INSTALLMENT' : 'PURCHASE',
         owner: purchase.owner ?? 'ME', personalAmountCents: purchase.personalAmountCents, thirdPartyName: purchase.thirdPartyName,
-        category: purchase.category, installmentCurrent: installmentNum,
+        category: purchase.category, installmentCurrent: installmentNum, date: purchaseDate,
         installmentTotal: purchase.installmentTotal, source: 'MANUAL',
       };
       const mIdx = updated.findIndex(

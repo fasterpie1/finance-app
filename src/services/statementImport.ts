@@ -16,7 +16,7 @@ Cada item do array:
 - category: string — uma de: ${VALID_CATEGORIES.join(', ')}
 - type: string — PURCHASE, INSTALLMENT, REFUND, PAYMENT, FEE ou OTHER
 - cardLast4: string opcional — últimos quatro dígitos do cartão
-- date: string opcional — data original do lançamento
+- date: string opcional — data do lançamento em DD/MM (ex: "25/01"). Sempre que a fatura mostrar a data, preencha; se aparecer só o dia, complete com o mês da fatura
 
 Regras:
 - Ignore totais da fatura, juros, IOF, multas, saldo anterior e encargos
@@ -25,6 +25,7 @@ Regras:
 - Não descarte anuidade, tarifa ou estorno: classifique como FEE ou REFUND; eles fazem parte do histórico da fatura, mas não devem ser confundidos com compras pessoais
 - Existem quatro formatos possíveis: tabela Itaú em preto e branco; lista C6 em PDF; lista do app com status "Em processamento"; e lista do app com "Parcela X de Y".
 - Em tabelas Itaú, "beautyglam 08/09 56,36" significa nome=beautyglam, parcela=8/9, valor=56.36. O mesmo vale para "AMAZON BR 07/12 31,59".
+- Data e parcela não se confundem: o número que vem ANTES do estabelecimento ("25/01 SUBWAY 45,90") é a data; o que vem DEPOIS do nome é a parcela. Nunca jogue a data para installmentCurrent/installmentTotal.
 - Em listas C6, "PONTO CERTO - Parcela 7/10 163,90" significa nome=PONTO CERTO, parcela=7/10, valor=163.90.
 - Em prints do app, "O001 DI SANTINNI ROD6", "Parcela 2 de 2" e "R$ 249,99" pertencem à mesma compra.
 - Se aparecer "3/12", "Parc 3 de 12" ou "Parcela 3 de 12", use installmentCurrent=3 e installmentTotal=12.
@@ -44,6 +45,7 @@ GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 export async function extractPurchasesFromImage(
   imageBase64: string,
   mimeType: string,
+  monthIndex = -1,
 ): Promise<Omit<ExtractedPurchase, 'id' | 'selected'>[]> {
   let lastError = 'Não foi possível interpretar a imagem da fatura.';
 
@@ -59,7 +61,7 @@ export async function extractPurchasesFromImage(
         max_tokens: MAX_OUTPUT_TOKENS,
         temperature: 0.1,
       });
-    const extracted = parseExtractedPurchases(content);
+    const extracted = parseExtractedPurchases(content, monthIndex);
     if (extracted.length > 0) return extracted;
     lastError = 'O modelo não retornou compras em JSON válido.';
     } catch (error) {
@@ -72,12 +74,13 @@ export async function extractPurchasesFromImage(
 
 export async function extractPurchasesFromText(
   statementText: string,
+  monthIndex = -1,
 ): Promise<Omit<ExtractedPurchase, 'id' | 'selected'>[]> {
-  const fallback = parsePdfTransactionFallback(statementText);
+  const fallback = parsePdfTransactionFallback(statementText, monthIndex);
   let extracted: Omit<ExtractedPurchase, 'id' | 'selected'>[] = [];
   try {
-    const content = await extractWithGroq({ model: TEXT_MODEL, messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: `Extraia todos os lançamentos individuais das seções de transações desta fatura e classifique cada um como PURCHASE, INSTALLMENT, REFUND, PAYMENT, FEE ou OTHER. Percorra todas as páginas e não pare antes de incluir todos os lançamentos. Aceite datas numéricas como 25/01 e linhas quebradas. Não transforme valores de resumo como "Compras nacionais", "Total a pagar", "Valor da fatura", subtotais de cartão, limite, opções de parcelamento ou saldo de obrigações em lançamentos. Pagamentos, estornos, tarifas e anuidades devem ser preservados como lançamentos tipados, nunca como compras. O total oficial da fatura é informado separadamente e não deve ser somado novamente.\n\n${statementText.slice(0, 120000)}` }], max_completion_tokens: MAX_OUTPUT_TOKENS });
-    extracted = parseExtractedPurchases(content);
+    const content = await extractWithGroq({ model: TEXT_MODEL, messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: `Extraia todos os lançamentos individuais das seções de transações desta fatura e classifique cada um como PURCHASE, INSTALLMENT, REFUND, PAYMENT, FEE ou OTHER. Percorra todas as páginas e não pare antes de incluir todos os lançamentos. Aceite datas numéricas como 25/01 e linhas quebradas, sempre levando a data do lançamento para o campo date em DD/MM. Não transforme valores de resumo como "Compras nacionais", "Total a pagar", "Valor da fatura", subtotais de cartão, limite, opções de parcelamento ou saldo de obrigações em lançamentos. Pagamentos, estornos, tarifas e anuidades devem ser preservados como lançamentos tipados, nunca como compras. O total oficial da fatura é informado separadamente e não deve ser somado novamente.\n\n${statementText.slice(0, 120000)}` }], max_completion_tokens: MAX_OUTPUT_TOKENS });
+    extracted = parseExtractedPurchases(content, monthIndex);
   } catch (error) {
     // Se a IA falhou e o parser local também não encontrou nada, propaga o erro real
     // em vez de um "nenhuma compra encontrada" enganoso. Havendo fallback, degrada.

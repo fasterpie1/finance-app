@@ -2,8 +2,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   type BillCategory,
   BILL_CATEGORY_LABELS,
+  getMonthIndex,
 } from '../types';
 import { type CreditCardInvoice, type CreditCardTransaction, type ExpenseOwner } from '../types';
+import { getTransactionDay, setTransactionDay } from '../services/cardTransactions';
 import {
   type ExtractedPurchase,
   extractPurchasesFromImage,
@@ -73,11 +75,11 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
         ? await (async () => {
           const text = await pdfToText(file);
           setStatementTotalCents(extractStatementTotalCents(text));
-          return extractPurchasesFromText(text);
+          return extractPurchasesFromText(text, getMonthIndex(month));
         })()
         : await (async () => {
           const { base64, mimeType } = await fileToBase64(file);
-          return extractPurchasesFromImage(base64, mimeType);
+          return extractPurchasesFromImage(base64, mimeType, getMonthIndex(month));
         })();
       if (extracted.length === 0) throw new Error(file.type === 'application/pdf' ? t('noItemsPdf') : t('noItemsImage'));
       setItems(extracted.map((p) => {
@@ -108,7 +110,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
         personalAmountCents: i.owner === 'SHARED' ? Math.min(Math.round(i.amount * 100), Math.max(0, i.personalAmountCents ?? 0)) : undefined,
         thirdPartyName: i.owner === 'THIRD_PARTY' ? i.thirdPartyName?.trim() || undefined : undefined,
         cardLast4: i.cardLast4,
-        date: i.date,
+        date: setTransactionDay(i.date, getTransactionDay(i.date), getMonthIndex(month)),
         category: i.category,
         installmentCurrent: Math.max(1, Math.min(i.installmentCurrent, i.installmentTotal)),
         installmentTotal: Math.max(i.installmentCurrent, i.installmentTotal),
@@ -269,6 +271,10 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                       <input type="checkbox" checked={item.selected} onChange={(e) => updateItem(item.id, { selected: e.target.checked })} style={{ accentColor: '#3b82f6', width: 16, height: 16 }} />
                       <input style={{ ...fieldStyle, flex: 1 }} value={item.name} onChange={(e) => updateItem(item.id, { name: e.target.value })} placeholder="Nome" />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                        <span style={{ fontSize: 9, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{t('dayPlaceholder')}</span>
+                        <input inputMode="numeric" pattern="[0-9]*" aria-label={t('transactionDayAria')} placeholder="--" value={getTransactionDay(item.date) ?? ''} onChange={(e) => updateItem(item.id, { date: setTransactionDay(item.date, parseInt(e.target.value) || undefined, getMonthIndex(month)) })} style={{ ...fieldStyle, width: 44, padding: '6px 4px', textAlign: 'center' }} />
+                      </div>
                     </div>
                     {item.duplicateConfidence && (
                       <div className="cc-dup-warning" style={{ background: '#241a0b', border: '1px solid #5a3b12', borderRadius: 6, padding: '7px 9px', marginBottom: 8, color: '#f59e0b', fontSize: 11 }}>
