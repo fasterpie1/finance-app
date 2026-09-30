@@ -1076,12 +1076,12 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
             <div style={{ position: 'relative' }}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
                 <div onClick={() => setIncomeModalOpen(true)} style={{ cursor: 'pointer' }}>
-                  <SummaryCard title={t('monthlyIncome')} value={formatCurrency(db.selectedMonth.income)} accent="green" subtitle={t('tapToEdit')} hidden={hideValues} />
+                  <SummaryCard title={t('monthlyIncome')} value={formatCurrency(db.selectedMonth.income)} accent="green" subtitle={t('tapToEdit')} valueColor="#10b981" hidden={hideValues} />
                 </div>
 
                 <SummaryCard title={t('billsToPay')} value={formatCurrency(pendingAmount)} accent="red" subtitle={`${totalCount - paidCount} ${t('pending').toLowerCase()}`} valueColor="#ef4444" hidden={hideValues} />
                 <SummaryCard title={t('totalPaid')} value={formatCurrency(db.totalPaid)} accent="green" subtitle={`${paidCount} ${t('of')} ${totalCount}`} valueColor="#10b981" hidden={hideValues} />
-                <SummaryCard title={db.remaining >= 0 ? t('expectedLeft') : t('expectedDeficit')} value={formatCurrency(Math.abs(db.remaining))} accent={db.remaining >= 0 ? 'yellow' : 'red'} subtitle={t('incomeLessBills')} hidden={hideValues} />
+                <SummaryCard title={db.remaining >= 0 ? t('expectedLeft') : t('expectedDeficit')} value={formatCurrency(Math.abs(db.remaining))} accent={db.remaining >= 0 ? 'yellow' : 'red'} subtitle={t('incomeLessBills')} valueColor={db.remaining >= 0 ? '#f59e0b' : '#ef4444'} hidden={hideValues} />
               </div>
 
               {/* Olhinho flutuante no centro exato dos 4 cards */}
