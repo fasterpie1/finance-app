@@ -77,6 +77,7 @@ function InvoiceTransactions({ invoices, creditCardBills, linkedFixedBills, onUp
   const allTransactions = invoices.flatMap((invoice) => invoice.transactions);
   // Conta fixa ligada ao cartão não tem dono, então é minha.
   const cardBills = [...creditCardBills, ...linkedFixedBills];
+  // Mas ela já tem seção própria mais abaixo: na lista filtrada entra só o que não está lá.
   // O "Eu" traz o compartilhado junto: a parte pessoal dele também é minha.
   const matchesFilter = (transaction: CreditCardTransaction) => {
     if (filter === 'ALL') return true;
@@ -88,7 +89,7 @@ function InvoiceTransactions({ invoices, creditCardBills, linkedFixedBills, onUp
     return transaction.owner === filter;
   };
   const transactions = allTransactions.filter(matchesFilter);
-  const visibleCreditCardBills = filter === 'ALL' || filter === 'ME' ? cardBills : [];
+  const visibleCreditCardBills = filter === 'ALL' || filter === 'ME' ? creditCardBills : [];
   const updateTransaction = (id: string, patch: Partial<CreditCardInvoice['transactions'][number]>, remove = false) => {
     const invoice = invoices.find((item) => item.transactions.some((transaction) => transaction.id === id));
     if (!invoice) return;
