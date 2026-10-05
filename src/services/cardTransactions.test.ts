@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { getPersonalCardSpendCents, getThirdPartyTotalsCents, getUnimportedCardBills } from './cardTransactions';
-import type { Bill, CreditCardTransaction } from '../types';
+import { getCardCharges, getThirdPartyTotalsCents, getUnimportedCardBills, isOnCreditCardBill } from './cardTransactions';
+import type { Bill, CreditCardInvoice, CreditCardTransaction } from '../types';
 
 function tx(overrides: Partial<CreditCardTransaction>): CreditCardTransaction {
   return {
@@ -51,31 +51,47 @@ describe('terceiros agrupados por nome', () => {
   });
 });
 
-describe('minha fatura do mês (dashboard e aba cartão)', () => {
-  const invoice = (transactions: CreditCardTransaction[]) => ({ id: 'inv', month: 'Outubro', year: 2026, transactions });
+describe('as somas do cartão (dashboard, aba cartão e sobra prevista)', () => {
+  const invoice = (transactions: CreditCardTransaction[]): CreditCardInvoice => ({ id: 'inv', month: 'Outubro', year: 2026, transactions });
 
-  it('soma o meu, a parte pessoal do compartilhado e as contas fixas do cartão', () => {
-    const cents = getPersonalCardSpendCents([invoice([
+  it('a conta do cartão entra na fatura e só o meu entra em meus gastos', () => {
+    const charges = getCardCharges([invoice([
       tx({ amountCents: 10000, owner: 'ME' }),
       tx({ amountCents: 5000, owner: 'THIRD_PARTY', thirdPartyName: 'Marcos' }),
       tx({ amountCents: 3000, owner: 'SHARED', personalAmountCents: 1200 }),
       tx({ amountCents: 7000, owner: 'UNCLASSIFIED' }),
     ])], [cardBill({ amount: 137.5 })]);
-    expect(cents).toBe(24950);
+    expect(charges.personalCents).toBe(24950);
+    expect(charges.totalCents).toBe(38750);
+    expect(charges.thirdPartyCents).toBe(5000);
+    expect(charges.unclassifiedCents).toBe(7000);
   });
 
-  it('não conta de novo a conta fixa que já veio importada da fatura', () => {
-    const transactions = [tx({ merchant: 'ACADEMIA', amountCents: 13750, owner: 'ME' })];
-    expect(getPersonalCardSpendCents([invoice(transactions)], [cardBill({ amount: 137.5 })])).toBe(13750);
+  it('não conta de novo a conta que já veio importada da fatura', () => {
+    const charges = getCardCharges([invoice([tx({ merchant: 'ACADEMIA', amountCents: 13750, owner: 'ME' })])], [cardBill({ amount: 137.5 })]);
+    expect(charges.personalCents).toBe(13750);
+    expect(charges.totalCents).toBe(13750);
   });
 
   it('desconta estorno meu e ignora pagamento', () => {
-    const cents = getPersonalCardSpendCents([invoice([
+    const charges = getCardCharges([invoice([
       tx({ amountCents: 20000, owner: 'ME' }),
       tx({ amountCents: 5000, type: 'REFUND', owner: 'ME' }),
       tx({ amountCents: 90000, type: 'PAYMENT', owner: 'ME' }),
     ])], []);
-    expect(cents).toBe(15000);
+    expect(charges.personalCents).toBe(15000);
+    expect(charges.totalCents).toBe(15000);
+    expect(charges.chargeCents).toBe(15000);
+  });
+
+  it('débito/pix e financiamento ficam fora do cartão', () => {
+    const bills = [
+      cardBill({ name: 'Almoço', amount: 50, type: 'variavel', cardPaymentMethod: 'debito_pix' }),
+      cardBill({ name: 'Financiamento', amount: 695.02, type: 'parcela', category: 'financiamento', isOnCreditCard: false }),
+      cardBill({ name: 'Luz', amount: 80, isOnCreditCard: false }),
+    ];
+    expect(bills.every((bill) => !isOnCreditCardBill(bill))).toBe(true);
+    expect(getCardCharges([], bills).totalCents).toBe(0);
   });
 });
 

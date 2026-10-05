@@ -54,15 +54,44 @@ export function getUnimportedCardBills(bills: Bill[], transactions: CreditCardTr
   }, transactions));
 }
 
-/** Quanto do cartão é meu: a parte pessoal dos lançamentos importados mais as contas fixas
- *  ligadas ao cartão que ainda não vieram na fatura. Terceiro e não classificado ficam fora,
- *  porque não são gasto meu — e é o número que o app todo mostra em primeiro lugar. */
-export function getPersonalCardSpendCents(invoices: CreditCardInvoice[], cardBills: Bill[]): number {
+/** A regra única de "essa conta está no cartão". Débito/Pix é cobrado na hora da compra,
+ *  então nunca aparece na fatura e fica fora de todas as somas daqui. */
+export function isOnCreditCardBill(bill: Bill): boolean {
+  if (bill.cardPaymentMethod === 'debito_pix') return false;
+  return (bill.type === 'parcela' && bill.category !== 'financiamento') || bill.isOnCreditCard === true;
+}
+
+export interface CardCharges {
+  /** O que o banco cobra na fatura do mês, incluindo as contas postas no cartão. */
+  totalCents: number;
+  /** A minha parte: sem terceiro e sem não classificado. É o número que aparece em primeiro lugar. */
+  personalCents: number;
+  thirdPartyCents: number;
+  unclassifiedCents: number;
+  sharedCents: number;
+  /** Líquido de pagamentos e estornos, para dívida em aberto. */
+  chargeCents: number;
+  /** Contas no cartão que ainda não vieram numa fatura importada. */
+  pendingBills: Bill[];
+}
+
+/** Toda soma de cartão do app sai daqui: fatura do mês, meus gastos, sobra prevista e o
+ *  prompt da IA. Cada tela deixava de fora um pedaço diferente, e os números brigavam. */
+export function getCardCharges(invoices: CreditCardInvoice[], bills: Bill[]): CardCharges {
   const transactions = invoices.flatMap((invoice) => invoice.transactions);
-  const invoicesCents = invoices.reduce((total, invoice) => total + getInvoicePersonalTotalCents(invoice), 0);
-  const billsCents = getUnimportedCardBills(cardBills, transactions)
-    .reduce((total, bill) => total + amountToCents(bill.amount), 0);
-  return invoicesCents + billsCents;
+  const pendingBills = getUnimportedCardBills(bills.filter(isOnCreditCardBill), transactions);
+  const pendingCents = pendingBills.reduce((total, bill) => total + amountToCents(bill.amount), 0);
+  return {
+    totalCents: invoices.reduce((total, invoice) => total + getInvoiceTotalCents(invoice), 0) + pendingCents,
+    personalCents: invoices.reduce((total, invoice) => total + getInvoicePersonalTotalCents(invoice), 0) + pendingCents,
+    thirdPartyCents: invoices.reduce((total, invoice) => total + getInvoiceThirdPartyTotalCents(invoice), 0),
+    unclassifiedCents: invoices.reduce((total, invoice) => total + getInvoiceUnclassifiedTotalCents(invoice), 0),
+    sharedCents: transactions.reduce((total, transaction) => (
+      transaction.owner === 'SHARED' ? total + transaction.amountCents : total
+    ), 0),
+    chargeCents: invoices.reduce((total, invoice) => total + getInvoiceChargeTotalCents(invoice), 0) + pendingCents,
+    pendingBills,
+  };
 }
 
 export function getOwnerLabel(owner: ExpenseOwner): string {

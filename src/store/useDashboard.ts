@@ -3,7 +3,7 @@ import { type Bill, type BudgetMonth, type BillCategory, type CardPaymentMethod,
 import { sampleMonths } from '../data/sampleData';
 import { supabase } from '../services/supabase';
 import { readUserStorage, removeUserStorage, writeUserStorage } from '../services/userStorage';
-import { centsToAmount, formatTransactionDay, getInvoicePersonalTotalCents } from '../services/cardTransactions';
+import { centsToAmount, formatTransactionDay, getCardCharges, getInvoicePersonalTotalCents, isOnCreditCardBill } from '../services/cardTransactions';
 
 const STORAGE_KEY = 'financa_months_v1';
 const SELECTED_KEY = 'financa_selected_v1';
@@ -362,25 +362,26 @@ export function useDashboard(userId: string | null = null) {
   const fixedBills = billsSorted.filter(
     (b) => b.type === 'mensal' || b.type === 'fixa' || (b.type === 'parcela' && b.category === 'financiamento')
   );
-  const creditCardBills = billsSorted.filter(
-    (b) => b.type === 'parcela' && b.category !== 'financiamento'
-  );
   const debitPixBills = billsSorted.filter(
     (b) => b.isOnCreditCard === true && b.cardPaymentMethod === 'debito_pix'
   );
   const variableBills = billsSorted.filter((b) => b.type === 'variavel' && b.cardPaymentMethod !== 'debito_pix');
 
-  const invoicePersonalTotal = (selectedMonth.creditCardInvoices ?? []).reduce(
-    (total, invoice) => total + centsToAmount(getInvoicePersonalTotalCents(invoice)), 0
-  );
+  const cardCharges = getCardCharges(selectedMonth.creditCardInvoices ?? [], selectedMonth.bills);
   const invoicePersonalPaid = (selectedMonth.creditCardInvoices ?? [])
     .filter((invoice) => invoice.isPaid)
     .reduce((total, invoice) => total + centsToAmount(getInvoicePersonalTotalCents(invoice)), 0);
-  const totalPlanned = selectedMonth.bills.reduce((s, b) => s + b.amount, 0) + invoicePersonalTotal;
+  // O que está no cartão sai da lista de contas: a fatura já responde por isso, e uma conta que
+  // também veio importada não pode entrar duas vezes no previsto.
+  const plainBills = selectedMonth.bills.filter((b) => !isOnCreditCardBill(b));
+  const paidPendingCardBills = cardCharges.pendingBills.filter((b) => b.isPaid);
+  const totalPlanned = plainBills.reduce((s, b) => s + b.amount, 0) + centsToAmount(cardCharges.personalCents);
   // Débito/pix é deduzido da conta na hora da compra (não depende de pagar a fatura)
   // e não tem toggle de pago na UI (showPaidToggle={false}), então conta como pago
   // independentemente do `isPaid` armazenado, que permanece false desde a criação.
-  const totalPaid = selectedMonth.bills.filter((b) => b.isPaid || b.cardPaymentMethod === 'debito_pix').reduce((s, b) => s + b.amount, 0) + invoicePersonalPaid;
+  const totalPaid = plainBills.filter((b) => b.isPaid || b.cardPaymentMethod === 'debito_pix').reduce((s, b) => s + b.amount, 0)
+    + paidPendingCardBills.reduce((s, b) => s + b.amount, 0)
+    + invoicePersonalPaid;
   const remaining = selectedMonth.income - totalPlanned;
 
   const selectMonth = useCallback((id: string) => setSelectedMonthId(id), []);
@@ -871,7 +872,6 @@ export function useDashboard(userId: string | null = null) {
     selectMonth,
     billsSorted,
     fixedBills,
-    creditCardBills,
     debitPixBills,
     variableBills,
     totalPlanned,

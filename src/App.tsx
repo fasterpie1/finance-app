@@ -18,7 +18,7 @@ import { getBillNotifications, type BillNotification } from './store/useDashboar
 import { createCalendarEvent, deleteCalendarEvent, listCalendarEvents, updateCalendarEvent } from './services/googleCalendar';
 import { billReminderInput, invoiceReminderInput } from './services/calendarReminders';
 import { type Bill, type BudgetMonth, type CreditCardTransaction, BILL_CATEGORY_LABELS, getMonthIndex } from './types';
-import { amountToCents, centsToAmount, getInvoicePersonalTotalCents, getInvoiceTotalCents, getPersonalCardSpendCents, getTransactionCategoryImpactCents } from './services/cardTransactions';
+import { amountToCents, centsToAmount, getCardCharges, getTransactionCategoryImpactCents } from './services/cardTransactions';
 import { safeSetItem } from './services/safeStorage';
 import { PreferencesProvider, usePreferences, type AppLocale, type DisplayCurrency } from './i18n';
 
@@ -523,8 +523,8 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
   const fixedPaidTotal = db.fixedBills.filter((b) => b.isPaid).reduce((s, b) => s + b.amount, 0);
   const pendingAmount = db.totalPlanned - db.totalPaid;
   const selectedInvoices = db.selectedMonth.creditCardInvoices ?? [];
-  const invoiceTotal = selectedInvoices.reduce((total, invoice) => total + centsToAmount(getInvoiceTotalCents(invoice)), 0);
-  const invoicePersonalTotal = selectedInvoices.reduce((total, invoice) => total + centsToAmount(getInvoicePersonalTotalCents(invoice)), 0);
+  // Uma única fonte para todo número de cartão: o banco cobra a fatura inteira, o painel mostra a minha parte.
+  const cardCharges = getCardCharges(selectedInvoices, db.selectedMonth.bills);
   const savingsGoalIsManual = db.selectedMonth.savingsGoalMode === 'manual';
   const predictedSavings = Math.max(db.remaining, 0);
   const savingsGoal = savingsGoalIsManual ? (db.selectedMonth.savingsGoal ?? 0) : predictedSavings;
@@ -538,8 +538,10 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
     const billsTotal = month.bills.reduce((sum, bill) => sum + bill.amount, 0);
     const paidTotal = month.bills.filter((bill) => bill.isPaid).reduce((sum, bill) => sum + bill.amount, 0);
     const invoices = month.creditCardInvoices ?? [];
+    const monthCharges = getCardCharges(invoices, month.bills);
     const cardTransactions = invoices.flatMap((invoice) => invoice.transactions).filter((transaction) => transaction.type !== 'PAYMENT');
-    const monthCardBills = month.bills.filter((bill) => (bill.type === 'parcela' && bill.category !== 'financiamento') || bill.isOnCreditCard === true);
+    // Só entram as contas que ainda não vieram na fatura importada, senão a categoria soma em dobro.
+    const monthCardBills = monthCharges.pendingBills;
     const cardTotals = cardTransactions.reduce<Record<string, number>>((totals, transaction) => {
       const label = transaction.category ? BILL_CATEGORY_LABELS[transaction.category] : 'Sem categoria';
       totals[label] = (totals[label] || 0) + centsToAmount(getTransactionCategoryImpactCents(transaction));
@@ -568,7 +570,7 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
       income: month.income,
       billsTotal,
       paidTotal,
-      cardTotal: Object.values(cardTotals).reduce((sum, amount) => sum + amount, 0),
+      cardTotal: centsToAmount(monthCharges.totalCents),
       categories: formatTotals(billCategoryTotals) || 'sem contas',
       cardCategories: formatTotals(cardTotals) || 'sem gastos no cartão',
       cardBreakdown,
@@ -591,9 +593,7 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
     : '\n\nNão há meses anteriores cadastrados para comparação.';
   const availableMonths = db.months.map((month) => `${month.name} ${month.year}`).join(', ');
 
-  const currentCardBills = db.selectedMonth.bills.filter((bill) =>
-    (bill.type === 'parcela' && bill.category !== 'financiamento') || bill.isOnCreditCard === true
-  );
+  const currentCardBills = cardCharges.pendingBills;
   const currentCardTransactions = selectedInvoices.flatMap((invoice) => invoice.transactions).filter((transaction) => transaction.type !== 'PAYMENT');
   // O modelo somava a lista plana e devolvia R$ 707 no lugar do total real de lazer. Aqui o
   // total é calculado no código e escrito na mesma linha dos itens, então não há soma a fazer.
@@ -608,8 +608,8 @@ Total já pago: ${formatCurrency(db.totalPaid)}
 Total pendente: ${formatCurrency(db.totalPlanned - db.totalPaid)}
 Saldo que sobra: ${formatCurrency(db.remaining)}
 Contas pagas: ${paidCount} de ${totalCount}
-Fatura do cartão: ${formatCurrency(invoiceTotal)}
-Impacto pessoal da fatura: ${formatCurrency(invoicePersonalTotal)}
+Fatura do cartão: ${formatCurrency(centsToAmount(cardCharges.totalCents))}
+Impacto pessoal da fatura: ${formatCurrency(centsToAmount(cardCharges.personalCents))}
 
 Contas do mês:
 ${db.billsSorted.map((b) => `- ${b.name} (${BILL_CATEGORY_LABELS[b.category]}) — ${formatCurrency(b.amount)} — Dia ${b.dueDay}${b.installmentCurrent ? ` — Parcela ${b.installmentCurrent}/${b.installmentTotal}` : ''} — ${b.isPaid ? 'Pago' : 'Pendente'}`).join('\n')}
@@ -633,16 +633,12 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
   const hasFixedBills = db.fixedBills.length > 0;
   const masked = '••••';
   const linkedFixedBills = db.fixedBills.filter((b) => b.isOnCreditCard);
-  const creditCardTotal = db.creditCardBills.reduce((s, b) => s + b.amount, 0)
-    + linkedFixedBills.reduce((s, b) => s + b.amount, 0)
-    + (db.selectedMonth.creditCardInvoices ?? []).reduce((total, invoice) => total + centsToAmount(getInvoiceTotalCents(invoice)), 0);
-  // O banco cobra a fatura inteira; o que importa no painel e a minha parte, sem terceiro.
-  const myInvoiceTotal = centsToAmount(getPersonalCardSpendCents(selectedInvoices, [...db.creditCardBills, ...linkedFixedBills]));
+  const creditCardTotal = centsToAmount(cardCharges.totalCents);
+  const myInvoiceTotal = centsToAmount(cardCharges.personalCents);
   const importedCardTransactions = (db.selectedMonth.creditCardInvoices ?? []).flatMap((invoice) => invoice.transactions).filter((transaction) => transaction.type !== 'PAYMENT');
-  const hasCardItems = db.creditCardBills.length > 0 || linkedFixedBills.length > 0 || importedCardTransactions.length > 0;
+  const hasCardItems = cardCharges.pendingBills.length > 0 || importedCardTransactions.length > 0;
   const allCardPaid = hasCardItems
-    && db.creditCardBills.every((b) => b.isPaid)
-    && linkedFixedBills.every((b) => b.isPaid)
+    && cardCharges.pendingBills.every((b) => b.isPaid)
     && (db.selectedMonth.creditCardInvoices ?? []).every((invoice) => invoice.isPaid);
 
   const removeCalendarEvent = async (eventId: string): Promise<boolean> => {
@@ -873,7 +869,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                   <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('card')}</h3>
                   <button type="button" onClick={() => setTab('cartao')} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 6, color: '#8b8b8b', cursor: 'pointer', fontSize: 10, padding: '8px 12px' }}>{t('details')}</button>
                 </div>
-                {db.creditCardBills.length === 0 && linkedFixedBills.length === 0 && importedCardTransactions.length === 0 ? (
+                {!hasCardItems ? (
                   <button type="button" onClick={() => setTab('cartao')} style={{ background: '#111', border: '1px dashed #1e1e1e', borderRadius: 10, padding: '18px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', width: '100%', font: 'inherit', textAlign: 'left' }}>
                     <span style={{ fontSize: 12, color: '#8b8b8b' }}>{t('noInstallments')} {t('in')} {db.selectedMonth.name}</span>
                     <span style={{ fontSize: 11, color: '#8b8b8b' }}>{t('addPurchase')} →</span>
@@ -925,7 +921,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
                       <span style={{ fontSize: 13, fontWeight: 600, color: allCardPaid ? '#8f8f8f' : '#d4d4d4', textDecoration: allCardPaid ? 'line-through' : 'none' }}>{t('myMonthlyInvoice')}</span>
                       <div className="theme-card-invoice-details" style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
                         <span className="theme-card-count" style={{ fontSize: 10, color: '#8b8b8b', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 6px' }}>
-                          {db.creditCardBills.length + importedCardTransactions.length} lançamento{db.creditCardBills.length + importedCardTransactions.length !== 1 ? 's' : ''}
+                          {cardCharges.pendingBills.length + importedCardTransactions.length} lançamento{cardCharges.pendingBills.length + importedCardTransactions.length !== 1 ? 's' : ''}
                         </span>
                         {linkedFixedBills.length > 0 && (
                           <>
@@ -1362,7 +1358,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
           <CreditCardView
             userId={userId}
             selectedMonthName={db.selectedMonth.name} selectedMonthYear={db.selectedMonth.year}
-            creditCardBills={db.creditCardBills} creditCardInvoices={db.selectedMonth.creditCardInvoices ?? []} linkedFixedBills={linkedFixedBills} allMonths={db.months}
+            creditCardInvoices={db.selectedMonth.creditCardInvoices ?? []} linkedFixedBills={linkedFixedBills} monthBills={db.selectedMonth.bills} allMonths={db.months}
             debitPixBills={db.debitPixBills}
             onTogglePaid={db.togglePaid} onSaveBill={db.saveBill} onDeleteBill={db.deleteBill}
             onAddPurchase={db.addCreditCardPurchase} getAffectedMonths={db.getAffectedMonths}

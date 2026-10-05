@@ -7,7 +7,7 @@ import {
 } from '../types';
 import { usePreferences } from '../i18n';
 import { safeSetItem } from '../services/safeStorage';
-import { getTransactionCategoryImpactCents } from '../services/cardTransactions';
+import { getCardCharges, getTransactionCategoryImpactCents } from '../services/cardTransactions';
 
 interface MonthData {
   id: string;
@@ -43,9 +43,8 @@ function loadCategories(available: BillCategory[]): BillCategory[] {
 
 export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, selectedMonthYear, hideValues }) => {
   const { formatMoney, formatMonthShort, categoryLabel, locale, t } = usePreferences();
-  const cardBills = (month: MonthData) => month.bills.filter((bill) =>
-    (bill.type === 'parcela' && bill.category !== 'financiamento') || bill.isOnCreditCard === true
-  );
+  // Mesmo número das outras telas: só o que está no cartão e ainda não veio na fatura importada.
+  const cardBills = (month: MonthData) => getCardCharges(month.creditCardInvoices ?? [], month.bills).pendingBills;
   const cardAmountByCategory = (month: MonthData, category: BillCategory) => {
     const billAmount = cardBills(month).filter((bill) => bill.category === category).reduce((total, bill) => total + bill.amount, 0);
     const invoiceAmount = (month.creditCardInvoices ?? []).flatMap((invoice) => invoice.transactions)

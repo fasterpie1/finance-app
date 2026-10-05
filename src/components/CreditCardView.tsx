@@ -9,7 +9,7 @@ import {
   getMonthIndex,
 } from '../types';
 import { type CreditCardPurchase, type MonthInfo } from '../store/useDashboard';
-import { centsToAmount, getInvoiceChargeTotalCents, getInvoicePersonalTotalCents, getInvoiceThirdPartyTotalCents, getInvoiceTotalCents, getInvoiceUnclassifiedTotalCents, getOwnerLabel, getPersonalCardSpendCents, getThirdPartyTotalsCents, getTransactionDay, setTransactionDay } from '../services/cardTransactions';
+import { amountToCents, centsToAmount, getCardCharges, getInvoiceChargeTotalCents, getOwnerLabel, getThirdPartyTotalsCents, getTransactionDay, setTransactionDay } from '../services/cardTransactions';
 import { findDuplicateTransaction } from '../services/transactionDuplicates';
 import { BillRow } from './BillRow';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -22,10 +22,10 @@ interface Props {
   userId: string | null;
   selectedMonthName: string;
   selectedMonthYear: number;
-  creditCardBills: Bill[];
   creditCardInvoices: CreditCardInvoice[];
   debitPixBills: Bill[];
   linkedFixedBills: Bill[];
+  monthBills: Bill[];
   allMonths: { id: string; name: string; year: number; bills: Bill[]; creditCardInvoices?: CreditCardInvoice[] }[];
   onTogglePaid: (id: string) => void;
   onSaveBill: (bill: Bill) => void;
@@ -67,7 +67,7 @@ const getOwnerOptions = (t: (key: string) => string): Array<{ value: ExpenseOwne
   { value: 'UNCLASSIFIED', label: t('unclassified') },
 ];
 
-function InvoiceTransactions({ invoices, creditCardBills, linkedFixedBills, onUpdate, onTogglePaid, onSaveBill, onDeleteBill, hideValues }: { invoices: CreditCardInvoice[]; creditCardBills: Bill[]; linkedFixedBills: Bill[]; onUpdate: (invoice: CreditCardInvoice) => void; onTogglePaid: (id: string) => void; onSaveBill: (bill: Bill) => void; onDeleteBill: (id: string) => void; hideValues?: boolean }) {
+function InvoiceTransactions({ invoices, monthBills, onUpdate, onTogglePaid, onSaveBill, onDeleteBill, hideValues }: { invoices: CreditCardInvoice[]; monthBills: Bill[]; onUpdate: (invoice: CreditCardInvoice) => void; onTogglePaid: (id: string) => void; onSaveBill: (bill: Bill) => void; onDeleteBill: (id: string) => void; hideValues?: boolean }) {
   const { formatMoney, parseAmount, typeLabel, categoryLabel, t } = usePreferences();
   const ownerOptions = getOwnerOptions(t);
   const [filter, setFilter] = useState<OwnerFilter>('ALL');
@@ -75,9 +75,7 @@ function InvoiceTransactions({ invoices, creditCardBills, linkedFixedBills, onUp
   const summaryRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef({ active: false, startX: 0, scrollLeft: 0 });
   const allTransactions = invoices.flatMap((invoice) => invoice.transactions);
-  // Conta fixa ligada ao cartão não tem dono, então é minha.
-  const cardBills = [...creditCardBills, ...linkedFixedBills];
-  // Mas ela já tem seção própria mais abaixo: na lista filtrada entra só o que não está lá.
+  const charges = getCardCharges(invoices, monthBills);
   // O "Eu" traz o compartilhado junto: a parte pessoal dele também é minha.
   const matchesFilter = (transaction: CreditCardTransaction) => {
     if (filter === 'ALL') return true;
@@ -89,7 +87,6 @@ function InvoiceTransactions({ invoices, creditCardBills, linkedFixedBills, onUp
     return transaction.owner === filter;
   };
   const transactions = allTransactions.filter(matchesFilter);
-  const visibleCreditCardBills = filter === 'ALL' || filter === 'ME' ? creditCardBills : [];
   const updateTransaction = (id: string, patch: Partial<CreditCardInvoice['transactions'][number]>, remove = false) => {
     const invoice = invoices.find((item) => item.transactions.some((transaction) => transaction.id === id));
     if (!invoice) return;
@@ -103,26 +100,20 @@ function InvoiceTransactions({ invoices, creditCardBills, linkedFixedBills, onUp
     const index = getMonthIndex(invoice?.month ?? '');
     return index >= 0 ? index : new Date().getMonth();
   };
-  const totals = invoices.reduce((summary, invoice) => ({
-    total: summary.total + getInvoiceTotalCents(invoice),
-    personal: summary.personal + getInvoicePersonalTotalCents(invoice),
-    thirdParty: summary.thirdParty + getInvoiceThirdPartyTotalCents(invoice),
-    unclassified: summary.unclassified + getInvoiceUnclassifiedTotalCents(invoice),
-  }), { total: 0, personal: 0, thirdParty: 0, unclassified: 0 });
-  const personalCents = getPersonalCardSpendCents(invoices, cardBills);
-  const sharedCents = allTransactions.reduce((total, transaction) => (
-    transaction.owner === 'SHARED' ? total + transaction.amountCents : total
-  ), 0);
+  // Só as parcelas lançadas na mão que ainda não vieram na fatura; a fixa vinculada tem seção própria abaixo.
+  const visibleCreditCardBills = filter === 'ALL' || filter === 'ME'
+    ? charges.pendingBills.filter((bill) => bill.type === 'parcela')
+    : [];
   // Um chip por pessoa nomeada; os que não têm valor no mês somem para não ocupar espaço.
   const ownerChips: OwnerChip[] = [
-    { value: 'ME', label: t('me'), cents: personalCents },
-    { value: 'THIRD_PARTY', label: t('thirdParty'), cents: totals.thirdParty },
+    { value: 'ME', label: t('me'), cents: charges.personalCents },
+    { value: 'THIRD_PARTY', label: t('thirdParty'), cents: charges.thirdPartyCents },
     ...getThirdPartyTotalsCents(allTransactions).map((group): OwnerChip => ({
       value: `person:${group.name}`, label: group.name, cents: group.cents,
     })),
-    { value: 'SHARED', label: t('shared'), cents: sharedCents },
-    { value: 'UNCLASSIFIED', label: t('unclassified'), cents: totals.unclassified },
-    { value: 'ALL', label: t('all'), cents: totals.total },
+    { value: 'SHARED', label: t('shared'), cents: charges.sharedCents },
+    { value: 'UNCLASSIFIED', label: t('unclassified'), cents: charges.unclassifiedCents },
+    { value: 'ALL', label: t('all'), cents: charges.totalCents },
   ];
   const chips = ownerChips.filter((chip) => chip.value === 'ME' || chip.value === 'ALL' || chip.cents !== 0);
 
@@ -148,10 +139,10 @@ function InvoiceTransactions({ invoices, creditCardBills, linkedFixedBills, onUp
         style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2, cursor: 'grab', touchAction: 'pan-x', userSelect: 'none' }}
       >
         {[
-          [t('mySpending'), personalCents],
-          [t('invoice'), totals.total],
-          [t('thirdParty'), totals.thirdParty],
-          [t('unclassified'), totals.unclassified],
+          [t('mySpending'), charges.personalCents],
+          [t('invoice'), charges.totalCents],
+          [t('thirdParty'), charges.thirdPartyCents],
+          [t('unclassified'), charges.unclassifiedCents],
         ].map(([label, cents], index) => (
           <div key={String(label)} className="cc-summary-tile" style={{ minWidth: index === 0 ? 152 : 126, flex: `0 0 ${index === 0 ? 152 : 126}px`, background: '#131313', border: index === 0 ? '1px solid #23324a' : '1px solid #1e1e1e', borderRadius: 10, padding: '12px 14px' }}>
             <div style={{ fontSize: 10, color: index === 0 ? '#93c5fd' : '#8f8f8f', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</div>
@@ -238,7 +229,7 @@ function InvoiceTransactions({ invoices, creditCardBills, linkedFixedBills, onUp
 }
 
 export const CreditCardView: React.FC<Props> = ({
-  userId, selectedMonthName, selectedMonthYear, creditCardBills, creditCardInvoices, debitPixBills, linkedFixedBills, allMonths,
+  userId, selectedMonthName, selectedMonthYear, creditCardInvoices, debitPixBills, linkedFixedBills, monthBills, allMonths,
   onTogglePaid, onSaveBill, onDeleteBill, onAddPurchase, onImportInvoice, onUpdateInvoice, getAffectedMonths, onPayCreditCard, onUnpayCreditCard, creditCardDueDay, onUpdateCreditCardDueDay, hideValues,
   invoiceCalendarEventId, onInvoiceCalendarReminder, invoiceCalendarReminderLoading,
 }) => {
@@ -289,20 +280,26 @@ export const CreditCardView: React.FC<Props> = ({
     }, creditCardInvoices.flatMap((invoice) => invoice.transactions))
     : undefined;
 
-  const totalDebt = allMonths.reduce((sum, m) => sum
-    + m.bills.filter((b) => b.type === 'parcela' && b.category !== 'financiamento' && !b.isPaid).reduce((s, b) => s + b.amount, 0)
-    + (m.creditCardInvoices ?? []).filter((invoice) => !invoice.isPaid).reduce((s, invoice) => s + centsToAmount(getInvoiceChargeTotalCents(invoice)), 0), 0);
-  const importedMonthlyTotal = creditCardInvoices.reduce((sum, invoice) => sum + centsToAmount(getInvoiceChargeTotalCents(invoice)), 0);
-  const monthlyFromCard = creditCardBills.reduce((s, b) => s + b.amount, 0) + importedMonthlyTotal;
-  const linkedTotal = linkedFixedBills.reduce((s, b) => s + b.amount, 0);
-  const importedInvoiceTotal = creditCardInvoices.reduce((total, invoice) => total + centsToAmount(getInvoiceTotalCents(invoice)), 0);
-  // Count each invoice once (importedInvoiceTotal). monthlyFromCard already folds in
-  // the charge total, so adding it again here would double-count imported invoices.
-  const faturaTotal = creditCardBills.reduce((s, b) => s + b.amount, 0) + linkedTotal + importedInvoiceTotal;
-  const hasCardItems = creditCardBills.length > 0 || linkedFixedBills.length > 0 || creditCardInvoices.length > 0;
+  const charges = getCardCharges(creditCardInvoices, monthBills);
+  const pendingInstallments = charges.pendingBills.filter((bill) => bill.type === 'parcela');
+  const pendingFixedCount = charges.pendingBills.length - pendingInstallments.length;
+  // "Parcelas" são as que caem no cartão por mês; as fixas vinculadas entram na fatura, não aqui.
+  const monthlyFromCard = centsToAmount(
+    pendingInstallments.reduce((s, bill) => s + amountToCents(bill.amount), 0)
+      + creditCardInvoices.reduce((sum, invoice) => sum + getInvoiceChargeTotalCents(invoice), 0),
+  );
+  const totalDebt = centsToAmount(allMonths.reduce((sum, m) => {
+    const monthCharges = getCardCharges(m.creditCardInvoices ?? [], m.bills);
+    return sum
+      + monthCharges.pendingBills.filter((bill) => bill.type === 'parcela' && !bill.isPaid)
+        .reduce((s, bill) => s + amountToCents(bill.amount), 0)
+      + (m.creditCardInvoices ?? []).filter((invoice) => !invoice.isPaid)
+        .reduce((s, invoice) => s + getInvoiceChargeTotalCents(invoice), 0);
+  }, 0));
+  const faturaTotal = centsToAmount(charges.totalCents);
+  const hasCardItems = charges.pendingBills.length > 0 || creditCardInvoices.length > 0;
   const allCardPaid = hasCardItems
-    && creditCardBills.every((b) => b.isPaid)
-    && linkedFixedBills.every((b) => b.isPaid)
+    && charges.pendingBills.every((bill) => bill.isPaid)
     && creditCardInvoices.every((invoice) => invoice.isPaid);
 
   const handleAdd = () => {
@@ -321,7 +318,7 @@ export const CreditCardView: React.FC<Props> = ({
   return (
     <div className="theme-card-view" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       {/* Fatura do mês — toggle simples */}
-      {(creditCardBills.length > 0 || linkedFixedBills.length > 0) && (
+      {hasCardItems && (
         <div style={{ background: '#131313', border: `1px solid ${allCardPaid ? '#10b98122' : '#1e1e1e'}`, borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12, opacity: allCardPaid ? 0.55 : 1, transition: 'all 0.15s' }}>
           {/* Bolinha de pago */}
           <button type="button"
@@ -357,8 +354,8 @@ export const CreditCardView: React.FC<Props> = ({
             <span className="cc-merchant" style={{ fontSize: 13, fontWeight: 600, color: allCardPaid ? '#8f8f8f' : '#d4d4d4', textDecoration: allCardPaid ? 'line-through' : 'none' }}>{t('monthlyInvoice')}</span>
             <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
               <span style={{ fontSize: 10, color: '#8b8b8b' }}>
-                {creditCardBills.length} {creditCardBills.length !== 1 ? t('installmentPlural') : t('installmentSingular')}
-                {linkedFixedBills.length > 0 && ` + ${linkedFixedBills.length} ${linkedFixedBills.length !== 1 ? t('fixedPlural') : t('fixedSingular')}`}
+                {pendingInstallments.length} {pendingInstallments.length !== 1 ? t('installmentPlural') : t('installmentSingular')}
+                {pendingFixedCount > 0 && ` + ${pendingFixedCount} ${pendingFixedCount !== 1 ? t('fixedPlural') : t('fixedSingular')}`}
               </span>
             </div>
           </div>
@@ -392,7 +389,7 @@ export const CreditCardView: React.FC<Props> = ({
           <div style={{ position: 'absolute', top: 0, left: 0, width: 3, height: '100%', background: '#ef4444', borderRadius: '12px 0 0 12px' }} />
           <div style={{ fontSize: 10, color: '#8f8f8f', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, marginBottom: 6 }}>{t('installments')}</div>
           <div className="privacy-mask" style={{ fontSize: 20, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#e8e8e8', transition: 'color 0.2s' }}>{hideValues ? masked : formatMoney(monthlyFromCard)}</div>
-          <div className="theme-muted-text" style={{ fontSize: 11, marginTop: 4 }}>{creditCardBills.length + creditCardInvoices.flatMap((invoice) => invoice.transactions).filter((transaction) => transaction.type !== 'PAYMENT').length} lançamento(s)</div>
+          <div className="theme-muted-text" style={{ fontSize: 11, marginTop: 4 }}>{pendingInstallments.length + creditCardInvoices.flatMap((invoice) => invoice.transactions).filter((transaction) => transaction.type !== 'PAYMENT').length} lançamento(s)</div>
         </div>
         <div style={{ background: '#131313', border: '1px solid #1e1e1e', borderRadius: 12, padding: '16px 18px', position: 'relative', overflow: 'hidden' }}>
           <div style={{ position: 'absolute', top: 0, left: 0, width: 3, height: '100%', background: '#f59e0b', borderRadius: '12px 0 0 12px' }} />
@@ -463,7 +460,7 @@ export const CreditCardView: React.FC<Props> = ({
       {/* Importar da fatura */}
       <StatementImportPanel userId={userId} month={selectedMonthName} year={selectedMonthYear} existingTransactions={creditCardInvoices.flatMap((invoice) => invoice.transactions)} onImport={onImportInvoice} />
 
-      {(creditCardInvoices.length > 0 || creditCardBills.length > 0 || linkedFixedBills.length > 0) && <InvoiceTransactions invoices={creditCardInvoices} creditCardBills={creditCardBills} linkedFixedBills={linkedFixedBills} onUpdate={onUpdateInvoice} onTogglePaid={onTogglePaid} onSaveBill={onSaveBill} onDeleteBill={onDeleteBill} hideValues={hideValues} />}
+      {(creditCardInvoices.length > 0 || charges.pendingBills.length > 0) && <InvoiceTransactions invoices={creditCardInvoices} monthBills={monthBills} onUpdate={onUpdateInvoice} onTogglePaid={onTogglePaid} onSaveBill={onSaveBill} onDeleteBill={onDeleteBill} hideValues={hideValues} />}
 
       {/* Contas fixas vinculadas ao cartão */}
       {linkedFixedBills.length > 0 && (
