@@ -38,6 +38,8 @@ export const InlineAddRow: React.FC<Props> = ({ monthName, onSave, onCancel, def
   const [dueDay, setDueDay] = useState('1');
   const [category, setCategory] = useState<BillCategory>('outros');
   const [type, setType] = useState<BillType>(defaultType);
+  // Parcela já nasce no cartão; nas demais o chip deixa vincular na hora de criar, sem editar depois.
+  const [onCard, setOnCard] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { nameRef.current?.focus(); }, []);
@@ -55,6 +57,7 @@ export const InlineAddRow: React.FC<Props> = ({ monthName, onSave, onCancel, def
       isPaid: false,
       month: monthName,
       note: '',
+      isOnCreditCard: onCard || undefined,
     });
   };
 
@@ -87,6 +90,17 @@ export const InlineAddRow: React.FC<Props> = ({ monthName, onSave, onCancel, def
           <option key={billType} value={billType}>{typeLabel(billType)}</option>
         ))}
       </select>
+      {type !== 'parcela' && (
+        <button
+          type="button"
+          aria-pressed={onCard}
+          onClick={() => setOnCard((prev) => !prev)}
+          title={onCard ? t('linkedToCardTitle') : t('linkToCardTitle')}
+          style={{ ...fieldStyle, width: 'auto', padding: '6px 10px', fontSize: 12, fontWeight: 600, color: onCard ? '#60a5fa' : '#8b8b8b', background: onCard ? '#111520' : '#0e0e0e', borderColor: onCard ? '#1e2a3e' : '#222', cursor: 'pointer' }}
+        >
+          {onCard ? t('cardLinkedLabel') : t('cardLinkLabel')}
+        </button>
+      )}
       <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
         <button type="button" onClick={handleSave} style={{ background: '#3b82f6', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '6px 14px', fontSize: 12, fontWeight: 600 }}>{t('save')}</button>
         <button type="button" onClick={onCancel} aria-label={t('cancel')} title={t('cancel')} style={{ background: 'transparent', border: '1px solid #222', borderRadius: 6, color: '#9a9a9a', cursor: 'pointer', padding: '6px 10px', fontSize: 12 }}>×</button>
