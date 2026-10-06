@@ -116,7 +116,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
         type: i.type,
         owner: i.owner,
         personalAmountCents: i.owner === 'SHARED' ? Math.min(Math.round(i.amount * 100), Math.max(0, i.personalAmountCents ?? 0)) : undefined,
-        thirdPartyName: i.owner === 'THIRD_PARTY' ? i.thirdPartyName?.trim() || undefined : undefined,
+        thirdPartyName: i.owner === 'THIRD_PARTY' || i.owner === 'SHARED' ? i.thirdPartyName?.trim() || undefined : undefined,
         cardLast4: i.cardLast4,
         date: setTransactionDay(i.date, getTransactionDay(i.date), getMonthIndex(month)),
         category: i.category,
@@ -344,6 +344,12 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
                         </div>
                       )}
                     </div>
+                    {item.owner === 'SHARED' && (
+                      <div style={{ marginTop: 6 }}>
+                        <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('whoPaysRest')}</div>
+                        <input style={fieldStyle} value={item.thirdPartyName ?? ''} onChange={(e) => updateItem(item.id, { thirdPartyName: e.target.value })} placeholder={t('personNamePlaceholder')} />
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

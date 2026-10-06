@@ -49,6 +49,15 @@ describe('terceiros agrupados por nome', () => {
     ]);
     expect(totals).toEqual([{ name: 'Jéssica', cents: 15000 }]);
   });
+
+  it('atribui ao nomeado o resto da compra compartilhada', () => {
+    const totals = getThirdPartyTotalsCents([
+      tx({ owner: 'SHARED', thirdPartyName: 'Marcos', amountCents: 3000, personalAmountCents: 1200 }),
+      tx({ owner: 'SHARED', thirdPartyName: 'Marcos', amountCents: 1000 }),
+      tx({ owner: 'SHARED', amountCents: 4000, personalAmountCents: 2000 }),
+    ]);
+    expect(totals).toEqual([{ name: 'Marcos', cents: 2800 }]);
+  });
 });
 
 describe('as somas do cartão (dashboard, aba cartão e sobra prevista)', () => {
@@ -63,8 +72,11 @@ describe('as somas do cartão (dashboard, aba cartão e sobra prevista)', () => 
     ])], [cardBill({ amount: 137.5 })]);
     expect(charges.personalCents).toBe(24950);
     expect(charges.totalCents).toBe(38750);
-    expect(charges.thirdPartyCents).toBe(5000);
+    // 5000 do terceiro + 1800 que é o resto da compartilhada (3000 - 1200 da minha parte).
+    expect(charges.thirdPartyCents).toBe(6800);
     expect(charges.unclassifiedCents).toBe(7000);
+    // Eu + terceiro + não classificado fecha a fatura: nada fica sem dono.
+    expect(charges.personalCents + charges.thirdPartyCents + charges.unclassifiedCents).toBe(charges.totalCents);
   });
 
   it('não conta de novo a conta que já veio importada da fatura', () => {

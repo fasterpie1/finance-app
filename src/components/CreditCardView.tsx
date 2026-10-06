@@ -9,7 +9,7 @@ import {
   getMonthIndex,
 } from '../types';
 import { type CreditCardPurchase, type MonthInfo } from '../store/useDashboard';
-import { amountToCents, centsToAmount, getCardCharges, getInvoiceChargeTotalCents, getOwnerLabel, getThirdPartyTotalsCents, getTransactionDay, setTransactionDay } from '../services/cardTransactions';
+import { amountToCents, centsToAmount, getCardCharges, getInvoiceTotalCents, getOwnerLabel, getThirdPartyTotalsCents, getTransactionDay, setTransactionDay } from '../services/cardTransactions';
 import { findDuplicateTransaction } from '../services/transactionDuplicates';
 import { BillRow } from './BillRow';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -82,7 +82,9 @@ function InvoiceTransactions({ invoices, monthBills, onUpdate, onTogglePaid, onS
     if (filter === 'ME') return transaction.owner === 'ME' || transaction.owner === 'SHARED';
     if (filter.startsWith('person:')) {
       const person = filter.slice('person:'.length);
-      return transaction.owner === 'THIRD_PARTY' && transaction.thirdPartyName?.trim().toLowerCase() === person.toLowerCase();
+      const named = transaction.thirdPartyName?.trim().toLowerCase() === person.toLowerCase();
+      // O chip da pessoa mostra também a parte dela numa compra compartilhada.
+      return named && (transaction.owner === 'THIRD_PARTY' || transaction.owner === 'SHARED');
     }
     return transaction.owner === filter;
   };
@@ -191,6 +193,7 @@ function InvoiceTransactions({ invoices, monthBills, onUpdate, onTogglePaid, onS
                 </select>
                 {transaction.owner === 'THIRD_PARTY' && <input value={transaction.thirdPartyName ?? ''} onChange={(event) => updateTransaction(transaction.id, { thirdPartyName: event.target.value })} placeholder={t('who')} style={{ ...fieldStyle, width: 130, padding: '5px 8px', fontSize: 11 }} />}
                 {transaction.owner === 'SHARED' && <input inputMode="decimal" value={transaction.personalAmountCents == null ? '' : (transaction.personalAmountCents / 100).toFixed(2).replace('.', ',')} onChange={(event) => { const typed = event.target.value.trim(); updateTransaction(transaction.id, { personalAmountCents: typed ? Math.min(transaction.amountCents, Math.max(0, Math.round(parseAmount(typed) * 100))) : 0 }); }} placeholder={t('myShare')} style={{ ...fieldStyle, width: 110, padding: '5px 8px', fontSize: 11 }} />}
+                {transaction.owner === 'SHARED' && <input value={transaction.thirdPartyName ?? ''} aria-label={t('whoPaysRest')} onChange={(event) => updateTransaction(transaction.id, { thirdPartyName: event.target.value })} placeholder={t('whoPaysRest')} style={{ ...fieldStyle, width: 130, padding: '5px 8px', fontSize: 11 }} />}
                 <span className={transaction.owner === 'UNCLASSIFIED' ? 'cc-owner-badge is-warning' : 'cc-owner-badge'} style={{ fontSize: 10, color: transaction.owner === 'UNCLASSIFIED' ? '#f59e0b' : '#9a9a9a' }}>{getOwnerLabel(transaction.owner)}</span>
               </div>
             </div>
@@ -283,20 +286,18 @@ export const CreditCardView: React.FC<Props> = ({
   const charges = getCardCharges(creditCardInvoices, monthBills);
   const pendingInstallments = charges.pendingBills.filter((bill) => bill.type === 'parcela');
   const pendingFixedCount = charges.pendingBills.length - pendingInstallments.length;
-  // "Parcelas" são as que caem no cartão por mês; as fixas vinculadas entram na fatura, não aqui.
-  const monthlyFromCard = centsToAmount(
-    pendingInstallments.reduce((s, bill) => s + amountToCents(bill.amount), 0)
-      + creditCardInvoices.reduce((sum, invoice) => sum + getInvoiceChargeTotalCents(invoice), 0),
-  );
+  // Tudo que cai no cartão é a fatura do mês: as contas fixas vinculadas entram aqui também.
+  const faturaTotal = centsToAmount(charges.totalCents);
+  const monthlyLaunchmentCount = charges.pendingBills.length
+    + creditCardInvoices.reduce((sum, invoice) => sum + invoice.transactions.filter((transaction) => transaction.type !== 'PAYMENT').length, 0);
   const totalDebt = centsToAmount(allMonths.reduce((sum, m) => {
     const monthCharges = getCardCharges(m.creditCardInvoices ?? [], m.bills);
     return sum
-      + monthCharges.pendingBills.filter((bill) => bill.type === 'parcela' && !bill.isPaid)
+      + monthCharges.pendingBills.filter((bill) => !bill.isPaid)
         .reduce((s, bill) => s + amountToCents(bill.amount), 0)
       + (m.creditCardInvoices ?? []).filter((invoice) => !invoice.isPaid)
-        .reduce((s, invoice) => s + getInvoiceChargeTotalCents(invoice), 0);
+        .reduce((s, invoice) => s + getInvoiceTotalCents(invoice), 0);
   }, 0));
-  const faturaTotal = centsToAmount(charges.totalCents);
   const hasCardItems = charges.pendingBills.length > 0 || creditCardInvoices.length > 0;
   const allCardPaid = hasCardItems
     && charges.pendingBills.every((bill) => bill.isPaid)
@@ -309,7 +310,7 @@ export const CreditCardView: React.FC<Props> = ({
     const t = Math.max(c, total);
     const parsedAmount = parseAmount(amount);
     const amountCents = Math.round(parsedAmount * 100);
-    onAddPurchase({ name: trimmed, amount: parsedAmount, category, dueDay: parseInt(purchaseDay) || undefined, installmentCurrent: paymentMethod === 'debito_pix' ? 1 : c, installmentTotal: paymentMethod === 'debito_pix' ? 1 : t, paymentMethod, owner: paymentMethod === 'debito_pix' ? 'ME' : owner, personalAmountCents: owner === 'SHARED' ? Math.min(amountCents, Math.max(0, Math.round(parseAmount(personalAmount) * 100))) : undefined, thirdPartyName: owner === 'THIRD_PARTY' ? thirdPartyName.trim() || undefined : undefined });
+    onAddPurchase({ name: trimmed, amount: parsedAmount, category, dueDay: parseInt(purchaseDay) || undefined, installmentCurrent: paymentMethod === 'debito_pix' ? 1 : c, installmentTotal: paymentMethod === 'debito_pix' ? 1 : t, paymentMethod, owner: paymentMethod === 'debito_pix' ? 'ME' : owner, personalAmountCents: owner === 'SHARED' ? Math.min(amountCents, Math.max(0, Math.round(parseAmount(personalAmount) * 100))) : undefined, thirdPartyName: owner === 'THIRD_PARTY' || owner === 'SHARED' ? thirdPartyName.trim() || undefined : undefined });
     setName(''); setAmount(''); setCurInstallment('1'); setTotalInstallment('1'); setPaymentMethod('credito'); setOwner('ME'); setPersonalAmount(''); setThirdPartyName('');
   };
 
@@ -388,8 +389,8 @@ export const CreditCardView: React.FC<Props> = ({
         <div style={{ background: '#131313', border: '1px solid #1e1e1e', borderRadius: 12, padding: '16px 18px', position: 'relative', overflow: 'hidden' }}>
           <div style={{ position: 'absolute', top: 0, left: 0, width: 3, height: '100%', background: '#ef4444', borderRadius: '12px 0 0 12px' }} />
           <div style={{ fontSize: 10, color: '#8f8f8f', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, marginBottom: 6 }}>{t('installments')}</div>
-          <div className="privacy-mask" style={{ fontSize: 20, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#e8e8e8', transition: 'color 0.2s' }}>{hideValues ? masked : formatMoney(monthlyFromCard)}</div>
-          <div className="theme-muted-text" style={{ fontSize: 11, marginTop: 4 }}>{pendingInstallments.length + creditCardInvoices.flatMap((invoice) => invoice.transactions).filter((transaction) => transaction.type !== 'PAYMENT').length} lançamento(s)</div>
+          <div className="privacy-mask" style={{ fontSize: 20, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#e8e8e8', transition: 'color 0.2s' }}>{hideValues ? masked : formatMoney(faturaTotal)}</div>
+          <div className="theme-muted-text" style={{ fontSize: 11, marginTop: 4 }}>{monthlyLaunchmentCount} lançamento(s)</div>
         </div>
         <div style={{ background: '#131313', border: '1px solid #1e1e1e', borderRadius: 12, padding: '16px 18px', position: 'relative', overflow: 'hidden' }}>
           <div style={{ position: 'absolute', top: 0, left: 0, width: 3, height: '100%', background: '#f59e0b', borderRadius: '12px 0 0 12px' }} />
@@ -423,6 +424,7 @@ export const CreditCardView: React.FC<Props> = ({
                 <div><label style={labelStyle}>{t('responsibility')}</label><select style={fieldStyle} value={owner} onChange={(e) => setOwner(e.target.value as ExpenseOwner)}><option value="ME">{t('me')}</option><option value="THIRD_PARTY">{t('thirdParty')}</option><option value="SHARED">{t('shared')}</option><option value="UNCLASSIFIED">{t('unclassified')}</option></select></div>
                 {owner === 'THIRD_PARTY' && <div><label style={labelStyle}>{t('thirdPartyOptional')}</label><input style={fieldStyle} placeholder={t('personNamePlaceholder')} value={thirdPartyName} onChange={(e) => setThirdPartyName(e.target.value)} /></div>}
                 {owner === 'SHARED' && <div><label style={labelStyle}>{t('myShare')}</label><input style={fieldStyle} inputMode="decimal" placeholder="0,00" value={personalAmount} onChange={(e) => setPersonalAmount(e.target.value.replace(/[^0-9.,]/g, ''))} /></div>}
+                {owner === 'SHARED' && <div><label style={labelStyle}>{t('whoPaysRest')}</label><input style={fieldStyle} placeholder={t('personNamePlaceholder')} value={thirdPartyName} onChange={(e) => setThirdPartyName(e.target.value)} /></div>}
               </>
             )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, opacity: paymentMethod === 'debito_pix' ? 0.45 : 1 }}>

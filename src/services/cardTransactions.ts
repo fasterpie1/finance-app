@@ -18,6 +18,16 @@ export function getPersonalImpactCents(transaction: CreditCardTransaction): numb
   return sign * transaction.amountCents;
 }
 
+/** Quanto do lançamento o outro tem que devolver. Na compartilhada é o resto depois
+ *  da minha parte; sem isso a compra dividida não pertenceria a ninguém na quebra da fatura. */
+export function getThirdPartyImpactCents(transaction: CreditCardTransaction): number {
+  if (transaction.type === 'PAYMENT') return 0;
+  const sign = transaction.type === 'REFUND' ? -1 : 1;
+  if (transaction.owner === 'THIRD_PARTY') return sign * transaction.amountCents;
+  if (transaction.owner === 'SHARED') return sign * Math.max(0, transaction.amountCents - (transaction.personalAmountCents ?? 0));
+  return 0;
+}
+
 export function getInvoiceTotalCents(invoice: CreditCardInvoice): number {
   if (invoice.statementTotalCents != null) return invoice.statementTotalCents;
   // Fall back to the net amount owed: charges minus refunds, excluding payments.
@@ -31,9 +41,7 @@ export function getInvoicePersonalTotalCents(invoice: CreditCardInvoice): number
 }
 
 export function getInvoiceThirdPartyTotalCents(invoice: CreditCardInvoice): number {
-  return invoice.transactions.reduce((total, transaction) => (
-    total + (transaction.owner === 'THIRD_PARTY' ? transaction.amountCents : 0)
-  ), 0);
+  return invoice.transactions.reduce((total, transaction) => total + getThirdPartyImpactCents(transaction), 0);
 }
 
 export function getInvoiceUnclassifiedTotalCents(invoice: CreditCardInvoice): number {
@@ -66,6 +74,7 @@ export interface CardCharges {
   totalCents: number;
   /** A minha parte: sem terceiro e sem não classificado. É o número que aparece em primeiro lugar. */
   personalCents: number;
+  /** Inclui o resto da compra compartilhada: o que o outro paga, não eu. */
   thirdPartyCents: number;
   unclassifiedCents: number;
   sharedCents: number;
@@ -112,17 +121,19 @@ export function getOwnerLabel(owner: ExpenseOwner): string {
   }[owner];
 }
 
-/** Total devido por pessoa, agrupando "marcos " e "Marcos" como a mesma pessoa. */
+/** Total devido por pessoa, agrupando "marcos " e "Marcos" como a mesma pessoa.
+ *  Recebe também a parte do outro numa compra compartilhada, que é o motivo de dar nome a ela. */
 export function getThirdPartyTotalsCents(transactions: CreditCardTransaction[]): Array<{ name: string; cents: number }> {
   const totals = new Map<string, { name: string; cents: number }>();
   transactions.forEach((transaction) => {
-    if (transaction.owner !== 'THIRD_PARTY') return;
+    if (transaction.owner !== 'THIRD_PARTY' && transaction.owner !== 'SHARED') return;
     const name = transaction.thirdPartyName?.trim();
     if (!name) return;
+    const cents = getThirdPartyImpactCents(transaction);
+    if (cents === 0) return;
     const key = name.toLowerCase();
-    const sign = transaction.type === 'REFUND' ? -1 : 1;
     const group = totals.get(key) ?? { name, cents: 0 };
-    group.cents += sign * transaction.amountCents;
+    group.cents += cents;
     totals.set(key, group);
   });
   return [...totals.values()].sort((a, b) => b.cents - a.cents);
