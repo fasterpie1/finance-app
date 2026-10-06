@@ -115,11 +115,10 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
       }).catch(() => undefined);
       return;
     }
-    const legacyKey = localStorage.getItem('groq_api_key') || '';
-    const status = legacyKey.startsWith('gsk_')
-      ? saveGroqKey(legacyKey).then(() => { localStorage.removeItem('groq_api_key'); return true; })
-      : hasGroqKey();
-    void status.then((configured) => {
+    // A chave já não fica em localStorage global: quem tivesse a cópia legada precisa
+    // colá-la de novo, porque subir a chave global para a conta que abriu o app primeiro
+    // entregava a chave de uma conta à outra no mesmo aparelho.
+    void hasGroqKey().then((configured) => {
       setShowKeySetup(!configured);
       if (configured) writeUserStorage(userId, STORAGE_KEY_GROQ_STATUS, 'true');
     }).catch(() => setShowKeySetup(true)).finally(() => setKeyLoading(false));
