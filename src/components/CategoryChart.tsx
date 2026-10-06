@@ -6,7 +6,7 @@ import {
   BILL_CATEGORY_COLORS,
 } from '../types';
 import { usePreferences } from '../i18n';
-import { getTransactionCategoryImpactCents } from '../services/cardTransactions';
+import { amountToCents, centsToAmount, getCardCharges, getTransactionCategoryImpactCents, isOnCreditCardBill } from '../services/cardTransactions';
 
 interface Props {
   bills: Bill[];
@@ -24,19 +24,30 @@ interface CategoryData {
 
 export const CategoryChart: React.FC<Props> = ({ bills, invoices = [], hideValues }) => {
   const { formatMoney, categoryLabel, t } = usePreferences();
-  const map = new Map<BillCategory, number>();
-  bills.forEach((b) => { map.set(b.category, (map.get(b.category) || 0) + b.amount); });
+  const centsByCategory = new Map<BillCategory, number>();
+  const add = (category: BillCategory, cents: number) => {
+    if (cents === 0) return;
+    centsByCategory.set(category, (centsByCategory.get(category) || 0) + cents);
+  };
+  // Conta de cartão entra uma única vez: pela linha da fatura se já veio importada,
+  // pela própria conta enquanto ainda não apareceu na fatura.
+  bills.forEach((b) => {
+    if (!isOnCreditCardBill(b)) add(b.category, amountToCents(b.amount));
+  });
+  getCardCharges(invoices, bills).pendingBills.forEach((b) => add(b.category, amountToCents(b.amount)));
   invoices.flatMap((invoice) => invoice.transactions).forEach((transaction) => {
     if (!transaction.category) return;
-    const impact = getTransactionCategoryImpactCents(transaction);
-    map.set(transaction.category, (map.get(transaction.category) || 0) + impact / 100);
+    add(transaction.category, getTransactionCategoryImpactCents(transaction));
   });
 
-  const total = bills.reduce((s, b) => s + b.amount, 0);
-  if (total === 0) return <div style={{ textAlign: 'center', color: '#8b8b8b', fontSize: 12, padding: 20 }}>{t('noExpenses')}</div>;
+  // O denominador é a soma das fatias: somar só as contas deixava cada categoria com
+  // mais de 100% quando o mês tem fatura importada.
+  const totalCents = [...centsByCategory.values()].reduce((sum, cents) => sum + cents, 0);
+  if (totalCents === 0) return <div style={{ textAlign: 'center', color: '#8b8b8b', fontSize: 12, padding: 20 }}>{t('noExpenses')}</div>;
+  const total = centsToAmount(totalCents);
 
-  const data: CategoryData[] = Array.from(map.entries())
-    .map(([category, amount]) => ({ category, label: categoryLabel(category), color: BILL_CATEGORY_COLORS[category], amount, pct: (amount / total) * 100 }))
+  const data: CategoryData[] = Array.from(centsByCategory.entries())
+    .map(([category, cents]) => ({ category, label: categoryLabel(category), color: BILL_CATEGORY_COLORS[category], amount: centsToAmount(cents), pct: (cents / totalCents) * 100 }))
     .sort((a, b) => b.amount - a.amount);
 
   const size = 130;

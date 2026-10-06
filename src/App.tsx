@@ -19,7 +19,7 @@ import { getBillNotifications, type BillNotification } from './store/useDashboar
 import { createCalendarEvent, deleteCalendarEvent, listCalendarEvents, updateCalendarEvent } from './services/googleCalendar';
 import { billReminderInput, invoiceReminderInput } from './services/calendarReminders';
 import { type Bill, type BudgetMonth, type CreditCardTransaction, BILL_CATEGORY_LABELS, getMonthIndex } from './types';
-import { amountToCents, centsToAmount, getCardCharges, getTransactionCategoryImpactCents } from './services/cardTransactions';
+import { amountToCents, centsToAmount, getCardCharges, isOnCreditCardBill, getTransactionCategoryImpactCents } from './services/cardTransactions';
 import { safeSetItem } from './services/safeStorage';
 import { PreferencesProvider, usePreferences, type AppLocale, type DisplayCurrency } from './i18n';
 
@@ -536,8 +536,11 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
   const monthlySavingsPct = savingsGoal > 0 ? Math.min(Math.round((savedAmount / savingsGoal) * 100), 100) : 0;
 
   const summarizeMonth = (month: BudgetMonth) => {
-    const billsTotal = month.bills.reduce((sum, bill) => sum + bill.amount, 0);
-    const paidTotal = month.bills.filter((bill) => bill.isPaid).reduce((sum, bill) => sum + bill.amount, 0);
+    // O que está no cartão já entra em cardTotal e nas categorias do cartão; somar essas
+    // contas de novo aqui era o modelo receber o mesmo gasto duas vezes.
+    const plainBills = month.bills.filter((bill) => !isOnCreditCardBill(bill));
+    const billsTotal = plainBills.reduce((sum, bill) => sum + bill.amount, 0);
+    const paidTotal = plainBills.filter((bill) => bill.isPaid).reduce((sum, bill) => sum + bill.amount, 0);
     const invoices = month.creditCardInvoices ?? [];
     const monthCharges = getCardCharges(invoices, month.bills);
     const cardTransactions = invoices.flatMap((invoice) => invoice.transactions).filter((transaction) => transaction.type !== 'PAYMENT');
@@ -553,7 +556,7 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
         totals[label] = (totals[label] || 0) + bill.amount;
         return totals;
       }, {}));
-    const billCategoryTotals = month.bills.reduce<Record<string, number>>((totals, bill) => {
+    const billCategoryTotals = plainBills.reduce<Record<string, number>>((totals, bill) => {
       const label = BILL_CATEGORY_LABELS[bill.category];
       totals[label] = (totals[label] || 0) + bill.amount;
       return totals;
@@ -589,7 +592,7 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
       // Só os três meses mais recentes vão com lista de itens: o prompt inteiro mais a resposta
       // precisam caber nos 8k tokens/min do tier gratuito da Groq.
       const withDetails = index >= previousMonths.length - 3 && s.cardBreakdown !== '';
-      return `- ${s.label}: entrada ${formatCurrency(s.income)}; contas ${formatCurrency(s.billsTotal)} (pagas ${formatCurrency(s.paidTotal)}); cartão ${formatCurrency(s.cardTotal)}${s.invoices ? ` (${s.invoices} fatura(s) importada(s))` : ''}\n  Por categoria (todas as contas): ${s.categories}\n  ${withDetails ? `Gastos no cartão, total já somado por categoria com os maiores itens:\n${s.cardBreakdown.split('\n').map((line) => `    ${line}`).join('\n')}` : `Por categoria no cartão (totais completos): ${s.cardCategories}`}`;
+      return `- ${s.label}: entrada ${formatCurrency(s.income)}; contas fora do cartão ${formatCurrency(s.billsTotal)} (pagas ${formatCurrency(s.paidTotal)}); cartão ${formatCurrency(s.cardTotal)}${s.invoices ? ` (${s.invoices} fatura(s) importada(s))` : ''}\n  Por categoria (contas fora do cartão): ${s.categories}\n  ${withDetails ? `Gastos no cartão, total já somado por categoria com os maiores itens:\n${s.cardBreakdown.split('\n').map((line) => `    ${line}`).join('\n')}` : `Por categoria no cartão (totais completos): ${s.cardCategories}`}`;
     }).join('\n')}`
     : '\n\nNão há meses anteriores cadastrados para comparação.';
   const availableMonths = db.months.map((month) => `${month.name} ${month.year}`).join(', ');
@@ -613,9 +616,9 @@ Fatura do cartão: ${formatCurrency(centsToAmount(cardCharges.totalCents))}
 Impacto pessoal da fatura: ${formatCurrency(centsToAmount(cardCharges.personalCents))}
 
 Contas do mês:
-${db.billsSorted.map((b) => `- ${b.name} (${BILL_CATEGORY_LABELS[b.category]}) — ${formatCurrency(b.amount)} — Dia ${b.dueDay}${b.installmentCurrent ? ` — Parcela ${b.installmentCurrent}/${b.installmentTotal}` : ''} — ${b.isPaid ? 'Pago' : 'Pendente'}`).join('\n')}
+${db.billsSorted.map((b) => `- ${b.name} (${BILL_CATEGORY_LABELS[b.category]}) — ${formatCurrency(b.amount)} — Dia ${b.dueDay}${b.installmentCurrent ? ` — Parcela ${b.installmentCurrent}/${b.installmentTotal}` : ''}${isOnCreditCardBill(b) ? ' — no cartão, já somado na fatura' : ''} — ${b.isPaid ? 'Pago' : 'Pendente'}`).join('\n')}
 
-Total por categoria neste mês, somando todas as contas (use estes números):
+Total por categoria neste mês, somando as contas que não estão no cartão (use estes números):
 ${summarizeMonth(db.selectedMonth).categories}
 
 Gastos no cartão deste mês — cada linha traz o TOTAL da categoria já somado e, na sequência, os maiores lançamentos dela:
