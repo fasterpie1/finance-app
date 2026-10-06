@@ -480,6 +480,7 @@ body[data-theme='light'] .theme-ai-message-error {
 }
 
 .theme-card-due-setting > button,
+.theme-card-due-actions > button,
 .theme-card-due-form button {
   flex-shrink: 0;
   padding: 7px 11px;
@@ -490,6 +491,13 @@ body[data-theme='light'] .theme-ai-message-error {
   cursor: pointer;
   font-size: 11px;
   font-weight: 600;
+}
+
+.theme-card-due-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .theme-card-due-form {
@@ -518,6 +526,7 @@ body[data-theme='light'] .theme-card-due-setting {
 
 /* O CTA de vencimento mantém o fundo azul: a regra genérica de botões o pintaria de azul-escuro sobre azul. */
 body[data-theme='light'] .theme-card-due-setting > button,
+body[data-theme='light'] .theme-card-due-actions > button,
 body[data-theme='light'] .theme-card-due-form button {
   color: #ffffff !important;
 }

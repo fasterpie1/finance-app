@@ -4,10 +4,12 @@ import { usePreferences } from '../i18n';
 interface Props {
   added: boolean;
   loading?: boolean;
+  /** Nas barras estreitas o rótulo não cabe; o title continua dizendo o que o botão faz. */
+  iconOnly?: boolean;
   onClick: () => void;
 }
 
-export const CalendarReminderButton: React.FC<Props> = ({ added, loading = false, onClick }) => {
+export const CalendarReminderButton: React.FC<Props> = ({ added, loading = false, iconOnly = false, onClick }) => {
   const { t } = usePreferences();
   return (
   <button
@@ -26,7 +28,7 @@ export const CalendarReminderButton: React.FC<Props> = ({ added, loading = false
     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <rect x="3" y="4" width="18" height="17" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /><path d="M12 14v4M10 16h4" />
     </svg>
-    {loading ? t('reminderAdding') : added ? t('reminderAdded') : t('remind')}
+    {!iconOnly && (loading ? t('reminderAdding') : added ? t('reminderAdded') : t('remind'))}
   </button>
   );
 };

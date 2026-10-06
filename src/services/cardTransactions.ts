@@ -44,12 +44,6 @@ export function getInvoiceThirdPartyTotalCents(invoice: CreditCardInvoice): numb
   return invoice.transactions.reduce((total, transaction) => total + getThirdPartyImpactCents(transaction), 0);
 }
 
-export function getInvoiceUnclassifiedTotalCents(invoice: CreditCardInvoice): number {
-  return invoice.transactions.reduce((total, transaction) => (
-    total + (transaction.owner === 'UNCLASSIFIED' ? transaction.amountCents : 0)
-  ), 0);
-}
-
 /** Conta fixa ligada ao cartão que ainda não apareceu como gasto importado da fatura.
  *  Sem esse filtro, a academia parcelada entra duas vezes no "Meus gastos": uma como
  *  conta fixa do usuário e outra como linha que veio na fatura lida pela IA. */
@@ -72,11 +66,10 @@ export function isOnCreditCardBill(bill: Bill): boolean {
 export interface CardCharges {
   /** O que o banco cobra na fatura do mês, incluindo as contas postas no cartão. */
   totalCents: number;
-  /** A minha parte: sem terceiro e sem não classificado. É o número que aparece em primeiro lugar. */
+  /** A minha parte: o que eu pago, incluindo a parte pessoal de uma compartilhada. */
   personalCents: number;
   /** Inclui o resto da compra compartilhada: o que o outro paga, não eu. */
   thirdPartyCents: number;
-  unclassifiedCents: number;
   sharedCents: number;
   /** Líquido de pagamentos e estornos, para dívida em aberto. */
   chargeCents: number;
@@ -94,7 +87,6 @@ export function getCardCharges(invoices: CreditCardInvoice[], bills: Bill[]): Ca
     totalCents: invoices.reduce((total, invoice) => total + getInvoiceTotalCents(invoice), 0) + pendingCents,
     personalCents: invoices.reduce((total, invoice) => total + getInvoicePersonalTotalCents(invoice), 0) + pendingCents,
     thirdPartyCents: invoices.reduce((total, invoice) => total + getInvoiceThirdPartyTotalCents(invoice), 0),
-    unclassifiedCents: invoices.reduce((total, invoice) => total + getInvoiceUnclassifiedTotalCents(invoice), 0),
     sharedCents: transactions.reduce((total, transaction) => (
       transaction.owner === 'SHARED' ? total + transaction.amountCents : total
     ), 0),

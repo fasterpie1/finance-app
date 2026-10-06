@@ -54,6 +54,9 @@ const labelStyle: React.CSSProperties = {
 /** 'person:Marcos' filtra uma pessoa nomeada; os demais valores são o dono do lançamento. */
 type OwnerFilter = 'ALL' | ExpenseOwner | `person:${string}`;
 
+/** Uma coisa por vez na tela: a fatura do cartão, o que saiu à vista, digitar uma compra ou importar a fatura. */
+type CardSection = 'fatura' | 'debito_pix' | 'lancar' | 'importar';
+
 interface OwnerChip {
   value: OwnerFilter;
   label: string;
@@ -64,7 +67,6 @@ const getOwnerOptions = (t: (key: string) => string): Array<{ value: ExpenseOwne
   { value: 'ME', label: t('me') },
   { value: 'THIRD_PARTY', label: t('thirdParty') },
   { value: 'SHARED', label: t('shared') },
-  { value: 'UNCLASSIFIED', label: t('unclassified') },
 ];
 
 function InvoiceTransactions({ invoices, monthBills, onUpdate, onTogglePaid, onSaveBill, onDeleteBill, hideValues }: { invoices: CreditCardInvoice[]; monthBills: Bill[]; onUpdate: (invoice: CreditCardInvoice) => void; onTogglePaid: (id: string) => void; onSaveBill: (bill: Bill) => void; onDeleteBill: (id: string) => void; hideValues?: boolean }) {
@@ -114,7 +116,6 @@ function InvoiceTransactions({ invoices, monthBills, onUpdate, onTogglePaid, onS
       value: `person:${group.name}`, label: group.name, cents: group.cents,
     })),
     { value: 'SHARED', label: t('shared'), cents: charges.sharedCents },
-    { value: 'UNCLASSIFIED', label: t('unclassified'), cents: charges.unclassifiedCents },
     { value: 'ALL', label: t('all'), cents: charges.totalCents },
   ];
   const chips = ownerChips.filter((chip) => chip.value === 'ME' || chip.value === 'ALL' || chip.cents !== 0);
@@ -142,9 +143,7 @@ function InvoiceTransactions({ invoices, monthBills, onUpdate, onTogglePaid, onS
       >
         {[
           [t('mySpending'), charges.personalCents],
-          [t('invoice'), charges.totalCents],
           [t('thirdParty'), charges.thirdPartyCents],
-          [t('unclassified'), charges.unclassifiedCents],
         ].map(([label, cents], index) => (
           <div key={String(label)} className="cc-summary-tile" style={{ minWidth: index === 0 ? 152 : 126, flex: `0 0 ${index === 0 ? 152 : 126}px`, background: '#131313', border: index === 0 ? '1px solid #23324a' : '1px solid #1e1e1e', borderRadius: 10, padding: '12px 14px' }}>
             <div style={{ fontSize: 10, color: index === 0 ? '#93c5fd' : '#8f8f8f', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</div>
@@ -169,7 +168,7 @@ function InvoiceTransactions({ invoices, monthBills, onUpdate, onTogglePaid, onS
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {transactions.map((transaction) => (
-          <div key={transaction.id} className="cc-transaction-row" style={{ background: '#131313', border: `1px solid ${transaction.owner === 'UNCLASSIFIED' ? '#3a2a12' : '#1e1e1e'}`, borderRadius: 10, padding: '11px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div key={transaction.id} className="cc-transaction-row" style={{ background: '#131313', border: '1px solid #1e1e1e', borderRadius: 10, padding: '11px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <strong className="cc-merchant" style={{ fontSize: 13, color: '#d4d4d4' }}>{transaction.merchant}</strong>
@@ -190,11 +189,13 @@ function InvoiceTransactions({ invoices, monthBills, onUpdate, onTogglePaid, onS
                 </div>
                 <select value={transaction.owner} onChange={(event) => updateTransaction(transaction.id, { owner: event.target.value as ExpenseOwner, personalAmountCents: event.target.value === 'SHARED' ? transaction.personalAmountCents : undefined })} style={{ ...fieldStyle, width: 150, padding: '5px 8px', fontSize: 11 }}>
                   {ownerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  {/* Um lançamento salvo antes pode vir sem dono; some da lista, mas não pode ficar sem rótulo. */}
+                  {!ownerOptions.some((option) => option.value === transaction.owner) && <option value={transaction.owner}>{getOwnerLabel(transaction.owner)}</option>}
                 </select>
                 {transaction.owner === 'THIRD_PARTY' && <input value={transaction.thirdPartyName ?? ''} onChange={(event) => updateTransaction(transaction.id, { thirdPartyName: event.target.value })} placeholder={t('who')} style={{ ...fieldStyle, width: 130, padding: '5px 8px', fontSize: 11 }} />}
                 {transaction.owner === 'SHARED' && <input inputMode="decimal" value={transaction.personalAmountCents == null ? '' : (transaction.personalAmountCents / 100).toFixed(2).replace('.', ',')} onChange={(event) => { const typed = event.target.value.trim(); updateTransaction(transaction.id, { personalAmountCents: typed ? Math.min(transaction.amountCents, Math.max(0, Math.round(parseAmount(typed) * 100))) : 0 }); }} placeholder={t('myShare')} style={{ ...fieldStyle, width: 110, padding: '5px 8px', fontSize: 11 }} />}
                 {transaction.owner === 'SHARED' && <input value={transaction.thirdPartyName ?? ''} aria-label={t('whoPaysRest')} onChange={(event) => updateTransaction(transaction.id, { thirdPartyName: event.target.value })} placeholder={t('whoPaysRest')} style={{ ...fieldStyle, width: 130, padding: '5px 8px', fontSize: 11 }} />}
-                <span className={transaction.owner === 'UNCLASSIFIED' ? 'cc-owner-badge is-warning' : 'cc-owner-badge'} style={{ fontSize: 10, color: transaction.owner === 'UNCLASSIFIED' ? '#f59e0b' : '#9a9a9a' }}>{getOwnerLabel(transaction.owner)}</span>
+                <span className="cc-owner-badge" style={{ fontSize: 10, color: '#9a9a9a' }}>{getOwnerLabel(transaction.owner)}</span>
               </div>
             </div>
             <strong className={transaction.type === 'REFUND' ? 'cc-amount-refund' : 'cc-amount'} style={{ fontSize: 14, color: transaction.type === 'REFUND' ? '#10b981' : '#d4d4d4', whiteSpace: 'nowrap' }}>{hideValues ? '••••' : formatMoney(centsToAmount(transaction.amountCents))}</strong>
@@ -253,9 +254,9 @@ export const CreditCardView: React.FC<Props> = ({
   const [totalInstallment, setTotalInstallment] = useState('1');
   const [invoiceDueDayInput, setInvoiceDueDayInput] = useState(String(creditCardDueDay ?? ''));
   const [invoiceDueDayEditing, setInvoiceDueDayEditing] = useState(false);
-  const [formOpen, setFormOpen] = useState(() => {
-    try { const saved = localStorage.getItem('financa_sections_v1'); if (saved) { return JSON.parse(saved)['creditCardForm'] ?? false; } } catch { /* ignore */ }
-    return false;
+  const [section, setSection] = useState<CardSection>(() => {
+    try { const saved = localStorage.getItem('financa_sections_v1'); if (saved) { return JSON.parse(saved)['creditCardSection'] ?? 'fatura'; } } catch { /* ignore */ }
+    return 'fatura';
   });
 
   useEffect(() => {
@@ -263,12 +264,9 @@ export const CreditCardView: React.FC<Props> = ({
     return () => window.clearTimeout(timer);
   }, [creditCardDueDay]);
 
-  const toggleForm = () => {
-    setFormOpen((prev: boolean) => {
-      const next = !prev;
-      try { const saved = localStorage.getItem('financa_sections_v1'); const s = saved ? JSON.parse(saved) : {}; s['creditCardForm'] = next; localStorage.setItem('financa_sections_v1', JSON.stringify(s)); } catch { /* ignore */ }
-      return next;
-    });
+  const selectSection = (next: CardSection) => {
+    setSection(next);
+    try { const saved = localStorage.getItem('financa_sections_v1'); const s = saved ? JSON.parse(saved) : {}; s['creditCardSection'] = next; localStorage.setItem('financa_sections_v1', JSON.stringify(s)); } catch { /* ignore */ }
   };
 
   const cur = parseInt(curInstallment) || 1;
@@ -284,10 +282,6 @@ export const CreditCardView: React.FC<Props> = ({
     : undefined;
 
   const charges = getCardCharges(creditCardInvoices, monthBills);
-  const pendingInstallments = charges.pendingBills.filter((bill) => bill.type === 'parcela');
-  const pendingFixedCount = charges.pendingBills.length - pendingInstallments.length;
-  // Tudo que cai no cartão é a fatura do mês: as contas fixas vinculadas entram aqui também.
-  const faturaTotal = centsToAmount(charges.totalCents);
   const monthlyLaunchmentCount = charges.pendingBills.length
     + creditCardInvoices.reduce((sum, invoice) => sum + invoice.transactions.filter((transaction) => transaction.type !== 'PAYMENT').length, 0);
   const totalDebt = centsToAmount(allMonths.reduce((sum, m) => {
@@ -315,13 +309,49 @@ export const CreditCardView: React.FC<Props> = ({
   };
 
   const masked = '••••';
+  const debitPixCents = debitPixBills.reduce((sum, bill) => sum + amountToCents(bill.amount), 0);
+  const moneyTabs: Array<{ key: CardSection; label: string; cents: number; count: number }> = [
+    { key: 'fatura', label: t('cardTabOnCard'), cents: charges.totalCents, count: monthlyLaunchmentCount },
+    { key: 'debito_pix', label: t('debitPix'), cents: debitPixCents, count: debitPixBills.length },
+  ];
+  const actionTabs: Array<{ key: CardSection; label: string }> = [
+    { key: 'lancar', label: `+ ${t('addEntry')}` },
+    { key: 'importar', label: `+ ${t('importInvoice')}` },
+  ];
 
   return (
-    <div className="theme-card-view" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      {/* Fatura do mês — toggle simples */}
-      {hasCardItems && (
-        <div style={{ background: '#131313', border: `1px solid ${allCardPaid ? '#10b98122' : '#1e1e1e'}`, borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12, opacity: allCardPaid ? 0.55 : 1, transition: 'all 0.15s' }}>
-          {/* Bolinha de pago */}
+    <div className="theme-card-view" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      {/* Em cima, quanto sai por forma de pagamento. Embaixo, o que fazer: digitar uma compra ou importar a fatura. */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {moneyTabs.map((tabItem) => {
+            const active = section === tabItem.key;
+            return (
+              <button key={tabItem.key} type="button" aria-pressed={active} onClick={() => selectSection(tabItem.key)} className={active ? 'cc-filter-btn is-active' : 'cc-filter-btn'} style={{ flex: '1 1 0', minWidth: 0, textAlign: 'left', background: active ? '#1e2a3e' : '#131313', border: `1px solid ${active ? '#3b82f6' : '#1e1e1e'}`, borderRadius: 10, padding: '12px 14px', cursor: 'pointer' }}>
+                <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: active ? '#93c5fd' : '#8f8f8f' }}>{tabItem.label}</div>
+                <div className="privacy-mask" style={{ marginTop: 4, fontSize: 17, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#e8e8e8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{hideValues ? masked : formatMoney(centsToAmount(tabItem.cents))}</div>
+                <div style={{ fontSize: 10, color: '#8b8b8b', marginTop: 2 }}>{tabItem.count} lançamento(s)</div>
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {actionTabs.map((tabItem) => {
+            const active = section === tabItem.key;
+            return (
+              <button key={tabItem.key} type="button" aria-pressed={active} onClick={() => selectSection(tabItem.key)} className={active ? 'cc-filter-btn is-active' : 'cc-filter-btn'} style={{ flex: '1 1 0', minWidth: 0, background: active ? '#1e2a3e' : '#131313', border: `1px solid ${active ? '#3b82f6' : '#1e1e1e'}`, borderRadius: 10, padding: '12px 14px', cursor: 'pointer', color: active ? '#93c5fd' : '#c0c0c0', fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {tabItem.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {section === 'fatura' && (
+        <>
+      {/* Uma barra só: marcar a fatura como paga e ajustar o vencimento, sem repetir o valor da aba. */}
+      <div className="theme-card-due-setting" style={{ opacity: allCardPaid ? 0.6 : 1, flexWrap: 'wrap' }}>
+        {hasCardItems && (
           <button type="button"
             role="checkbox"
             aria-checked={allCardPaid}
@@ -329,16 +359,15 @@ export const CreditCardView: React.FC<Props> = ({
             title={allCardPaid ? t('markAsUnpaid') : t('markAsPaid')}
             onClick={allCardPaid ? onUnpayCreditCard : onPayCreditCard}
             style={{
-              width: 44, height: 44, margin: -12, borderRadius: '50%',
+              width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
               border: 'none',
               background: 'transparent',
-              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexShrink: 0, padding: 0,
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
             }}
           >
             <span style={{
               width: 20, height: 20, borderRadius: '50%',
-              border: `2px solid ${allCardPaid ? '#10b981' : '#2d2d2d'}`,
+              border: `2px solid ${allCardPaid ? '#10b981' : '#3b82f6'}`,
               background: allCardPaid ? '#10b981' : 'transparent',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               transition: 'all 0.15s',
@@ -350,30 +379,13 @@ export const CreditCardView: React.FC<Props> = ({
             )}
             </span>
           </button>
-          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', flexShrink: 0, opacity: 0.8 }} />
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
-            <span className="cc-merchant" style={{ fontSize: 13, fontWeight: 600, color: allCardPaid ? '#8f8f8f' : '#d4d4d4', textDecoration: allCardPaid ? 'line-through' : 'none' }}>{t('monthlyInvoice')}</span>
-            <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-              <span style={{ fontSize: 10, color: '#8b8b8b' }}>
-                {pendingInstallments.length} {pendingInstallments.length !== 1 ? t('installmentPlural') : t('installmentSingular')}
-                {pendingFixedCount > 0 && ` + ${pendingFixedCount} ${pendingFixedCount !== 1 ? t('fixedPlural') : t('fixedSingular')}`}
-              </span>
-            </div>
-          </div>
-          <span className="privacy-mask" style={{ fontSize: 14, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : (allCardPaid ? '#10b981' : '#d4d4d4'), flexShrink: 0, letterSpacing: '-0.01em', transition: 'color 0.2s' }}>
-            {hideValues ? masked : formatMoney(faturaTotal)}
-          </span>
-          {onInvoiceCalendarReminder && !allCardPaid && (
-            <CalendarReminderButton added={Boolean(invoiceCalendarEventId)} loading={invoiceCalendarReminderLoading} onClick={onInvoiceCalendarReminder} />
-          )}
-        </div>
-      )}
-
-      <div className="theme-card-due-setting">
-        <div>
-          <strong>{t('invoiceDueDate')}</strong>
+        )}
+        <div style={{ flex: '1 1 150px', minWidth: 0 }}>
+          <strong style={{ textDecoration: allCardPaid ? 'line-through' : 'none' }}>{t('monthlyInvoice')}</strong>
           <span>{creditCardDueDay ? t('invoiceDueEveryDay', { day: creditCardDueDay }) : t('setInvoiceDueDayHint')}</span>
         </div>
+        {/* O CTA e o sino formam um bloco: em tela estreita os dois descem juntos para baixo do texto. */}
+        <div className="theme-card-due-actions">
         {invoiceDueDayEditing ? (
           <div className="theme-card-due-form">
             <input autoFocus inputMode="numeric" value={invoiceDueDayInput} onChange={(event) => setInvoiceDueDayInput(event.target.value.replace(/[^0-9]/g, ''))} onKeyDown={(event) => { if (event.key === 'Enter') { const value = Number(invoiceDueDayInput); if (value >= 1 && value <= 31) { onUpdateCreditCardDueDay(value); setInvoiceDueDayEditing(false); } } if (event.key === 'Escape') setInvoiceDueDayEditing(false); }} placeholder={t('dayPlaceholder')} aria-label={t('invoiceDueDayAria')} />
@@ -382,33 +394,35 @@ export const CreditCardView: React.FC<Props> = ({
         ) : (
           <button type="button" onClick={() => { setInvoiceDueDayInput(String(creditCardDueDay ?? '')); setInvoiceDueDayEditing(true); }}>{creditCardDueDay ? t('editDueDate') : t('addDueDate')}</button>
         )}
-      </div>
-
-      {/* Resumo */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        <div style={{ background: '#131313', border: '1px solid #1e1e1e', borderRadius: 12, padding: '16px 18px', position: 'relative', overflow: 'hidden' }}>
-          <div style={{ position: 'absolute', top: 0, left: 0, width: 3, height: '100%', background: '#ef4444', borderRadius: '12px 0 0 12px' }} />
-          <div style={{ fontSize: 10, color: '#8f8f8f', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, marginBottom: 6 }}>{t('installments')}</div>
-          <div className="privacy-mask" style={{ fontSize: 20, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#e8e8e8', transition: 'color 0.2s' }}>{hideValues ? masked : formatMoney(faturaTotal)}</div>
-          <div className="theme-muted-text" style={{ fontSize: 11, marginTop: 4 }}>{monthlyLaunchmentCount} lançamento(s)</div>
-        </div>
-        <div style={{ background: '#131313', border: '1px solid #1e1e1e', borderRadius: 12, padding: '16px 18px', position: 'relative', overflow: 'hidden' }}>
-          <div style={{ position: 'absolute', top: 0, left: 0, width: 3, height: '100%', background: '#f59e0b', borderRadius: '12px 0 0 12px' }} />
-          <div style={{ fontSize: 10, color: '#8f8f8f', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, marginBottom: 6 }}>{t('totalDebt')}</div>
-          <div className="privacy-mask" style={{ fontSize: 20, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#e8e8e8', transition: 'color 0.2s' }}>{hideValues ? masked : formatMoney(totalDebt)}</div>
-          <div className="theme-muted-text" style={{ fontSize: 11, marginTop: 4 }}>{t('openInstallments')}</div>
+        {hasCardItems && !allCardPaid && onInvoiceCalendarReminder && (
+          /* O wrapper deixa o sino de fora do azul do CTA de vencimento. */
+          <div style={{ flexShrink: 0 }}>
+            <CalendarReminderButton iconOnly added={Boolean(invoiceCalendarEventId)} loading={invoiceCalendarReminderLoading} onClick={onInvoiceCalendarReminder} />
+          </div>
+        )}
         </div>
       </div>
 
+      {/* O que fica em aberto em todos os meses, numa linha só. */}
+      {totalDebt > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, background: '#131313', border: '1px solid #1e1e1e', borderRadius: 10, padding: '11px 14px' }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 10, color: '#8f8f8f', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>{t('totalDebt')}</div>
+            <div className="theme-muted-text" style={{ fontSize: 10, marginTop: 3 }}>{t('openInstallments')}</div>
+          </div>
+          <strong className="privacy-mask" style={{ fontSize: 16, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#e8e8e8', whiteSpace: 'nowrap' }}>{hideValues ? masked : formatMoney(totalDebt)}</strong>
+        </div>
+      )}
+        </>
+      )}
+
+      {section === 'lancar' && (
+        <>
       {/* Form */}
       <div style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 12, overflow: 'hidden' }}>
-        <button type="button" onClick={toggleForm} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'transparent', border: 'none', padding: '14px 18px', cursor: 'pointer', color: '#c0c0c0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', padding: '14px 18px', color: '#c0c0c0' }}>
           <span style={{ fontSize: 13, fontWeight: 600 }}>{t('addCardPurchase')}</span>
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ transform: formOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
-            <path d="M2 4l4 4 4-4" stroke="#555" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-        {formOpen && (
+        </div>
           <div style={{ padding: '0 18px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div style={{ height: 1, background: '#1a1a1a', marginBottom: 4 }} />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -421,7 +435,7 @@ export const CreditCardView: React.FC<Props> = ({
             </div>
             {paymentMethod === 'credito' && (
               <>
-                <div><label style={labelStyle}>{t('responsibility')}</label><select style={fieldStyle} value={owner} onChange={(e) => setOwner(e.target.value as ExpenseOwner)}><option value="ME">{t('me')}</option><option value="THIRD_PARTY">{t('thirdParty')}</option><option value="SHARED">{t('shared')}</option><option value="UNCLASSIFIED">{t('unclassified')}</option></select></div>
+                <div><label style={labelStyle}>{t('responsibility')}</label><select style={fieldStyle} value={owner} onChange={(e) => setOwner(e.target.value as ExpenseOwner)}><option value="ME">{t('me')}</option><option value="THIRD_PARTY">{t('thirdParty')}</option><option value="SHARED">{t('shared')}</option></select></div>
                 {owner === 'THIRD_PARTY' && <div><label style={labelStyle}>{t('thirdPartyOptional')}</label><input style={fieldStyle} placeholder={t('personNamePlaceholder')} value={thirdPartyName} onChange={(e) => setThirdPartyName(e.target.value)} /></div>}
                 {owner === 'SHARED' && <div><label style={labelStyle}>{t('myShare')}</label><input style={fieldStyle} inputMode="decimal" placeholder="0,00" value={personalAmount} onChange={(e) => setPersonalAmount(e.target.value.replace(/[^0-9.,]/g, ''))} /></div>}
                 {owner === 'SHARED' && <div><label style={labelStyle}>{t('whoPaysRest')}</label><input style={fieldStyle} placeholder={t('personNamePlaceholder')} value={thirdPartyName} onChange={(e) => setThirdPartyName(e.target.value)} /></div>}
@@ -456,12 +470,16 @@ export const CreditCardView: React.FC<Props> = ({
               {affected.length > 1 ? t('launchMultiMonth', { count: affected.length }) : t('launchSingleMonth')}
             </button>
           </div>
-        )}
       </div>
+        </>
+      )}
 
-      {/* Importar da fatura */}
-      <StatementImportPanel userId={userId} month={selectedMonthName} year={selectedMonthYear} existingTransactions={creditCardInvoices.flatMap((invoice) => invoice.transactions)} onImport={onImportInvoice} />
+      {section === 'importar' && (
+        <StatementImportPanel userId={userId} month={selectedMonthName} year={selectedMonthYear} existingTransactions={creditCardInvoices.flatMap((invoice) => invoice.transactions)} onImport={onImportInvoice} onLaunched={() => selectSection('fatura')} />
+      )}
 
+      {section === 'fatura' && (
+        <>
       {(creditCardInvoices.length > 0 || charges.pendingBills.length > 0) && <InvoiceTransactions invoices={creditCardInvoices} monthBills={monthBills} onUpdate={onUpdateInvoice} onTogglePaid={onTogglePaid} onSaveBill={onSaveBill} onDeleteBill={onDeleteBill} hideValues={hideValues} />}
 
       {/* Contas fixas vinculadas ao cartão */}
@@ -477,19 +495,29 @@ export const CreditCardView: React.FC<Props> = ({
           <div className="theme-muted-text" style={{ fontSize: 11, marginTop: 8, paddingLeft: 4 }}>{t('linkedFixedNote')}</div>
         </div>
       )}
+        </>
+      )}
 
-      {debitPixBills.length > 0 && (
+      {section === 'debito_pix' && (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#8f8f8f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('debitPixPurchases')}</h3>
             <span className="cc-debit-chip" style={{ fontSize: 10, color: '#f59e0b', background: '#1a150a', border: '1px solid #2a2010', borderRadius: 4, padding: '1px 7px', fontWeight: 600 }}>{debitPixBills.length}</span>
           </div>
+          {debitPixBills.length === 0 && (
+            <div style={{ background: '#131313', border: '1px solid #1e1e1e', borderRadius: 10, padding: '14px', display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start' }}>
+              <span style={{ fontSize: 12, color: '#8b8b8b' }}>{t('noExpenses')}</span>
+              <button type="button" onClick={() => { setPaymentMethod('debito_pix'); selectSection('lancar'); }} style={{ background: '#3b82f6', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '8px 16px', fontSize: 12, fontWeight: 600 }}>+ {t('addEntry')}</button>
+            </div>
+          )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {debitPixBills.map((bill) => (<BillRow key={bill.id} bill={bill} onTogglePaid={() => onTogglePaid(bill.id)} onSave={onSaveBill} onDelete={() => onDeleteBill(bill.id)} hideValues={hideValues} showPaidToggle={false} />))}
           </div>
         </div>
       )}
 
+      {section === 'fatura' && (
+        <>
       {/* Visão geral */}
       <div>
         <h3 style={{ margin: '0 0 10px', fontSize: 11, fontWeight: 600, color: '#8f8f8f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('monthlyOverview')}</h3>
@@ -513,6 +541,8 @@ export const CreditCardView: React.FC<Props> = ({
             })}
         </div>
       </div>
+        </>
+      )}
     </div>
   );
 };

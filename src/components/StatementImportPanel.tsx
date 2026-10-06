@@ -20,6 +20,8 @@ import { usePreferences } from '../i18n';
 
 interface Props {
   onImport: (invoice: CreditCardInvoice) => void;
+  /** Chamado quando o usuário lança o que revisou; a tela do cartão volta para a fatura. */
+  onLaunched?: () => void;
   userId: string | null;
   month: string;
   year: number;
@@ -40,10 +42,9 @@ const MAX_FILE_SIZE_MB = 20;
  *  cobrança). Esse texto não serve para o usuário final, então vira a mensagem traduzida. */
 const AI_LIMIT_ERROR = /request too large|output tokens per minute|otpm|rate limit|tokens per minute|try again in|upgrade to dev tier|service tier/i;
 
-export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month, year, existingTransactions }) => {
+export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, userId, month, year, existingTransactions }) => {
   const { formatMoney, parseAmount, t } = usePreferences();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [incomplete, setIncomplete] = useState(false);
@@ -138,29 +139,14 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
     setPreviewUrl(null);
     setPreviewIsPdf(false);
     setStatementTotalCents(undefined);
-    setOpen(false);
-  };
-
-  const toggleOpen = () => {
-    setOpen((prev) => {
-      if (prev) {
-        setItems([]);
-        setError('');
-        setIncomplete(false);
-        if (previewUrl) URL.revokeObjectURL(previewUrl);
-        setPreviewUrl(null);
-        setPreviewIsPdf(false);
-        setStatementTotalCents(undefined);
-      }
-      return !prev;
-    });
+    onLaunched?.();
   };
 
   // Revoga a URL de preview ao trocar de arquivo ou desmontar, evitando vazamento.
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
 
+  // A seção "+ Importar" é quem abre este painel, então ele já nasce pronto para receber o arquivo.
   useEffect(() => {
-    if (!open) return;
     const cachedStatus = readUserStorage(userId, STORAGE_KEY_GROQ_STATUS) === 'true';
     if (cachedStatus) {
       void hasGroqKey().then((configured) => {
@@ -172,24 +158,18 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
       setApiKeyConfigured(configured);
       if (configured) writeUserStorage(userId, STORAGE_KEY_GROQ_STATUS, 'true');
     }).catch(() => setApiKeyConfigured(false)).finally(() => setCheckingKey(false));
-  }, [open, userId]);
+  }, [userId]);
 
   return (
     <div className="theme-import-panel" style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 12, overflow: 'hidden' }}>
-      <button type="button" onClick={toggleOpen} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'transparent', border: 'none', padding: '14px 18px', cursor: 'pointer', color: '#c0c0c0' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="M21 15l-5-5L5 21" />
-          </svg>
-          <span style={{ fontSize: 13, fontWeight: 600 }}>{t('importInvoice')}</span>
-        </div>
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
-          <path d="M2 4l4 4 4-4" stroke="#555" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '14px 18px', color: '#c0c0c0' }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="M21 15l-5-5L5 21" />
         </svg>
-      </button>
+        <span style={{ fontSize: 13, fontWeight: 600 }}>{t('importInvoice')}</span>
+      </div>
 
-      {open && (
-        <div style={{ padding: '0 18px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ padding: '0 18px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div className="cc-divider" style={{ height: 1, background: '#1a1a1a' }} />
 
           {checkingKey && (
@@ -328,7 +308,6 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
                           <option value="ME">{t('me')}</option>
                           <option value="THIRD_PARTY">{t('thirdParty')}</option>
                           <option value="SHARED">{t('shared')}</option>
-                          <option value="UNCLASSIFIED">{t('unclassified')}</option>
                         </select>
                       </div>
                       {item.owner === 'THIRD_PARTY' && (
@@ -380,8 +359,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
           )}
 
           <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-        </div>
-      )}
+      </div>
     </div>
   );
 };

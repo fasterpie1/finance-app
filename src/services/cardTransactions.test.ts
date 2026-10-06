@@ -74,9 +74,8 @@ describe('as somas do cartão (dashboard, aba cartão e sobra prevista)', () => 
     expect(charges.totalCents).toBe(38750);
     // 5000 do terceiro + 1800 que é o resto da compartilhada (3000 - 1200 da minha parte).
     expect(charges.thirdPartyCents).toBe(6800);
-    expect(charges.unclassifiedCents).toBe(7000);
-    // Eu + terceiro + não classificado fecha a fatura: nada fica sem dono.
-    expect(charges.personalCents + charges.thirdPartyCents + charges.unclassifiedCents).toBe(charges.totalCents);
+    // Um lançamento salvo sem dono fica na fatura, mas não pertence a ninguém: nem a mim, nem ao terceiro.
+    expect(charges.personalCents + charges.thirdPartyCents).toBe(charges.totalCents - 7000);
   });
 
   it('não conta de novo a conta que já veio importada da fatura', () => {
