@@ -3,12 +3,33 @@ import { type Bill, type BudgetMonth, type BillCategory, type CardPaymentMethod,
 import { sampleMonths } from '../data/sampleData';
 import { supabase } from '../services/supabase';
 import { readUserStorage, removeUserStorage, writeUserStorage } from '../services/userStorage';
-import { centsToAmount, formatTransactionDay, getCardCharges, getInvoicePersonalTotalCents, getMonthPlannedCents, isOnCreditCardBill } from '../services/cardTransactions';
+import { amountToCents, centsToAmount, formatTransactionDay, getCardCharges, getInvoicePersonalTotalCents, getMonthPlannedCents, isOnCreditCardBill } from '../services/cardTransactions';
 
 const STORAGE_KEY = 'financa_months_v1';
 const SELECTED_KEY = 'financa_selected_v1';
-/** Carimbo da última escrita local ainda não confirmada no Supabase. */
+/** Carimbo da última escrita local ainda não confirmada no Supabase: o valor é a revision
+ *  da nuvem em que ela se apoiou. Sem isso não dá para saber se o servidor mudou por outro
+ *  aparelho, e empurrar o local sobrescreve os dados daquele aparelho. */
 const PENDING_SYNC_KEY = 'financa_pending_sync_v1';
+
+/** Revision de referência da escrita pendente; -1 para carimbo de versão antiga (sem base). */
+function readPendingBaseRevision(userId: string | null): number | null {
+  const raw = readUserStorage(userId, PENDING_SYNC_KEY);
+  if (raw == null) return null;
+  const base = Number(raw);
+  return Number.isInteger(base) ? base : -1;
+}
+
+/** Só é seguro o local substituir a nuvem se ninguém escreveu nela depois da nossa base.
+ *  Revision 0 só é segura quando a linha ainda tem os meses de exemplo. */
+function cloudMatchesPendingBase(baseRevision: number, remoteRevision: number, remoteMonths: BudgetMonth[]): boolean {
+  if (remoteRevision === 0) return !isSampleMonthList(remoteMonths);
+  return baseRevision === remoteRevision;
+}
+
+function isSampleMonthList(months: BudgetMonth[]): boolean {
+  return months.length === sampleMonths.length && months.every((month, index) => month.id === sampleMonths[index].id);
+}
 
 /** Migra dados antigos (sem year) para o novo formato */
 function migrateLegacyCardBills(months: BudgetMonth[]): BudgetMonth[] {
@@ -107,11 +128,6 @@ export interface BillNotification {
   plannedMonth: string;
 }
 
-function isCreditCardBill(bill: Bill): boolean {
-  return bill.isOnCreditCard === true
-    || (bill.type === 'parcela' && bill.category !== 'financiamento' && bill.cardPaymentMethod !== 'debito_pix');
-}
-
 function dateAtMidnight(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
@@ -130,18 +146,26 @@ export function getBillNotifications(months: BudgetMonth[], today = new Date()):
 
   return months.flatMap((month) => {
     const notifications: BillNotification[] = [];
-    // Card purchases live in creditCardInvoices now (legacy bills are migrated on
-    // load), so the invoice reminder must be derived from unpaid invoices rather
-    // than from month.bills, which no longer carries card data.
-    const unpaidInvoices = (month.creditCardInvoices ?? []).filter((invoice) => !invoice.isPaid);
+    // Compras do cartão moram em creditCardInvoices (as contas antigas são migradas na
+    // leitura), então o lembrete da fatura não pode vir de month.bills.
+    const invoices = month.creditCardInvoices ?? [];
+    const unpaidInvoiceCents = invoices
+      .filter((invoice) => !invoice.isPaid)
+      .reduce((total, invoice) => total + getInvoicePersonalTotalCents(invoice), 0);
+    // Conta posta no cartão que ainda não veio numa fatura importada também vence com a
+    // fatura: sem isso, quem só lança as parcelas manualmente nunca recebe lembrete.
+    const pendingCardCents = getCardCharges(invoices, month.bills).pendingBills
+      .filter((bill) => !bill.isPaid)
+      .reduce((total, bill) => total + amountToCents(bill.amount), 0);
+    const cardDueCents = unpaidInvoiceCents + pendingCardCents;
 
-    if (unpaidInvoices.length > 0 && month.creditCardDueDay) {
+    if (cardDueCents > 0 && month.creditCardDueDay) {
       const dueDate = nextMonthDate(month, month.creditCardDueDay);
       const daysUntilDue = Math.round((dueDate.getTime() - currentDate.getTime()) / dayMs);
       notifications.push({
         billId: `credit-card-invoice-${month.id}`,
         name: 'Fatura do cartão',
-        amount: centsToAmount(unpaidInvoices.reduce((total, invoice) => total + getInvoicePersonalTotalCents(invoice), 0)),
+        amount: centsToAmount(cardDueCents),
         dueDate,
         daysUntilDue,
         isOverdue: daysUntilDue < 0,
@@ -150,7 +174,7 @@ export function getBillNotifications(months: BudgetMonth[], today = new Date()):
     }
 
     notifications.push(...month.bills
-      .filter((bill) => !bill.isPaid && bill.cardPaymentMethod !== 'debito_pix' && !isCreditCardBill(bill))
+      .filter((bill) => !bill.isPaid && bill.cardPaymentMethod !== 'debito_pix' && !isOnCreditCardBill(bill))
       .map((bill) => {
         const dueDate = nextMonthDate(month, bill.dueDay);
         const daysUntilDue = Math.round((dueDate.getTime() - currentDate.getTime()) / dayMs);
@@ -248,27 +272,33 @@ export function useDashboard(userId: string | null = null) {
         setSyncError(`Falha ao carregar dados: ${error.message}`);
       } else if (data?.months && Array.isArray(data.months) && data.months.length > 0) {
         const remoteMonths = sortMonths(migrateMonths(data.months as BudgetMonth[]));
-        const pendingAt = readUserStorage(userId, PENDING_SYNC_KEY);
-        const pendingIsNewer = Boolean(pendingAt && data.updated_at
-          && new Date(pendingAt).getTime() > new Date(data.updated_at).getTime() + 2000);
-        if (pendingIsNewer) {
-          // Havia edição offline mais nova que o remoto: manter o local e deixá-la
-          // ser empurrada pelo efeito de salvamento, em vez de descartá-la.
+        const remoteRevision = data.revision ?? 0;
+        const syncedAt = data.updated_at ? new Date(data.updated_at) : new Date();
+        const pendingBase = readPendingBaseRevision(userId);
+        if (pendingBase !== null && !cloudMatchesPendingBase(pendingBase, remoteRevision, remoteMonths)) {
+          // Os dois lados mudaram depois da última confirmação: nenhum é mais novo que o
+          // outro, então ninguém é sobrescrito. O push local fica barrado pelo controle de
+          // revision e o usuário decide com "Atualizar" (que baixa a nuvem).
+          setLastSyncedAt(syncedAt);
+          setSyncError('Este aparelho e a nuvem têm alterações diferentes. Nada foi substituído: toque em Atualizar para carregar a versão da nuvem.');
+        } else if (pendingBase !== null && readUserStorage(userId, STORAGE_KEY) !== JSON.stringify(remoteMonths)) {
+          // Havia edição local não enviada e a nuvem não mudou desde a nossa base:
+          // manter o local e deixá-la ser empurrada pelo efeito de salvamento.
           setSyncNotice('Alterações deste aparelho eram mais novas e foram mantidas');
-          setRemoteRevision(data.revision ?? 0);
-          remoteRevisionRef.current = data.revision ?? 0;
-          setLastSyncedAt(data.updated_at ? new Date(data.updated_at) : new Date());
+          setRemoteRevision(remoteRevision);
+          remoteRevisionRef.current = remoteRevision;
+          setLastSyncedAt(syncedAt);
           setSyncError(null);
         } else {
           setMonths(remoteMonths);
           setSelectedMonthId(loadSelectedId(remoteMonths));
           removeUserStorage(userId, PENDING_SYNC_KEY);
-          setLastSyncedAt(data.updated_at ? new Date(data.updated_at) : new Date());
-          setRemoteRevision(data.revision ?? 0);
-          remoteRevisionRef.current = data.revision ?? 0;
+          setLastSyncedAt(syncedAt);
+          setRemoteRevision(remoteRevision);
+          remoteRevisionRef.current = remoteRevision;
           setSyncError(null);
         }
-      } else {
+      } else if (!data) {
         const { error: insertError } = await client.from('user_finance_data').upsert({ user_id: userId, months: sampleMonths, selected_month_id: sampleMonths[0].id, revision: 0 });
         if (insertError) {
           console.error('Falha ao criar dados do usuário no Supabase:', insertError);
@@ -276,6 +306,12 @@ export function useDashboard(userId: string | null = null) {
         } else {
           setSyncError(null);
         }
+      } else {
+        // A linha existe sem meses: não regravar dados de exemplo por cima dela.
+        // Assumimos a revision atual para o próximo salvamento local passar no controle otimista.
+        setLastSyncedAt(data.updated_at ? new Date(data.updated_at) : new Date());
+        setRemoteRevision(data.revision ?? 0);
+        remoteRevisionRef.current = data.revision ?? 0;
       }
       remoteLoaded.current = true;
     };
@@ -292,23 +328,36 @@ export function useDashboard(userId: string | null = null) {
     } else if (data?.months && Array.isArray(data.months) && data.months.length > 0) {
       const remoteMonths = sortMonths(migrateMonths(data.months as BudgetMonth[]));
       const hasChanges = JSON.stringify(months) !== JSON.stringify(remoteMonths);
-      const pendingAt = readUserStorage(userId, PENDING_SYNC_KEY);
-      if (pendingAt && data.updated_at && new Date(pendingAt).getTime() > new Date(data.updated_at).getTime() + 2000) {
+      const remoteRevision = data.revision ?? 0;
+      const pendingBase = readPendingBaseRevision(userId);
+      if (pendingBase !== null && !cloudMatchesPendingBase(pendingBase, remoteRevision, remoteMonths)) {
+        // Conflito real: só o clique em "Atualizar" dá o consentimento para baixar a nuvem.
+        // Antes isto mantinha o local e adotava a revision remota, o que empurrava o local
+        // por cima das mudanças do outro aparelho sem avisar.
+        setMonths(remoteMonths);
+        setSelectedMonthId(loadSelectedId(remoteMonths));
+        removeUserStorage(userId, PENDING_SYNC_KEY);
+        setLastSyncedAt(data.updated_at ? new Date(data.updated_at) : new Date());
+        setRemoteRevision(remoteRevision);
+        remoteRevisionRef.current = remoteRevision;
+        setSyncNotice('Versão da nuvem carregada. O que estava só neste aparelho foi substituído.');
+        setSyncError(null);
+      } else if (pendingBase !== null) {
         // Atualizar não pode apagar edição feita offline: mantém a local e a empurra.
-        setMonths([...months]);
         setSyncNotice('Suas alterações locais eram mais novas e foram mantidas');
-        setRemoteRevision(data.revision ?? 0);
-        remoteRevisionRef.current = data.revision ?? 0;
-        setIsRefreshing(false);
-        return;
+        setRemoteRevision(remoteRevision);
+        remoteRevisionRef.current = remoteRevision;
+        setLastSyncedAt(data.updated_at ? new Date(data.updated_at) : new Date());
+        setSyncError(null);
+      } else {
+        setMonths(remoteMonths);
+        setSelectedMonthId(loadSelectedId(remoteMonths));
+        setLastSyncedAt(data.updated_at ? new Date(data.updated_at) : new Date());
+        setRemoteRevision(remoteRevision);
+        remoteRevisionRef.current = remoteRevision;
+        setSyncNotice(hasChanges ? 'Alterações de outro dispositivo carregadas' : 'Nenhuma alteração nova');
+        setSyncError(null);
       }
-      setMonths(remoteMonths);
-      setSelectedMonthId(loadSelectedId(remoteMonths));
-      setLastSyncedAt(data.updated_at ? new Date(data.updated_at) : new Date());
-      setRemoteRevision(data.revision ?? 0);
-      remoteRevisionRef.current = data.revision ?? 0;
-      setSyncNotice(hasChanges ? 'Alterações de outro dispositivo carregadas' : 'Nenhuma alteração nova');
-      setSyncError(null);
     }
     setIsRefreshing(false);
   }, [isRefreshing, months, userId]);
@@ -317,7 +366,7 @@ export function useDashboard(userId: string | null = null) {
   useEffect(() => {
     if (!remoteLoaded.current) return;
     writeUserStorage(userId, STORAGE_KEY, JSON.stringify(months));
-    writeUserStorage(userId, PENDING_SYNC_KEY, new Date().toISOString());
+    writeUserStorage(userId, PENDING_SYNC_KEY, String(remoteRevisionRef.current));
     const client = supabase;
     const uid = userId;
     if (!client || !uid) return;
@@ -335,7 +384,7 @@ export function useDashboard(userId: string | null = null) {
           const authLost = /jwt expired|invalid claim|401|not authenticated|failed to fetch/i.test(String(error?.message ?? ''));
           setSyncError(authLost
             ? 'Sessão expirada: os dados estão salvos apenas neste aparelho. Entre novamente para sincronizar.'
-            : 'Conflito de sincronização: os dados mudaram em outro dispositivo. Atualize antes de salvar novamente.');
+            : 'Este aparelho não sobrescreveu a nuvem: os dados mudaram em outro dispositivo. Suas alterações continuam salvas aqui; Atualizar carrega a versão da nuvem.');
         } else {
           removeUserStorage(uid, PENDING_SYNC_KEY);
           remoteRevisionRef.current = data.revision;
@@ -732,10 +781,19 @@ export function useDashboard(userId: string | null = null) {
 
   const addCreditCardInvoice = useCallback((invoice: CreditCardInvoice) => {
     setMonths((prev) => {
+      // Uma fatura importada por mês: o id é derivado do mês/ano, então reimportar a mesma
+      // fatura consolida as linhas na mesma fatura em vez de criar outra com o mesmo
+      // statementTotalCents (que aparecia dobrado no total do cartão).
+      const invoiceId = `imported-invoice-${invoice.year}-${invoice.month}`;
+      const normalized: CreditCardInvoice = {
+        ...invoice,
+        id: invoiceId,
+        transactions: invoice.transactions.map((tx) => ({ ...tx, invoiceId })),
+      };
       // Reimportar a mesma fatura não pode contar o lançamento duas vezes no mês.
       const target = prev.find((month) => month.id === selectedMonthId);
       const seen = new Set<string>();
-      const freshTransactions = invoice.transactions.filter((tx) => {
+      const freshTransactions = normalized.transactions.filter((tx) => {
         const key = `${tx.merchant}|${tx.amountCents}|${tx.installmentCurrent ?? 1}|${tx.installmentTotal ?? 1}|${tx.date ?? ''}`;
         if (seen.has(key)) return false;
         seen.add(key);
@@ -744,12 +802,16 @@ export function useDashboard(userId: string | null = null) {
       let updated = prev.map((month) => {
         if (month.id !== selectedMonthId) return month;
         if (freshTransactions.length === 0) return month;
-        const merged: CreditCardInvoice = { ...invoice, transactions: freshTransactions };
+        const merged: CreditCardInvoice = { ...normalized, transactions: freshTransactions };
         const existingIndex = (month.creditCardInvoices ?? []).findIndex((item) => item.id === merged.id);
         const invoices = existingIndex === -1
           ? [...(month.creditCardInvoices ?? []), merged]
           : (month.creditCardInvoices ?? []).map((item, idx) => idx === existingIndex
-            ? { ...item, transactions: [...item.transactions, ...freshTransactions] }
+            ? {
+              ...item,
+              statementTotalCents: item.statementTotalCents ?? merged.statementTotalCents,
+              transactions: [...item.transactions, ...freshTransactions],
+            }
             : item);
         return { ...month, creditCardInvoices: invoices };
       });
