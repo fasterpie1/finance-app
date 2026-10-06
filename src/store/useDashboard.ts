@@ -31,6 +31,18 @@ function isSampleMonthList(months: BudgetMonth[]): boolean {
   return months.length === sampleMonths.length && months.every((month, index) => month.id === sampleMonths[index].id);
 }
 
+/**
+ * Texto do banner de sync. O detalhe do PostgREST (schema, JWT, SQL) fica somente no console:
+ * um print da tela ou um vídeo de suporte entregariam isso a terceiros.
+ */
+function syncFailureMessage(prefix: string, error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error ?? '');
+  if (/jwt expired|invalid claim|401|not authenticated/i.test(detail)) {
+    return 'Sessão expirada: os dados estão salvos apenas neste aparelho. Entre novamente para sincronizar.';
+  }
+  return `${prefix}. Seus dados continuam salvos neste aparelho; verifique a conexão e tente de novo.`;
+}
+
 /** Migra dados antigos (sem year) para o novo formato */
 function migrateLegacyCardBills(months: BudgetMonth[]): BudgetMonth[] {
   return months.map((month) => {
@@ -269,7 +281,7 @@ export function useDashboard(userId: string | null = null) {
       const { data, error } = await client.from('user_finance_data').select('months, selected_month_id, updated_at, revision').eq('user_id', userId).maybeSingle();
       if (error) {
         console.error('Falha ao carregar dados do Supabase:', error);
-        setSyncError(`Falha ao carregar dados: ${error.message}`);
+        setSyncError(syncFailureMessage('Falha ao carregar dados', error));
       } else if (data?.months && Array.isArray(data.months) && data.months.length > 0) {
         const remoteMonths = sortMonths(migrateMonths(data.months as BudgetMonth[]));
         const remoteRevision = data.revision ?? 0;
@@ -302,7 +314,7 @@ export function useDashboard(userId: string | null = null) {
         const { error: insertError } = await client.from('user_finance_data').upsert({ user_id: userId, months: sampleMonths, selected_month_id: sampleMonths[0].id, revision: 0 });
         if (insertError) {
           console.error('Falha ao criar dados do usuário no Supabase:', insertError);
-          setSyncError(`Falha ao criar dados: ${insertError.message}`);
+          setSyncError(syncFailureMessage('Falha ao criar dados', insertError));
         } else {
           setSyncError(null);
         }
@@ -324,7 +336,7 @@ export function useDashboard(userId: string | null = null) {
     const { data, error } = await supabase.from('user_finance_data').select('months, selected_month_id, updated_at, revision').eq('user_id', userId).maybeSingle();
     if (error) {
       console.error('Falha ao atualizar dados do Supabase:', error);
-      setSyncError(`Falha ao atualizar dados: ${error.message}`);
+      setSyncError(syncFailureMessage('Falha ao atualizar dados', error));
     } else if (data?.months && Array.isArray(data.months) && data.months.length > 0) {
       const remoteMonths = sortMonths(migrateMonths(data.months as BudgetMonth[]));
       const hasChanges = JSON.stringify(months) !== JSON.stringify(remoteMonths);
