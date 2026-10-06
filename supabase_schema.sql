@@ -61,3 +61,5 @@ alter table public.google_calendar_oauth_states enable row level security;
 
 -- Contador do limite de requisições das Edge Functions (tabela edge_rate_hits + função
 -- rate_limit_hit) está em supabase/migrations/20261006142000_rate_limit.sql.
+-- A validação do payload `months` (trigger user_finance_data_validate_months) está em
+-- supabase/migrations/20261006144500_validate_finance_months.sql.
