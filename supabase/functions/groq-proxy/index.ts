@@ -1,9 +1,21 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import {
+  consumeRateLimit,
+  InvalidJsonError,
+  PayloadTooLargeError,
+  RateLimitedError,
+  readJsonBody,
+  sanitizeGroqRequest,
+} from '../_shared/guards.ts';
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
 const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const encryptionSecret = Deno.env.get('GROQ_KEY_ENCRYPTION_SECRET')!;
 const groqUrl = 'https://api.groq.com/openai/v1/chat/completions';
+/** Uma importação de fatura usa até 4 chamadas (rodadas de continuação); 20/min deixa o uso
+ *  normal folgado e ainda corta script rodando em loop com a conta. */
+const AI_REQUESTS_PER_MINUTE = 20;
+const KEY_REQUESTS_PER_MINUTE = 10;
 const configuredOrigins = (Deno.env.get('APP_ORIGIN') ?? '')
   .split(',')
   .map((origin) => origin.trim())
@@ -18,6 +30,8 @@ const admin = createClient(supabaseUrl, serviceRoleKey);
 const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, content-type, apikey, x-client-info',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Expose-Headers': 'retry-after',
+  'X-Content-Type-Options': 'nosniff',
 };
 
 function headersFor(request: Request): HeadersInit {
@@ -29,8 +43,8 @@ function headersFor(request: Request): HeadersInit {
   };
 }
 
-function json(body: unknown, request: Request, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: { ...headersFor(request), 'Content-Type': 'application/json' } });
+function json(body: unknown, request: Request, status = 200, extraHeaders: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), { status, headers: { ...headersFor(request), ...extraHeaders, 'Content-Type': 'application/json' } });
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -90,10 +104,13 @@ Deno.serve(async (request) => {
   try {
     const user = await currentUser(request);
     if (!user) return json({ error: 'Não autenticado.' }, request, 401);
-    const body = await request.json() as { action?: string; key?: string; request?: Record<string, unknown> };
+    const body = await readJsonBody<{ action?: string; key?: string; request?: unknown }>(request);
+
+    if (body.action === 'chat' || body.action === 'extract') consumeRateLimit(`ai:${user.id}`, AI_REQUESTS_PER_MINUTE);
+    else consumeRateLimit(`key:${user.id}`, KEY_REQUESTS_PER_MINUTE);
 
     if (body.action === 'save-key') {
-      if (!body.key || !/^gsk_[A-Za-z0-9_-]+$/.test(body.key)) return json({ error: 'Chave Groq inválida.' }, request, 400);
+      if (typeof body.key !== 'string' || body.key.length > 512 || !/^gsk_[A-Za-z0-9_-]+$/.test(body.key)) return json({ error: 'Chave Groq inválida.' }, request, 400);
       const { error } = await admin.from('user_groq_keys').upsert({ user_id: user.id, encrypted_key: await encrypt(body.key), updated_at: new Date().toISOString() });
       if (error) throw error;
       return json({ configured: true }, request);
@@ -105,15 +122,24 @@ Deno.serve(async (request) => {
     }
     if (body.action === 'status') return json({ configured: Boolean(await loadGroqKey(user.id)) }, request);
     if (body.action === 'chat' || body.action === 'extract') {
+      const sanitized = sanitizeGroqRequest(body.request);
+      if (!sanitized.ok) return json({ error: sanitized.message }, request, 400);
       const apiKey = await loadGroqKey(user.id);
       if (!apiKey) return json({ error: 'Configure sua chave Groq no Assistente.' }, request, 400);
-      const result = await callGroq(apiKey, body.request ?? {});
+      const result = await callGroq(apiKey, sanitized.body);
       if (typeof result === 'object' && result !== null && 'error' in result) return json(result, request, (result as { status?: number }).status ?? 502);
       return json(result, request);
     }
     return json({ error: 'Ação inválida.' }, request, 400);
   } catch (error) {
-    console.error(error);
-    return json({ error: error instanceof Error ? error.message : 'Erro interno.' }, request, 500);
+    if (error instanceof RateLimitedError) {
+      return json({ error: error.message }, request, 429, { 'Retry-After': String(error.retryAfterSeconds) });
+    }
+    if (error instanceof PayloadTooLargeError) return json({ error: error.message }, request, 413);
+    if (error instanceof InvalidJsonError) return json({ error: error.message }, request, 400);
+    // Detalhe técnico fica no log da função: o cliente recebe só a faixa de erro, porque
+    // message pode carregar trecho da chave, da URL interna ou do corpo que falhou.
+    console.error('[groq-proxy]', error);
+    return json({ error: 'Não foi possível concluir a operação com a IA. Tente novamente em instantes.' }, request, 500);
   }
 });

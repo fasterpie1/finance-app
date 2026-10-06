@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { InvalidJsonError, PayloadTooLargeError, RateLimitedError, consumeRateLimit, readJsonBody } from '../_shared/guards.ts';
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
 const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
@@ -10,6 +11,13 @@ const appOrigin = Deno.env.get('APP_ORIGIN')!;
 const encryptionSecret = Deno.env.get('GOOGLE_TOKEN_ENCRYPTION_SECRET')!;
 const googleOAuthUrl = 'https://oauth2.googleapis.com/token';
 const calendarUrl = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
+/** Corpo de agenda é minúsculo: 64 KB cobre o legítimo e barra despejo de payload. */
+const MAX_CALENDAR_BODY_BYTES = 64 * 1024;
+const REQUESTS_PER_MINUTE = 30;
+const MAX_TITLE_CHARS = 300;
+const MAX_DESCRIPTION_CHARS = 5000;
+const MAX_EVENT_ID_CHARS = 200;
+const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?([+-]\d{2}:\d{2}|Z)?$/;
 const admin = createClient(supabaseUrl, serviceRoleKey);
 
 function corsHeaders(request?: Request): Record<string, string> {
@@ -19,11 +27,14 @@ function corsHeaders(request?: Request): Record<string, string> {
   'Access-Control-Allow-Origin': allowed,
   'Access-Control-Allow-Headers': 'authorization, content-type, apikey, x-client-info',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Expose-Headers': 'retry-after',
+  Vary: 'Origin',
+  'X-Content-Type-Options': 'nosniff',
   };
 };
 
-function json(body: unknown, status = 200, request?: Request): Response {
-  return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders(request), 'Content-Type': 'application/json' } });
+function json(body: unknown, status = 200, request?: Request, extraHeaders: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders(request), ...extraHeaders, 'Content-Type': 'application/json' } });
 }
 
 function redirect(status: string): Response {
@@ -104,6 +115,22 @@ async function googleRequest(userId: string, endpoint: string, init: RequestInit
   return fetch(endpoint, { ...init, headers: { ...(init.headers ?? {}), Authorization: `Bearer ${refreshed.accessToken}`, 'Content-Type': 'application/json' } });
 }
 
+type CalendarBody = { action?: string; title?: string; description?: string; start?: string; end?: string; reminder_minutes?: number; event_id?: string; time_min?: string; time_max?: string; query?: string };
+
+/** O corpo vem do app, mas o endpoint é público: nada de repassar string solta ao Google. */
+function invalidCalendarField(body: CalendarBody): string | null {
+  if (body.title !== undefined && (typeof body.title !== 'string' || body.title.length === 0 || body.title.length > MAX_TITLE_CHARS)) return 'Título do evento inválido.';
+  if (body.description !== undefined && (typeof body.description !== 'string' || body.description.length > MAX_DESCRIPTION_CHARS)) return 'Descrição do evento inválida.';
+  if (body.start !== undefined && (typeof body.start !== 'string' || !ISO_DATE_TIME.test(body.start))) return 'Data de início inválida.';
+  if (body.end !== undefined && (typeof body.end !== 'string' || !ISO_DATE_TIME.test(body.end))) return 'Data de fim inválida.';
+  if (body.time_min !== undefined && (typeof body.time_min !== 'string' || !ISO_DATE_TIME.test(body.time_min))) return 'Início do período inválido.';
+  if (body.time_max !== undefined && (typeof body.time_max !== 'string' || !ISO_DATE_TIME.test(body.time_max))) return 'Fim do período inválido.';
+  if (body.query !== undefined && (typeof body.query !== 'string' || body.query.length > 200)) return 'Busca inválida.';
+  if (body.reminder_minutes !== undefined && (typeof body.reminder_minutes !== 'number' || !Number.isFinite(body.reminder_minutes))) return 'Aviso inválido.';
+  if (body.event_id !== undefined && (typeof body.event_id !== 'string' || !/^[\w@-]{1,200}$/.test(body.event_id))) return 'Evento inválido.';
+  return null;
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders(request) });
   const url = new URL(request.url);
@@ -131,7 +158,10 @@ Deno.serve(async (request) => {
   try {
     const user = await currentUser(request);
     if (!user) return json({ error: 'Não autenticado.' }, 401, request);
-    const body = await request.json() as { action?: string; title?: string; description?: string; start?: string; end?: string; reminder_minutes?: number; event_id?: string; time_min?: string; time_max?: string; query?: string };
+    consumeRateLimit(`calendar:${user.id}`, REQUESTS_PER_MINUTE);
+    const body = await readJsonBody<CalendarBody>(request, MAX_CALENDAR_BODY_BYTES);
+    const fieldError = invalidCalendarField(body);
+    if (fieldError) return json({ error: fieldError }, 400, request);
     if (body.action === 'start-oauth') {
       const state = randomToken();
       await admin.from('google_calendar_oauth_states').delete().lt('expires_at', new Date().toISOString());
@@ -187,6 +217,9 @@ Deno.serve(async (request) => {
     }
     return json({ error: 'Ação inválida.' }, 400, request);
   } catch (error) {
+    if (error instanceof RateLimitedError) return json({ error: error.message }, 429, request, { 'Retry-After': String(error.retryAfterSeconds) });
+    if (error instanceof PayloadTooLargeError) return json({ error: error.message }, 413, request);
+    if (error instanceof InvalidJsonError) return json({ error: error.message }, 400, request);
     console.error('Google Calendar request failed:', error instanceof Error ? error.message : 'unknown error');
     return json({ error: 'Não foi possível concluir a operação no Google Agenda.' }, 500, request);
   }
