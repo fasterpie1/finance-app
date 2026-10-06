@@ -58,3 +58,6 @@ create table if not exists public.google_calendar_oauth_states (
 );
 
 alter table public.google_calendar_oauth_states enable row level security;
+
+-- Contador do limite de requisições das Edge Functions (tabela edge_rate_hits + função
+-- rate_limit_hit) está em supabase/migrations/20261006142000_rate_limit.sql.

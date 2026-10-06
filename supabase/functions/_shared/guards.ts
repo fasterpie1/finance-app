@@ -1,12 +1,11 @@
 /** Guardas compartilhadas das Edge Functions: teto de corpo, limite de requisições por
  *  usuário e whitelist do que é repassado para a Groq.
  *
- *  O limite é por isolado: ele corta rajadas e scripts que martelam a função, mas não é uma
- *  contagem global. A barreira de custo real continua sendo a cota da chave Groq de cada usuário. */
+ *  A contagem mora no Postgres porque isolado não compartilha memória: um contador em
+ *  variável de módulo zeraria a cada requisição despachada em outro isolado. */
 
 export const MAX_BODY_BYTES = 30 * 1024 * 1024;
-const WINDOW_MS = 60_000;
-const MAX_TRACKED_KEYS = 10_000;
+const WINDOW_SECONDS = 60;
 
 /** Corpo maior que o app nunca enviaria: cortado antes de serializar na memória. */
 export class PayloadTooLargeError extends Error {
@@ -34,22 +33,28 @@ export class RateLimitedError extends Error {
   }
 }
 
-const hitsByCaller = new Map<string, number[]>();
+export interface RateLimitCaller {
+  rpc(functionName: string, params: Record<string, unknown>): Promise<{ data: unknown; error: { message: string } | null }>;
+}
 
-export function consumeRateLimit(callerId: string, limitPerMinute: number): void {
-  const now = Date.now();
-  const recent = (hitsByCaller.get(callerId) ?? []).filter((hit) => now - hit < WINDOW_MS);
-  if (recent.length >= limitPerMinute) {
-    hitsByCaller.set(callerId, recent);
-    throw new RateLimitedError(Math.max(1, Math.ceil((WINDOW_MS - (now - recent[0])) / 1000)));
+function secondsUntilNextWindow(): number {
+  return Math.max(1, WINDOW_SECONDS - Math.floor((Date.now() / 1000) % WINDOW_SECONDS));
+}
+
+export async function consumeRateLimit(caller: RateLimitCaller, callerId: string, limitPerMinute: number): Promise<void> {
+  const { data, error } = await caller.rpc('rate_limit_hit', {
+    p_caller: callerId,
+    p_window_seconds: WINDOW_SECONDS,
+    p_limit: limitPerMinute,
+  });
+  if (error) {
+    // Aberto de propósito: sem a tabela de contagem o app segue funcionando, e a barreira de
+    // custo real continua sendo a cota da chave de cada usuário. O log denuncia o contador ausente.
+    console.error('[rate-limit] contador indisponível:', error.message);
+    return;
   }
-  recent.push(now);
-  hitsByCaller.set(callerId, recent);
-  if (hitsByCaller.size > MAX_TRACKED_KEYS) {
-    hitsByCaller.forEach((hits, key) => {
-      if (hits.every((hit) => now - hit >= WINDOW_MS)) hitsByCaller.delete(key);
-    });
-  }
+  const hits = Number(data);
+  if (Number.isFinite(hits) && hits > limitPerMinute) throw new RateLimitedError(secondsUntilNextWindow());
 }
 
 export async function readJsonBody<T>(request: Request, maxBytes = MAX_BODY_BYTES): Promise<T> {

@@ -158,7 +158,7 @@ Deno.serve(async (request) => {
   try {
     const user = await currentUser(request);
     if (!user) return json({ error: 'Não autenticado.' }, 401, request);
-    consumeRateLimit(`calendar:${user.id}`, REQUESTS_PER_MINUTE);
+    await consumeRateLimit(admin, `agenda:${user.id}`, REQUESTS_PER_MINUTE);
     const body = await readJsonBody<CalendarBody>(request, MAX_CALENDAR_BODY_BYTES);
     const fieldError = invalidCalendarField(body);
     if (fieldError) return json({ error: fieldError }, 400, request);

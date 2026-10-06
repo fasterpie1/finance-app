@@ -106,8 +106,8 @@ Deno.serve(async (request) => {
     if (!user) return json({ error: 'Não autenticado.' }, request, 401);
     const body = await readJsonBody<{ action?: string; key?: string; request?: unknown }>(request);
 
-    if (body.action === 'chat' || body.action === 'extract') consumeRateLimit(`ai:${user.id}`, AI_REQUESTS_PER_MINUTE);
-    else consumeRateLimit(`key:${user.id}`, KEY_REQUESTS_PER_MINUTE);
+    if (body.action === 'chat' || body.action === 'extract') await consumeRateLimit(admin, `ai:${user.id}`, AI_REQUESTS_PER_MINUTE);
+    else await consumeRateLimit(admin, `chave:${user.id}`, KEY_REQUESTS_PER_MINUTE);
 
     if (body.action === 'save-key') {
       if (typeof body.key !== 'string' || body.key.length > 512 || !/^gsk_[A-Za-z0-9_-]+$/.test(body.key)) return json({ error: 'Chave Groq inválida.' }, request, 400);
