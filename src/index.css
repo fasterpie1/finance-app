@@ -1682,6 +1682,12 @@ body[data-theme='light'] .chart-empty {
 body[data-theme='light'] .chart-axis-label { fill: #64748b !important; }
 body[data-theme='light'] .chart-month-label { fill: #475569 !important; }
 
+/* Ritmo do mês: os textos usam cinzas de tema escuro, então precisam de equivalente legível no claro. */
+body[data-theme='light'] .theme-pace-muted { color: #64748b !important; }
+body[data-theme='light'] .theme-pace-headline.is-positive { color: #059669 !important; }
+body[data-theme='light'] .theme-pace-headline.is-negative { color: #dc2626 !important; }
+body[data-theme='light'] .theme-pace-track { background: #e8ecf1 !important; }
+
 /* ===== Cartão de crédito (CreditCardView) ===== */
 body[data-theme='light'] .cc-summary-tile {
   background: #ffffff !important;

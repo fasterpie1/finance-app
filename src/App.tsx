@@ -7,6 +7,7 @@ import { CreditCardView } from './components/CreditCardView';
 import { ChatView } from './components/ChatView';
 import { CategoryChart } from './components/CategoryChart';
 import { CardSpendingChart } from './components/CardSpendingChart';
+import { SpendingPace } from './components/SpendingPace';
 import { IncomeSourcesModal } from './components/IncomeSourcesModal';
 import { AuthPanel } from './components/AuthPanel';
 import { DailyBillNotification } from './components/DailyBillNotification';
@@ -977,6 +978,8 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
       case 'chart':
         return (
           <CollapsibleSection key="chart" title={t('spendingViews')} isOpen={isSectionOpen('chart_v2', true)} onToggle={() => toggleSection('chart_v2')} hideValues={hideValues} editMode={editMode}>
+            <SpendingPace month={db.selectedMonth} months={db.months} hideValues={hideValues} />
+            <div style={{ height: 1, background: '#1a1a1a', margin: '18px 0' }} />
             <CardSpendingChart months={db.months} selectedMonthName={db.selectedMonth.name} selectedMonthYear={db.selectedMonth.year} hideValues={hideValues} />
             <div style={{ height: 1, background: '#1a1a1a', margin: '18px 0' }} />
             <CategoryChart bills={db.selectedMonth.bills} invoices={db.selectedMonth.creditCardInvoices} hideValues={hideValues} />
