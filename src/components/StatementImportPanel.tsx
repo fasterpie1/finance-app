@@ -11,7 +11,7 @@ import {
   extractPurchasesFromImage,
   extractPurchasesFromText,
 } from '../services/statementImport';
-import { fileToBase64, pdfToText } from '../services/statementFiles';
+import { fileToBase64, pdfToText, sniffStatementFile } from '../services/statementFiles';
 import { extractStatementTotalCents } from '../services/statementTotals';
 import { findDuplicateTransaction } from '../services/transactionDuplicates';
 import { hasGroqKey } from '../services/groq';
@@ -71,22 +71,23 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, userId, month,
     setStatementTotalCents(undefined);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(URL.createObjectURL(file));
-    setPreviewIsPdf(file.type === 'application/pdf');
 
     try {
       if (!apiKeyConfigured) throw new Error('Configure sua chave Groq na aba Assistente antes de importar.');
-      const outcome = file.type === 'application/pdf'
+      const detected = await sniffStatementFile(file);
+      setPreviewIsPdf(detected.kind === 'pdf');
+      const outcome = detected.kind === 'pdf'
         ? await (async () => {
           const text = await pdfToText(file);
           setStatementTotalCents(extractStatementTotalCents(text));
           return extractPurchasesFromText(text, getMonthIndex(month));
         })()
         : await (async () => {
-          const { base64, mimeType } = await fileToBase64(file);
+          const { base64, mimeType } = await fileToBase64(file, detected.mimeType);
           return extractPurchasesFromImage(base64, mimeType, getMonthIndex(month));
         })();
       const extracted = outcome.purchases;
-      if (extracted.length === 0) throw new Error(file.type === 'application/pdf' ? t('noItemsPdf') : t('noItemsImage'));
+      if (extracted.length === 0) throw new Error(detected.kind === 'pdf' ? t('noItemsPdf') : t('noItemsImage'));
       setIncomplete(!outcome.complete);
       setItems(extracted.map((p) => {
         const duplicate = findDuplicateTransaction({ ...p, amountCents: Math.round(p.amount * 100) }, existingTransactions);
