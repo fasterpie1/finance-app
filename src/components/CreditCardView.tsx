@@ -380,27 +380,25 @@ export const CreditCardView: React.FC<Props> = ({
             </span>
           </button>
         )}
-        <div style={{ flex: '1 1 150px', minWidth: 0 }}>
+        <div style={{ flex: '1 1 120px', minWidth: 0 }}>
           <strong style={{ textDecoration: allCardPaid ? 'line-through' : 'none' }}>{t('monthlyInvoice')}</strong>
-          <span>{creditCardDueDay ? t('invoiceDueEveryDay', { day: creditCardDueDay }) : t('setInvoiceDueDayHint')}</span>
-        </div>
-        {/* O CTA e o sino formam um bloco: em tela estreita os dois descem juntos para baixo do texto. */}
-        <div className="theme-card-due-actions">
-        {invoiceDueDayEditing ? (
+          {invoiceDueDayEditing ? (
           <div className="theme-card-due-form">
             <input autoFocus inputMode="numeric" value={invoiceDueDayInput} onChange={(event) => setInvoiceDueDayInput(event.target.value.replace(/[^0-9]/g, ''))} onKeyDown={(event) => { if (event.key === 'Enter') { const value = Number(invoiceDueDayInput); if (value >= 1 && value <= 31) { onUpdateCreditCardDueDay(value); setInvoiceDueDayEditing(false); } } if (event.key === 'Escape') setInvoiceDueDayEditing(false); }} placeholder={t('dayPlaceholder')} aria-label={t('invoiceDueDayAria')} />
             <button type="button" onClick={() => { const value = Number(invoiceDueDayInput); if (value >= 1 && value <= 31) { onUpdateCreditCardDueDay(value); setInvoiceDueDayEditing(false); } }}>{t('save')}</button>
           </div>
-        ) : (
-          <button type="button" onClick={() => { setInvoiceDueDayInput(String(creditCardDueDay ?? '')); setInvoiceDueDayEditing(true); }}>{creditCardDueDay ? t('editDueDate') : t('addDueDate')}</button>
-        )}
+          ) : (
+            /* O dia é o próprio controle: sem um segundo CTA azul, a barra cabe numa linha no celular. */
+            <button type="button" title={t('editDueDate')} className={creditCardDueDay ? 'cc-due-day-link' : 'cc-due-day-link is-empty'} onClick={() => { setInvoiceDueDayInput(String(creditCardDueDay ?? '')); setInvoiceDueDayEditing(true); }}>
+              {creditCardDueDay ? t('invoiceDueEveryDay', { day: creditCardDueDay }) : t('addDueDate')}
+            </button>
+          )}
+        </div>
         {hasCardItems && !allCardPaid && onInvoiceCalendarReminder && (
-          /* O wrapper deixa o sino de fora do azul do CTA de vencimento. */
           <div style={{ flexShrink: 0 }}>
             <CalendarReminderButton iconOnly added={Boolean(invoiceCalendarEventId)} loading={invoiceCalendarReminderLoading} onClick={onInvoiceCalendarReminder} />
           </div>
         )}
-        </div>
       </div>
 
       {/* O que fica em aberto em todos os meses, numa linha só. */}
