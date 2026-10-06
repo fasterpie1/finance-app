@@ -1,9 +1,11 @@
-import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-
-GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-
 export async function pdfToText(file: File): Promise<string> {
+  // O leitor de PDF pesa quase 400 kB a mais que todo o resto do app: baixá-lo só quando o
+  // usuário escolhe um PDF evita que cada abertura do dashboard pague por ele.
+  const [{ GlobalWorkerOptions, getDocument }, worker] = await Promise.all([
+    import('pdfjs-dist'),
+    import('pdfjs-dist/build/pdf.worker.min.mjs?url'),
+  ]);
+  GlobalWorkerOptions.workerSrc = worker.default;
   const loadingTask = getDocument({ data: await file.arrayBuffer() });
   const pdf = await loadingTask.promise;
   const pages: string[] = [];
