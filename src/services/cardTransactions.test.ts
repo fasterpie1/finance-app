@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getCardCharges, getThirdPartyTotalsCents, getUnimportedCardBills, isOnCreditCardBill } from './cardTransactions';
+import { getCardCharges, getMonthPlannedCents, getThirdPartyTotalsCents, getUnimportedCardBills, isOnCreditCardBill } from './cardTransactions';
 import type { Bill, CreditCardInvoice, CreditCardTransaction } from '../types';
 
 function tx(overrides: Partial<CreditCardTransaction>): CreditCardTransaction {
@@ -92,6 +92,31 @@ describe('as somas do cartão (dashboard, aba cartão e sobra prevista)', () => 
     ];
     expect(bills.every((bill) => !isOnCreditCardBill(bill))).toBe(true);
     expect(getCardCharges([], bills).totalCents).toBe(0);
+  });
+});
+
+describe('previsto do mês (sobra prevista e ritmo por dia)', () => {
+  const invoice = (transactions: CreditCardTransaction[]): CreditCardInvoice => ({ id: 'inv', month: 'Outubro', year: 2026, transactions });
+
+  it('soma as contas fora do cartão com a minha parte da fatura', () => {
+    const cents = getMonthPlannedCents([
+      cardBill({ name: 'Luz', category: 'luz', amount: 80, isOnCreditCard: false }),
+      cardBill({ amount: 137.5 }),
+    ], [invoice([
+      tx({ amountCents: 10000, owner: 'ME' }),
+      tx({ amountCents: 5000, owner: 'THIRD_PARTY', thirdPartyName: 'Marcos' }),
+    ])]);
+    expect(cents).toBe(31750);
+  });
+
+  it('a fixa do cartão que já veio importada entra uma única vez', () => {
+    const cents = getMonthPlannedCents([cardBill({ amount: 137.5 })], [invoice([tx({ merchant: 'ACADEMIA', amountCents: 13750, owner: 'ME' })])]);
+    expect(cents).toBe(13750);
+  });
+
+  it('compra no débito/pix é prevista normal porque não passa pela fatura', () => {
+    const cents = getMonthPlannedCents([cardBill({ name: 'Almoço', type: 'variavel', amount: 50, cardPaymentMethod: 'debito_pix' })], []);
+    expect(cents).toBe(5000);
   });
 });
 

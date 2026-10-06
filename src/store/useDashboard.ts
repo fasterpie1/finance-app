@@ -3,7 +3,7 @@ import { type Bill, type BudgetMonth, type BillCategory, type CardPaymentMethod,
 import { sampleMonths } from '../data/sampleData';
 import { supabase } from '../services/supabase';
 import { readUserStorage, removeUserStorage, writeUserStorage } from '../services/userStorage';
-import { centsToAmount, formatTransactionDay, getCardCharges, getInvoicePersonalTotalCents, isOnCreditCardBill } from '../services/cardTransactions';
+import { centsToAmount, formatTransactionDay, getCardCharges, getInvoicePersonalTotalCents, getMonthPlannedCents, isOnCreditCardBill } from '../services/cardTransactions';
 
 const STORAGE_KEY = 'financa_months_v1';
 const SELECTED_KEY = 'financa_selected_v1';
@@ -375,7 +375,7 @@ export function useDashboard(userId: string | null = null) {
   // também veio importada não pode entrar duas vezes no previsto.
   const plainBills = selectedMonth.bills.filter((b) => !isOnCreditCardBill(b));
   const paidPendingCardBills = cardCharges.pendingBills.filter((b) => b.isPaid);
-  const totalPlanned = plainBills.reduce((s, b) => s + b.amount, 0) + centsToAmount(cardCharges.personalCents);
+  const totalPlanned = centsToAmount(getMonthPlannedCents(selectedMonth.bills, selectedMonth.creditCardInvoices ?? []));
   // Débito/pix é deduzido da conta na hora da compra (não depende de pagar a fatura)
   // e não tem toggle de pago na UI (showPaidToggle={false}), então conta como pago
   // independentemente do `isPaid` armazenado, que permanece false desde a criação.

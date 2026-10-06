@@ -94,6 +94,15 @@ export function getCardCharges(invoices: CreditCardInvoice[], bills: Bill[]): Ca
   };
 }
 
+/** Quanto o mês consome do meu bolso: as contas que não estão no cartão + a minha parte da fatura.
+ *  A sobra prevista e o ritmo por dia usam a mesma fórmula para nunca divergirem. */
+export function getMonthPlannedCents(bills: Bill[], invoices: CreditCardInvoice[]): number {
+  const plainCents = bills.reduce((total, bill) => (
+    isOnCreditCardBill(bill) ? total : total + amountToCents(bill.amount)
+  ), 0);
+  return plainCents + getCardCharges(invoices, bills).personalCents;
+}
+
 export function getOwnerLabel(owner: ExpenseOwner): string {
   return {
     ME: 'Eu',
