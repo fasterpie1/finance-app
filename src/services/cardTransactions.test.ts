@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getCardCharges, getMonthPlannedCents, getThirdPartyTotalsCents, getUnimportedCardBills, isOnCreditCardBill } from './cardTransactions';
+import { getCardCharges, getMonthPlannedCents, getThirdPartyTotalsCents, getUnimportedCardBills, isOnCreditCardBill, sortInvoiceTransactions } from './cardTransactions';
 import type { Bill, CreditCardInvoice, CreditCardTransaction } from '../types';
 
 function tx(overrides: Partial<CreditCardTransaction>): CreditCardTransaction {
@@ -149,5 +149,36 @@ describe('conta fixa no cartão dentro de "Meus gastos"', () => {
     const outraParcela = [tx({ amountCents: 25000, type: 'INSTALLMENT', installmentCurrent: 4, installmentTotal: 12 })];
     expect(getUnimportedCardBills(bills, mesmaParcela)).toHaveLength(0);
     expect(getUnimportedCardBills(bills, outraParcela)).toHaveLength(1);
+  });
+});
+
+describe('ordem da fatura', () => {
+  const names = (list: CreditCardTransaction[]) => list.map((item) => item.merchant);
+
+  it('põe as parceladas antes das avulsas e a mais adiantada primeiro', () => {
+    // 9/10 é compra mais antiga que 1/8, mesmo tendo sido lançada num dia maior do mês.
+    const quaseAcabando = tx({ merchant: 'CASAS BAHIA', date: '28/10', type: 'INSTALLMENT', installmentCurrent: 9, installmentTotal: 10 });
+    const comecando = tx({ merchant: 'NETSHOES', date: '13/10', type: 'INSTALLMENT', installmentCurrent: 1, installmentTotal: 8 });
+    const avulsa = tx({ merchant: 'UBER', date: '02/10' });
+    expect(names(sortInvoiceTransactions([avulsa, comecando, quaseAcabando]))).toEqual(['CASAS BAHIA', 'NETSHOES', 'UBER']);
+  });
+
+  it('em igual andamento, termina primeiro quem tem menos parcelas restando', () => {
+    const meia = tx({ merchant: 'P', date: '20/10', type: 'INSTALLMENT', installmentCurrent: 1, installmentTotal: 2 });
+    const sexta = tx({ merchant: 'S', date: '05/10', type: 'INSTALLMENT', installmentCurrent: 2, installmentTotal: 4 });
+    expect(names(sortInvoiceTransactions([sexta, meia]))).toEqual(['P', 'S']);
+  });
+
+  it('ordena as compras avulsas do dia 1 ao 31 e joga sem dia para o fim', () => {
+    const dia28 = tx({ merchant: 'MERCADO', date: '28/10' });
+    const semDia = tx({ merchant: 'FARMACIA' });
+    const dia03 = tx({ merchant: 'PADARIA', date: '03/10' });
+    expect(names(sortInvoiceTransactions([dia28, semDia, dia03]))).toEqual(['PADARIA', 'MERCADO', 'FARMACIA']);
+  });
+
+  it('não reordena as linhas dentro da fatura salva, só a exibição', () => {
+    const original = [tx({ merchant: 'B', date: '20/10' }), tx({ merchant: 'A', date: '01/10' })];
+    expect(names(sortInvoiceTransactions(original))).toEqual(['A', 'B']);
+    expect(names(original)).toEqual(['B', 'A']);
   });
 });

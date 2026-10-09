@@ -9,7 +9,7 @@ import {
   getMonthIndex,
 } from '../types';
 import { type CreditCardPurchase, type MonthInfo } from '../store/useDashboard';
-import { amountToCents, centsToAmount, describeDuplicateMatch, formatTransactionDay, getCardCharges, getInvoiceTotalCents, getOwnerLabel, getThirdPartyTotalsCents, getTransactionDay, setTransactionDay } from '../services/cardTransactions';
+import { amountToCents, centsToAmount, describeDuplicateMatch, formatTransactionDay, getCardCharges, getInvoiceTotalCents, getOwnerLabel, getThirdPartyTotalsCents, getTransactionDay, setTransactionDay, sortInvoiceTransactions } from '../services/cardTransactions';
 import { findDuplicateTransaction } from '../services/transactionDuplicates';
 import { BillRow } from './BillRow';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -90,7 +90,7 @@ function InvoiceTransactions({ invoices, monthBills, onUpdate, onTogglePaid, onS
     }
     return transaction.owner === filter;
   };
-  const transactions = allTransactions.filter(matchesFilter);
+  const transactions = sortInvoiceTransactions(allTransactions.filter(matchesFilter));
   const updateTransaction = (id: string, patch: Partial<CreditCardInvoice['transactions'][number]>, remove = false) => {
     const invoice = invoices.find((item) => item.transactions.some((transaction) => transaction.id === id));
     if (!invoice) return;

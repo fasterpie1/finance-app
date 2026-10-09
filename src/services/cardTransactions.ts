@@ -169,6 +169,43 @@ export function getTransactionMonthIndex(date?: string): number | undefined {
   return month >= 1 && month <= 12 ? month - 1 : undefined;
 }
 
+function isInstallment(transaction: CreditCardTransaction): boolean {
+  return (transaction.installmentTotal ?? 1) > 1;
+}
+
+/** Fração do parcelamento já paga; 0 para compra à vista, que não entra no bloco das parceladas. */
+function installmentProgress(transaction: CreditCardTransaction): number {
+  const total = transaction.installmentTotal ?? 1;
+  return total <= 1 ? 0 : (transaction.installmentCurrent ?? 1) / total;
+}
+
+function installmentRemaining(transaction: CreditCardTransaction): number {
+  return (transaction.installmentTotal ?? 1) - (transaction.installmentCurrent ?? 1);
+}
+
+/** Parcelada 9/10 vem antes de 1/8: é a compra mais antiga, a que está quase acabando. */
+function compareInvoiceTransactions(a: CreditCardTransaction, b: CreditCardTransaction): number {
+  const aIsInstallment = isInstallment(a);
+  const bIsInstallment = isInstallment(b);
+  if (aIsInstallment !== bIsInstallment) return aIsInstallment ? -1 : 1;
+  if (aIsInstallment) {
+    const byProgress = installmentProgress(b) - installmentProgress(a);
+    if (byProgress !== 0) return byProgress;
+    const byRemaining = installmentRemaining(a) - installmentRemaining(b);
+    if (byRemaining !== 0) return byRemaining;
+  }
+  const byDay = (getTransactionDay(a.date) ?? 99) - (getTransactionDay(b.date) ?? 99);
+  if (byDay !== 0) return byDay;
+  return a.merchant.localeCompare(b.merchant, 'pt-BR');
+}
+
+/** Ordem da fatura: primeiro as parceladas, do parcelamento mais adiantado para o mais novo;
+ *  depois as compras avulsas, do dia 1 ao 31. As fixas do cartão e o débito/pix têm seção própria
+ *  abaixo desta lista, então não competem aqui. */
+export function sortInvoiceTransactions(transactions: CreditCardTransaction[]): CreditCardTransaction[] {
+  return [...transactions].sort(compareInvoiceTransactions);
+}
+
 /** Troca só o dia: o mês já registrado na importação continua valendo. */
 export function setTransactionDay(date: string | undefined, day: number | undefined, monthIndex: number): string | undefined {
   if (!day || day < 1 || day > 31) return undefined;
