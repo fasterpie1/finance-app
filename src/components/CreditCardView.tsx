@@ -9,7 +9,7 @@ import {
   getMonthIndex,
 } from '../types';
 import { type CreditCardPurchase, type MonthInfo } from '../store/useDashboard';
-import { amountToCents, centsToAmount, getCardCharges, getInvoiceTotalCents, getOwnerLabel, getThirdPartyTotalsCents, getTransactionDay, setTransactionDay } from '../services/cardTransactions';
+import { amountToCents, centsToAmount, describeDuplicateMatch, formatTransactionDay, getCardCharges, getInvoiceTotalCents, getOwnerLabel, getThirdPartyTotalsCents, getTransactionDay, setTransactionDay } from '../services/cardTransactions';
 import { findDuplicateTransaction } from '../services/transactionDuplicates';
 import { BillRow } from './BillRow';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -31,7 +31,7 @@ interface Props {
   onSaveBill: (bill: Bill) => void;
   onDeleteBill: (id: string) => void;
   onAddPurchase: (p: CreditCardPurchase) => void;
-  onImportInvoice: (invoice: CreditCardInvoice) => void;
+  onImportInvoice: (invoice: CreditCardInvoice, forceDuplicateIds?: string[]) => void;
   onUpdateInvoice: (invoice: CreditCardInvoice) => void;
   getAffectedMonths: (cur: number, total: number) => MonthInfo[];
   onPayCreditCard: () => void;
@@ -252,6 +252,7 @@ export const CreditCardView: React.FC<Props> = ({
   });
   const [curInstallment, setCurInstallment] = useState('1');
   const [totalInstallment, setTotalInstallment] = useState('1');
+  const [lastLaunched, setLastLaunched] = useState('');
   const [invoiceDueDayInput, setInvoiceDueDayInput] = useState(String(creditCardDueDay ?? ''));
   const [invoiceDueDayEditing, setInvoiceDueDayEditing] = useState(false);
   const [section, setSection] = useState<CardSection>(() => {
@@ -278,6 +279,7 @@ export const CreditCardView: React.FC<Props> = ({
       type: total > 1 ? 'INSTALLMENT' : 'PURCHASE',
       installmentCurrent: paymentMethod === 'debito_pix' ? 1 : cur,
       installmentTotal: paymentMethod === 'debito_pix' ? 1 : total,
+      date: parseInt(purchaseDay) ? formatTransactionDay(parseInt(purchaseDay), getMonthIndex(selectedMonthName)) : undefined,
     }, creditCardInvoices.flatMap((invoice) => invoice.transactions))
     : undefined;
 
@@ -301,10 +303,12 @@ export const CreditCardView: React.FC<Props> = ({
     const trimmed = name.trim();
     if (!trimmed || !amount) return;
     const c = Math.max(1, Math.min(cur, total));
-    const t = Math.max(c, total);
+    const installmentTotalValue = Math.max(c, total);
     const parsedAmount = parseAmount(amount);
     const amountCents = Math.round(parsedAmount * 100);
-    onAddPurchase({ name: trimmed, amount: parsedAmount, category, dueDay: parseInt(purchaseDay) || undefined, installmentCurrent: paymentMethod === 'debito_pix' ? 1 : c, installmentTotal: paymentMethod === 'debito_pix' ? 1 : t, paymentMethod, owner: paymentMethod === 'debito_pix' ? 'ME' : owner, personalAmountCents: owner === 'SHARED' ? Math.min(amountCents, Math.max(0, Math.round(parseAmount(personalAmount) * 100))) : undefined, thirdPartyName: owner === 'THIRD_PARTY' || owner === 'SHARED' ? thirdPartyName.trim() || undefined : undefined });
+    onAddPurchase({ name: trimmed, amount: parsedAmount, category, dueDay: parseInt(purchaseDay) || undefined, installmentCurrent: paymentMethod === 'debito_pix' ? 1 : c, installmentTotal: paymentMethod === 'debito_pix' ? 1 : installmentTotalValue, paymentMethod, owner: paymentMethod === 'debito_pix' ? 'ME' : owner, personalAmountCents: owner === 'SHARED' ? Math.min(amountCents, Math.max(0, Math.round(parseAmount(personalAmount) * 100))) : undefined, thirdPartyName: owner === 'THIRD_PARTY' || owner === 'SHARED' ? thirdPartyName.trim() || undefined : undefined });
+    // O formulário limpa sozinho, então sem esta linha o usuário não tem como saber se entrou.
+    setLastLaunched(`${trimmed} · ${formatMoney(parsedAmount)}${affected.length > 1 ? ` · ${t('launchMultiMonth', { count: affected.length })}` : ''}`);
     setName(''); setAmount(''); setCurInstallment('1'); setTotalInstallment('1'); setPaymentMethod('credito'); setOwner('ME'); setPersonalAmount(''); setThirdPartyName('');
   };
 
@@ -460,13 +464,21 @@ export const CreditCardView: React.FC<Props> = ({
 
             {manualDuplicate && (
               <div className="cc-dup-warning" style={{ background: '#241a0b', border: '1px solid #5a3b12', borderRadius: 6, padding: '8px 10px', color: '#f59e0b', fontSize: 11 }}>
-                {t('manualDuplicateWarning')}
+                <div style={{ fontWeight: 600, marginBottom: 3 }}>{t('manualDuplicateWarning')}</div>
+                <div style={{ color: '#d9a441', lineHeight: 1.45 }}>{describeDuplicateMatch(manualDuplicate, formatMoney, t)}</div>
+                <div style={{ color: '#d9a441', lineHeight: 1.45, marginTop: 3 }}>{t('manualDuplicateFreeHint')}</div>
               </div>
             )}
 
             <button type="button" onClick={handleAdd} disabled={!name.trim() || !amount} className="cc-submit" style={{ background: name.trim() && amount ? '#3b82f6' : '#151520', border: 'none', borderRadius: 6, color: name.trim() && amount ? '#fff' : '#3a4a5a', cursor: name.trim() && amount ? 'pointer' : 'not-allowed', padding: '10px 20px', fontSize: 13, fontWeight: 600, alignSelf: 'flex-start', transition: 'all 0.15s' }}>
               {affected.length > 1 ? t('launchMultiMonth', { count: affected.length }) : t('launchSingleMonth')}
             </button>
+
+            {lastLaunched && (
+              <div className="cc-launched-ok" style={{ background: '#0a1a0a', border: '1px solid #153a1c', borderRadius: 6, padding: '8px 10px', color: '#4ade80', fontSize: 11, lineHeight: 1.45 }}>
+                {t('launchConfirmed', { detail: lastLaunched })}
+              </div>
+            )}
           </div>
       </div>
         </>

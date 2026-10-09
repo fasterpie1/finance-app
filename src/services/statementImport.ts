@@ -48,11 +48,20 @@ function dedupeKey(purchase: LoosePurchase): string {
 }
 
 function mergePurchases(existing: LoosePurchase[], incoming: LoosePurchase[]): LoosePurchase[] {
-  const seen = new Set(existing.map(dedupeKey));
+  // Duas compras iguais no mesmo extrato são duas compras (duas cervejas de R$ 12 no mesmo dia),
+  // então a chave não basta: o que se compara é a QUANTIDADE de cada chave. A continuação devolve
+  // linhas que o modelo já leu; só entra linha nova quando existe mais dela aqui do que já foi lido.
+  const readCounts = new Map<string, number>();
+  existing.forEach((purchase) => {
+    const key = dedupeKey(purchase);
+    readCounts.set(key, (readCounts.get(key) ?? 0) + 1);
+  });
+  const incomingCounts = new Map<string, number>();
   incoming.forEach((purchase) => {
     const key = dedupeKey(purchase);
-    if (seen.has(key)) return;
-    seen.add(key);
+    const seenHere = incomingCounts.get(key) ?? 0;
+    incomingCounts.set(key, seenHere + 1);
+    if (seenHere < (readCounts.get(key) ?? 0)) return;
     existing.push(purchase);
   });
   return existing;

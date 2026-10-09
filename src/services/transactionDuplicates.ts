@@ -2,9 +2,13 @@ import type { CreditCardTransaction } from '../types';
 
 export type DuplicateConfidence = 'high' | 'possible';
 
+/** O que bateu, para a tela dizer "mesmo valor e mesmo dia" em vez de só "possível duplicado". */
+export type DuplicateField = 'amount' | 'installment' | 'date' | 'card';
+
 export interface DuplicateMatch {
   confidence: DuplicateConfidence;
   transaction: CreditCardTransaction;
+  matchedOn: DuplicateField[];
 }
 
 interface DuplicateCandidate {
@@ -36,6 +40,10 @@ export function findDuplicateTransaction(candidate: DuplicateCandidate, existing
 
     const hasIdentity = Boolean((candidateDate && transactionDate) || (candidateCard && transactionCard));
     const confidence: DuplicateConfidence = hasIdentity ? 'high' : 'possible';
-    return match ?? { confidence, transaction };
+    const matchedOn: DuplicateField[] = ['amount'];
+    if (candidateDate && transactionDate) matchedOn.push('date');
+    if (candidateCard && transactionCard) matchedOn.push('card');
+    if ((candidate.installmentTotal ?? 1) > 1) matchedOn.push('installment');
+    return match ?? { confidence, transaction, matchedOn };
   }, undefined);
 }

@@ -87,6 +87,15 @@ describe('financial helpers', () => {
     expect(findDuplicateTransaction({ amountCents: 10000, type: 'PURCHASE' }, existing)?.confidence).toBe('possible');
     expect(findDuplicateTransaction({ amountCents: 9999, type: 'PURCHASE' }, existing)).toBeUndefined();
   });
+
+  it('names the fields that collided so the screen can explain the match', () => {
+    const existing = [transaction({ merchant: 'QUADRADO DE RIO', amountCents: 1200, date: '08/10', cardLast4: '8649' })];
+    expect(findDuplicateTransaction({ amountCents: 1200, type: 'PURCHASE', date: '08/10', cardLast4: '8649' }, existing)?.matchedOn).toEqual(['amount', 'date', 'card']);
+    // Outra cerveja em outro dia: o valor sozinho não é motivo para somar como repetição.
+    expect(findDuplicateTransaction({ amountCents: 1200, type: 'PURCHASE', date: '09/10' }, existing)).toBeUndefined();
+    expect(findDuplicateTransaction({ amountCents: 1200, type: 'PURCHASE' }, existing)?.matchedOn).toEqual(['amount']);
+  });
+
   it('parses Brazilian currency formats', () => {
     expect(parseBRL('1.234,56')).toBe(1234.56);
     expect(parseBRL('89,90')).toBe(89.9);

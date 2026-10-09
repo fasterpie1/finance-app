@@ -1,5 +1,24 @@
 import type { Bill, CreditCardInvoice, CreditCardTransaction, ExpenseOwner } from '../types';
-import { findDuplicateTransaction } from './transactionDuplicates';
+import { type DuplicateField, type DuplicateMatch, findDuplicateTransaction } from './transactionDuplicates';
+
+/** A tela tem que dizer com qual lançamento a linha bate, não só avisar "possível duplicado". */
+const DUPLICATE_FIELD_LABEL_KEY: Record<DuplicateField, string> = {
+  amount: 'dupFieldAmount',
+  date: 'dupFieldDate',
+  card: 'dupFieldCard',
+  installment: 'dupFieldInstallment',
+};
+
+/** "QUADRADO DE RIO · R$ 12,00 · 08/10 — coincidem valor e dia" */
+export function describeDuplicateMatch(
+  match: DuplicateMatch,
+  formatMoney: (amount: number) => string,
+  t: (key: string) => string,
+): string {
+  const found = match.transaction;
+  const details = [found.merchant?.trim(), formatMoney(centsToAmount(found.amountCents)), found.date].filter(Boolean).join(' · ');
+  return `${details} — ${t('duplicateMatches')} ${match.matchedOn.map((field) => t(DUPLICATE_FIELD_LABEL_KEY[field])).join(', ')}`;
+}
 
 export function centsToAmount(cents: number): number {
   return cents / 100;

@@ -791,7 +791,10 @@ export function useDashboard(userId: string | null = null) {
     );
   }, [selectedMonthId]);
 
-  const addCreditCardInvoice = useCallback((invoice: CreditCardInvoice) => {
+  /** `forceDuplicateIds` são as linhas que o usuário reconheceu como repetidas e mesmo assim
+   *  mandou lançar (duas cervejas de R$ 12 no mesmo dia). Sem isso, reimportar a mesma fatura
+   *  continuaria sem contar nada duas vezes. */
+  const addCreditCardInvoice = useCallback((invoice: CreditCardInvoice, forceDuplicateIds: string[] = []) => {
     setMonths((prev) => {
       // Uma fatura importada por mês: o id é derivado do mês/ano, então reimportar a mesma
       // fatura consolida as linhas na mesma fatura em vez de criar outra com o mesmo
@@ -802,15 +805,15 @@ export function useDashboard(userId: string | null = null) {
         id: invoiceId,
         transactions: invoice.transactions.map((tx) => ({ ...tx, invoiceId })),
       };
-      // Reimportar a mesma fatura não pode contar o lançamento duas vezes no mês.
+      // Reimportar a mesma fatura não pode contar o lançamento duas vezes no mês. Duas linhas
+      // idênticas no MESMO lote são compras diferentes (duas cervejas no mesmo dia), então aqui
+      // não se descarta nada dentro do lote: passa pela comparação com o que já está salvo
+      // apenas a linha que o usuário marcou como "é outra compra".
       const target = prev.find((month) => month.id === selectedMonthId);
-      const seen = new Set<string>();
-      const freshTransactions = normalized.transactions.filter((tx) => {
-        const key = `${tx.merchant}|${tx.amountCents}|${tx.installmentCurrent ?? 1}|${tx.installmentTotal ?? 1}|${tx.date ?? ''}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return !target || !hasSameCardTransaction(target, tx);
-      });
+      const forced = new Set(forceDuplicateIds);
+      const freshTransactions = normalized.transactions.filter((tx) => (
+        forced.has(tx.id) || !target || !hasSameCardTransaction(target, tx)
+      ));
       let updated = prev.map((month) => {
         if (month.id !== selectedMonthId) return month;
         if (freshTransactions.length === 0) return month;
@@ -847,7 +850,7 @@ export function useDashboard(userId: string | null = null) {
           );
           // Evita duplicar ao reimportar a mesma fatura ou ao importar depois a
           // fatura real do mês seguinte: pula se a parcela já existir no mês.
-          const alreadyExists = mIdx !== -1 && hasSameCardTransaction(updated[mIdx], futureTx);
+          const alreadyExists = !forced.has(tx.id) && mIdx !== -1 && hasSameCardTransaction(updated[mIdx], futureTx);
           if (alreadyExists) return;
           if (mIdx === -1) {
             updated = [

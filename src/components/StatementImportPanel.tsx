@@ -5,7 +5,7 @@ import {
   getMonthIndex,
 } from '../types';
 import { type CreditCardInvoice, type CreditCardTransaction, type ExpenseOwner } from '../types';
-import { getTransactionDay, setTransactionDay } from '../services/cardTransactions';
+import { describeDuplicateMatch, getTransactionDay, setTransactionDay } from '../services/cardTransactions';
 import {
   type ExtractedPurchase,
   extractPurchasesFromImage,
@@ -19,7 +19,9 @@ import { readUserStorage, writeUserStorage } from '../services/userStorage';
 import { usePreferences } from '../i18n';
 
 interface Props {
-  onImport: (invoice: CreditCardInvoice) => void;
+  /** `forceDuplicateIds` são as linhas marcadas como "é outra compra": entram mesmo batendo com
+   *  um lançamento já existente do mês. */
+  onImport: (invoice: CreditCardInvoice, forceDuplicateIds?: string[]) => void;
   /** Chamado quando o usuário lança o que revisou; a tela do cartão volta para a fatura. */
   onLaunched?: () => void;
   userId: string | null;
@@ -59,6 +61,8 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
   const selectedCount = items.filter((i) => i.selected).length;
   const selectedTotal = items.filter((i) => i.selected).reduce((s, i) => s + i.amount, 0);
   const displayedTotal = statementTotalCents != null ? statementTotalCents / 100 : selectedTotal;
+  /** Linhas que batem com algo já lançado e ainda não foram reconhecidas como outra compra. */
+  const pendingDuplicates = items.filter((i) => i.duplicateMatch && !i.duplicateConfirmed).length;
 
   const handleFile = async (file: File) => {
     setError('');
@@ -90,9 +94,10 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
       const extracted = outcome.purchases;
       if (extracted.length === 0) throw new Error(detected.kind === 'pdf' ? t('noItemsPdf') : t('noItemsImage'));
       setIncomplete(!outcome.complete);
+      // A linha que bate com algo já lançado chega desmarcada e explicada: nada some sozinho.
       setItems(extracted.map((p) => {
-        const duplicate = findDuplicateTransaction({ ...p, amountCents: Math.round(p.amount * 100) }, existingTransactions);
-        return { ...p, id: makeId(), selected: true, duplicateConfidence: duplicate?.confidence };
+        const duplicateMatch = findDuplicateTransaction({ ...p, amountCents: Math.round(p.amount * 100) }, existingTransactions);
+        return { ...p, id: makeId(), selected: !duplicateMatch, duplicateMatch };
       }));
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Erro ao processar arquivo';
@@ -107,33 +112,35 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
   };
 
   const handleConfirm = () => {
-    const transactions: CreditCardTransaction[] = items
-      .filter((i) => i.selected && i.name.trim() && i.amount > 0)
-      .map((i) => ({
-        id: makeId(),
-        invoiceId: '',
-        merchant: i.name.trim(),
-        amountCents: Math.round(i.amount * 100),
-        type: i.type,
-        owner: i.owner,
-        personalAmountCents: i.owner === 'SHARED' ? Math.min(Math.round(i.amount * 100), Math.max(0, i.personalAmountCents ?? 0)) : undefined,
-        thirdPartyName: i.owner === 'THIRD_PARTY' || i.owner === 'SHARED' ? i.thirdPartyName?.trim() || undefined : undefined,
-        cardLast4: i.cardLast4,
-        date: setTransactionDay(i.date, getTransactionDay(i.date), getMonthIndex(month)),
-        category: i.category,
-        installmentCurrent: Math.max(1, Math.min(i.installmentCurrent, i.installmentTotal)),
-        installmentTotal: Math.max(i.installmentCurrent, i.installmentTotal),
-        source: 'IMPORT',
-      }));
-    if (transactions.length === 0) return;
+    const chosen = items.filter((i) => i.selected && i.name.trim() && i.amount > 0);
+    if (chosen.length === 0) {
+      // Antes isso era um return mudo: nada era lançado e nenhuma explicação aparecia na tela.
+      setError(t('importNothingSelected'));
+      return;
+    }
     const invoiceId = makeId();
-    onImport({
-      id: invoiceId,
-      month,
-      year,
-      statementTotalCents,
-      transactions: transactions.map((transaction) => ({ ...transaction, invoiceId })),
-    });
+    // O id da linha da prévia vira o id do lançamento: é assim que o "é outra compra" chega
+    // até a gravação, que precisa saber quais linhas podem passar da comparação com o mês.
+    const transactions: CreditCardTransaction[] = chosen.map((i) => ({
+      id: i.id,
+      invoiceId: '',
+      merchant: i.name.trim(),
+      amountCents: Math.round(i.amount * 100),
+      type: i.type,
+      owner: i.owner,
+      personalAmountCents: i.owner === 'SHARED' ? Math.min(Math.round(i.amount * 100), Math.max(0, i.personalAmountCents ?? 0)) : undefined,
+      thirdPartyName: i.owner === 'THIRD_PARTY' || i.owner === 'SHARED' ? i.thirdPartyName?.trim() || undefined : undefined,
+      cardLast4: i.cardLast4,
+      date: setTransactionDay(i.date, getTransactionDay(i.date), getMonthIndex(month)),
+      category: i.category,
+      installmentCurrent: Math.max(1, Math.min(i.installmentCurrent, i.installmentTotal)),
+      installmentTotal: Math.max(i.installmentCurrent, i.installmentTotal),
+      source: 'IMPORT',
+    }));
+    onImport(
+      { id: invoiceId, month, year, statementTotalCents, transactions: transactions.map((transaction) => ({ ...transaction, invoiceId })) },
+      chosen.filter((item) => item.duplicateConfirmed).map((item) => item.id),
+    );
     setItems([]);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(null);
@@ -259,8 +266,10 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 320, overflowY: 'auto' }}>
-                {items.map((item) => (
-                  <div key={item.id} className={item.duplicateConfidence ? 'import-item-card is-duplicate' : 'import-item-card'} style={{ background: '#0e0e0e', border: `1px solid ${item.duplicateConfidence ? '#5a3b12' : item.selected ? '#1e2a3e' : '#1a1a1a'}`, borderRadius: 8, padding: '10px 12px', opacity: item.selected ? 1 : 0.5 }}>
+                {items.map((item) => {
+                  const isDuplicate = Boolean(item.duplicateMatch) && !item.duplicateConfirmed;
+                  return (
+                  <div key={item.id} className={isDuplicate ? 'import-item-card is-duplicate' : 'import-item-card'} style={{ background: '#0e0e0e', border: `1px solid ${isDuplicate ? '#5a3b12' : item.selected ? '#1e2a3e' : '#1a1a1a'}`, borderRadius: 8, padding: '10px 12px', opacity: item.selected || isDuplicate ? 1 : 0.5 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                       <input type="checkbox" checked={item.selected} onChange={(e) => updateItem(item.id, { selected: e.target.checked })} style={{ accentColor: '#3b82f6', width: 16, height: 16 }} />
                       <input style={{ ...fieldStyle, flex: 1 }} value={item.name} onChange={(e) => updateItem(item.id, { name: e.target.value })} placeholder="Nome" />
@@ -269,9 +278,23 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
                         <input inputMode="numeric" pattern="[0-9]*" aria-label={t('transactionDayAria')} placeholder="--" value={getTransactionDay(item.date) ?? ''} onChange={(e) => updateItem(item.id, { date: setTransactionDay(item.date, parseInt(e.target.value) || undefined, getMonthIndex(month)) })} style={{ ...fieldStyle, width: 44, padding: '6px 4px', textAlign: 'center' }} />
                       </div>
                     </div>
-                    {item.duplicateConfidence && (
+                    {item.duplicateMatch && !item.duplicateConfirmed && (
                       <div className="cc-dup-warning" style={{ background: '#241a0b', border: '1px solid #5a3b12', borderRadius: 6, padding: '7px 9px', marginBottom: 8, color: '#f59e0b', fontSize: 11 }}>
-                        {item.duplicateConfidence === 'high' ? `${t('possibleDuplicate')}: ${t('duplicateHigh')}` : `${t('possibleDuplicate')}: ${t('duplicatePossible')}`}
+                        <div style={{ fontWeight: 600, marginBottom: 3 }}>{t('duplicateAlreadyLaunched')}</div>
+                        <div style={{ color: '#d9a441', lineHeight: 1.45 }}>{describeDuplicateMatch(item.duplicateMatch, formatMoney, t)}</div>
+                        <button
+                          type="button"
+                          onClick={() => updateItem(item.id, { duplicateConfirmed: true, selected: true })}
+                          className="cc-dup-force"
+                          style={{ marginTop: 7, background: 'transparent', border: '1px solid #7a5315', borderRadius: 6, color: '#f59e0b', cursor: 'pointer', padding: '6px 10px', fontSize: 11, fontWeight: 600, fontFamily: 'inherit', minHeight: 34 }}
+                        >
+                          {t('isAnotherPurchase')}
+                        </button>
+                      </div>
+                    )}
+                    {item.duplicateConfirmed && (
+                      <div style={{ background: '#0a1a0a', border: '1px solid #153a1c', borderRadius: 6, padding: '7px 9px', marginBottom: 8, color: '#4ade80', fontSize: 11 }}>
+                        {t('duplicateConfirmedAsOther')}
                       </div>
                     )}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 6 }}>
@@ -330,7 +353,8 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
                       </div>
                     )}
                   </div>
-                ))}
+                );
+                })}
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
@@ -339,14 +363,13 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
                 </span>
                 <button type="button"
                   onClick={handleConfirm}
-                  disabled={selectedCount === 0}
                   className="import-confirm"
                   style={{
                     background: selectedCount > 0 ? '#16a34a' : '#151520',
                     border: 'none',
                     borderRadius: 6,
                     color: selectedCount > 0 ? '#fff' : '#3a4a5a',
-                    cursor: selectedCount > 0 ? 'pointer' : 'not-allowed',
+                    cursor: 'pointer',
                     padding: '10px 20px',
                     fontSize: 13,
                     fontWeight: 600,
@@ -355,6 +378,12 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
                   {t('launchPurchases')} ({selectedCount})
                 </button>
               </div>
+
+              {selectedCount === 0 && pendingDuplicates > 0 && (
+                <div className="import-dup-hint" style={{ background: '#241a0b', border: '1px solid #5a3b12', borderRadius: 6, padding: '8px 10px', color: '#f59e0b', fontSize: 11, lineHeight: 1.5 }}>
+                  {t('importDuplicatesWaiting', { count: pendingDuplicates })}
+                </div>
+              )}
             </>
           )}
 

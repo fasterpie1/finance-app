@@ -47,4 +47,15 @@ describe('orçamento de tokens de saída na importação', () => {
     expect(outcome.purchases).toHaveLength(1);
     expect(outcome.complete).toBe(false);
   });
+
+  // Duas cervejas de R$ 12 no mesmo dia: a repetição é descartada, a compra nova fica.
+  it('mantém a segunda compra igual quando a continuação repete a primeira', async () => {
+    const beer = ['QUADRADO DE RIO', 12, 1, 1, 'alimentacao', 'p', '08/09', '8649'];
+    groqCall
+      .mockResolvedValueOnce({ content: JSON.stringify({ p: [beer] }), truncated: true })
+      .mockResolvedValueOnce(rows(beer, beer));
+    const outcome = await extractPurchasesFromImage('base64', 'image/jpeg', SETEMBRO);
+    expect(outcome.purchases).toHaveLength(2);
+    expect(outcome.complete).toBe(true);
+  });
 });

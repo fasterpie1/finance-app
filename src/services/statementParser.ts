@@ -1,4 +1,5 @@
 import { BILL_CATEGORY_LABELS, type BillCategory, type CardTransactionType, type ExpenseOwner } from '../types';
+import type { DuplicateMatch } from './transactionDuplicates';
 import { formatTransactionDay } from './cardTransactions';
 
 export interface ExtractedPurchase {
@@ -13,7 +14,9 @@ export interface ExtractedPurchase {
   owner: ExpenseOwner;
   personalAmountCents?: number;
   thirdPartyName?: string;
-  duplicateConfidence?: 'high' | 'possible';
+  duplicateMatch?: DuplicateMatch;
+  /** O usuário confirmou que é outra compra, apesar de bater com algo já lançado. */
+  duplicateConfirmed?: boolean;
   cardLast4?: string;
   date?: string;
 }
