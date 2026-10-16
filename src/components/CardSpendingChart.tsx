@@ -1,9 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   type Bill,
-  type BillCategory,
+  type CategoryId,
   type CreditCardInvoice,
-  BILL_CATEGORY_COLORS,
 } from '../types';
 import { usePreferences } from '../i18n';
 import { safeSetItem } from '../services/safeStorage';
@@ -30,11 +29,11 @@ const CHART_HEIGHT = 300;
 const PADDING = { top: 62, right: 54, bottom: 62, left: 92 };
 const NARROW_PADDING = { top: 52, right: 16, bottom: 52, left: 48 };
 
-function loadCategories(available: BillCategory[]): BillCategory[] {
+function loadCategories(available: CategoryId[]): CategoryId[] {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]') as unknown;
     if (Array.isArray(saved)) {
-      const valid = saved.filter((category): category is BillCategory => available.includes(category as BillCategory));
+      const valid = saved.filter((category): category is CategoryId => available.includes(category as CategoryId));
       if (valid.length > 0) return valid.slice(0, 3);
     }
   } catch { /* ignore */ }
@@ -42,10 +41,10 @@ function loadCategories(available: BillCategory[]): BillCategory[] {
 }
 
 export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, selectedMonthYear, hideValues }) => {
-  const { formatMoney, formatMonthShort, categoryLabel, locale, t } = usePreferences();
+  const { formatMoney, formatMonthShort, categoryLabel, categoryColor, locale, t } = usePreferences();
   // Mesmo número das outras telas: só o que está no cartão e ainda não veio na fatura importada.
   const cardBills = (month: MonthData) => getCardCharges(month.creditCardInvoices ?? [], month.bills).pendingBills;
-  const cardAmountByCategory = (month: MonthData, category: BillCategory) => {
+  const cardAmountByCategory = (month: MonthData, category: CategoryId) => {
     const billAmount = cardBills(month).filter((bill) => bill.category === category).reduce((total, bill) => total + bill.amount, 0);
     const invoiceAmount = (month.creditCardInvoices ?? []).flatMap((invoice) => invoice.transactions)
       .filter((transaction) => transaction.category === category)
@@ -54,14 +53,14 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
   };
 
   const availableCategories = useMemo(() => {
-    const categories = new Set<BillCategory>();
+    const categories = new Set<CategoryId>();
     months.forEach((month) => {
       cardBills(month).forEach((bill) => categories.add(bill.category));
       (month.creditCardInvoices ?? []).flatMap((invoice) => invoice.transactions).forEach((transaction) => { if (transaction.category) categories.add(transaction.category); });
     });
     return Array.from(categories).sort((a, b) => categoryLabel(a).localeCompare(categoryLabel(b), locale === 'en' ? 'en-US' : 'pt-BR'));
   }, [months, categoryLabel, locale]);
-  const [selectedCategories, setSelectedCategories] = useState<BillCategory[]>(() => loadCategories(availableCategories));
+  const [selectedCategories, setSelectedCategories] = useState<CategoryId[]>(() => loadCategories(availableCategories));
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [measuredWidth, setMeasuredWidth] = useState(0);
@@ -76,7 +75,7 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
     return () => observer.disconnect();
   }, []);
 
-  const toggleCategory = (category: BillCategory) => {
+  const toggleCategory = (category: CategoryId) => {
     setSelectedCategories((current) => {
       const next = current.includes(category)
         ? current.filter((item) => item !== category)
@@ -126,8 +125,8 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
             const selected = selectedCategories.includes(category);
             const limitReached = selectedCategories.length === 3 && !selected;
             return (
-              <button className={`theme-chart-toggle ${selected ? 'is-selected' : ''}`} key={category} type="button" onClick={() => toggleCategory(category)} disabled={limitReached} style={{ display: 'flex', alignItems: 'center', gap: 7, border: `1px solid ${selected ? BILL_CATEGORY_COLORS[category] : '#242424'}`, background: selected ? `${BILL_CATEGORY_COLORS[category]}18` : '#151515', borderRadius: 5, color: selected ? '#e0e0e0' : '#9a9a9a', cursor: limitReached ? 'not-allowed' : 'pointer', opacity: limitReached ? 0.45 : 1, padding: '7px 9px', fontSize: 11, transition: 'all 0.15s' }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: BILL_CATEGORY_COLORS[category], flexShrink: 0 }} />
+              <button className={`theme-chart-toggle ${selected ? 'is-selected' : ''}`} key={category} type="button" onClick={() => toggleCategory(category)} disabled={limitReached} style={{ display: 'flex', alignItems: 'center', gap: 7, border: `1px solid ${selected ? categoryColor(category) : '#242424'}`, background: selected ? `${categoryColor(category)}18` : '#151515', borderRadius: 5, color: selected ? '#e0e0e0' : '#9a9a9a', cursor: limitReached ? 'not-allowed' : 'pointer', opacity: limitReached ? 0.45 : 1, padding: '7px 9px', fontSize: 11, transition: 'all 0.15s' }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: categoryColor(category), flexShrink: 0 }} />
                 {categoryLabel(category)}
               </button>
             );
@@ -159,13 +158,13 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
             ))}
             {series.map(({ category, points }, seriesIndex) => (
               <g key={category}>
-                <polyline points={points.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" stroke={BILL_CATEGORY_COLORS[category]} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                <polyline points={points.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" stroke={categoryColor(category)} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
                 {points.map((point, index) => (
                   <g key={`${category}-${index}`}>
-                    <text x={point.x} y={Math.max(narrow ? 12 : 18, point.y - (narrow ? 12 : 16) - seriesIndex * valueStagger)} textAnchor={index === 0 ? 'start' : index === points.length - 1 ? 'end' : 'middle'} fill={BILL_CATEGORY_COLORS[category]} fontSize={valueFontSize} fontWeight="700">
+                    <text x={point.x} y={Math.max(narrow ? 12 : 18, point.y - (narrow ? 12 : 16) - seriesIndex * valueStagger)} textAnchor={index === 0 ? 'start' : index === points.length - 1 ? 'end' : 'middle'} fill={categoryColor(category)} fontSize={valueFontSize} fontWeight="700">
                       {hideValues ? '•••' : narrow ? stripCurrency(formatMoney(point.value)) : formatMoney(point.value)}
                     </text>
-                    <circle className="chart-point" cx={point.x} cy={point.y} r="4.5" fill="#111" stroke={BILL_CATEGORY_COLORS[category]} strokeWidth="2" />
+                    <circle className="chart-point" cx={point.x} cy={point.y} r="4.5" fill="#111" stroke={categoryColor(category)} strokeWidth="2" />
                   </g>
                 ))}
               </g>

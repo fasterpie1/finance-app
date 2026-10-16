@@ -1,5 +1,5 @@
 import { extractWithGroq, type ExtractionResult } from './groq';
-import { parsePdfTransactionFallback, parseExtractedPurchases, VALID_CATEGORIES, type ExtractedPurchase } from './statementParser';
+import { parseCsvStatement, parsePdfTransactionFallback, parseExtractedPurchases, VALID_CATEGORIES, type ExtractedPurchase } from './statementParser';
 export { extractStatementTotalCents } from './statementTotals';
 export { parseExtractedPurchases } from './statementParser';
 export type { ExtractedPurchase } from './statementParser';
@@ -156,7 +156,11 @@ export async function extractPurchasesFromText(
   statementText: string,
   monthIndex = -1,
 ): Promise<ExtractionOutcome> {
-  const fallback = parsePdfTransactionFallback(statementText, monthIndex);
+  // Um texto pode ser PDF extraído ou planilha exportada; o parser local de cada formato ganha
+  // de si mesmo e o que achar mais linhas vira o fallback da IA.
+  const pdfFallback = parsePdfTransactionFallback(statementText, monthIndex);
+  const csvFallback = parseCsvStatement(statementText, monthIndex);
+  const fallback = csvFallback.length > pdfFallback.length ? csvFallback : pdfFallback;
   let extracted: LoosePurchase[] = [];
   let complete = true;
   try {

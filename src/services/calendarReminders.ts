@@ -16,12 +16,19 @@ export function billReminderInput(bill: Bill, month: BudgetMonth): CalendarEvent
   };
 }
 
-export function invoiceReminderInput(month: BudgetMonth, amount: number): CalendarEventInput {
-  if (!month.creditCardDueDay) throw new Error('Defina o vencimento da fatura antes de criar o lembrete.');
-  const times = withDuration(getBillReminderStart(month.name, month.year, month.creditCardDueDay));
+/** Cartão do lembrete: sem ele, a fatura de um segundo cartão não teria título nem dia próprio. */
+export interface InvoiceReminderCard {
+  label: string;
+  dueDay?: number;
+}
+
+export function invoiceReminderInput(month: BudgetMonth, amount: number, card?: InvoiceReminderCard): CalendarEventInput {
+  const dueDay = card?.dueDay ?? month.creditCardDueDay;
+  if (!dueDay) throw new Error('Defina o vencimento da fatura antes de criar o lembrete.');
+  const times = withDuration(getBillReminderStart(month.name, month.year, dueDay));
   return {
-    title: 'Pagar fatura do mês',
-    description: `Fatura de ${month.name} de ${month.year}. Vence no dia ${month.creditCardDueDay}. Valor: ${formatCurrency(amount)}.`,
+    title: card ? `Pagar fatura ${card.label}` : 'Pagar fatura do mês',
+    description: `Fatura${card ? ` ${card.label}` : ''} de ${month.name} de ${month.year}. Vence no dia ${dueDay}. Valor: ${formatCurrency(amount)}.`,
     ...times,
     reminder_minutes: 0,
   };

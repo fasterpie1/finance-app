@@ -1,17 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  type BillCategory,
+  type CategoryId,
   type CreditCardInvoice,
   type CreditCardTransaction,
   type ExpenseOwner,
-  BILL_CATEGORY_COLORS,
-  BILL_CATEGORY_LABELS,
   getMonthIndex,
 } from '../types';
 import { type CreditCardPurchase, type MonthInfo } from '../store/useDashboard';
 import { amountToCents, centsToAmount, describeDuplicateMatch, formatTransactionDay, getCardCharges, getInvoiceTotalCents, getOwnerLabel, getThirdPartyTotalsCents, getTransactionDay, setTransactionDay, sortInvoiceTransactions } from '../services/cardTransactions';
 import { findDuplicateTransaction } from '../services/transactionDuplicates';
+import { getCardDueDay, getInvoiceCardLabel, getPaymentCardLabel, groupInvoicesByCard, type PaymentCard, resolveBillCardId } from '../services/paymentCards';
 import { BillRow } from './BillRow';
+import { CardSelect } from './CardSelect';
+import { CategorySelect } from './CategorySelect';
 import { ConfirmDialog } from './ConfirmDialog';
 import { StatementImportPanel } from './StatementImportPanel';
 import { type Bill } from '../types';
@@ -34,14 +35,18 @@ interface Props {
   onImportInvoice: (invoice: CreditCardInvoice, forceDuplicateIds?: string[]) => void;
   onUpdateInvoice: (invoice: CreditCardInvoice) => void;
   getAffectedMonths: (cur: number, total: number) => MonthInfo[];
-  onPayCreditCard: () => void;
-  onUnpayCreditCard: () => void;
+  /** Sem argumentos é "pagar tudo do cartão"; com ids, marca somente aquele cartão. */
+  onPayCreditCard: (invoiceIds?: string[], billIds?: string[], cardId?: string) => void;
+  onUnpayCreditCard: (invoiceIds?: string[], billIds?: string[]) => void;
   creditCardDueDay?: number;
-  onUpdateCreditCardDueDay: (dueDay: number) => void;
+  onUpdateCreditCardDueDay: (dueDay: number, cardId?: string) => void;
   hideValues?: boolean;
   invoiceCalendarEventId?: string;
-  onInvoiceCalendarReminder?: () => void;
+  invoiceCalendarEventIds?: Record<string, string>;
+  onInvoiceCalendarReminder?: (cardId?: string) => void;
   invoiceCalendarReminderLoading?: boolean;
+  /** Cartões cadastrados nesta conta; com um só cartão a tela continua com uma barra única. */
+  paymentCards: PaymentCard[];
 }
 
 const fieldStyle: React.CSSProperties = {
@@ -69,14 +74,206 @@ const getOwnerOptions = (t: (key: string) => string): Array<{ value: ExpenseOwne
   { value: 'SHARED', label: t('shared') },
 ];
 
-function InvoiceTransactions({ invoices, monthBills, onUpdate, onTogglePaid, onSaveBill, onDeleteBill, hideValues }: { invoices: CreditCardInvoice[]; monthBills: Bill[]; onUpdate: (invoice: CreditCardInvoice) => void; onTogglePaid: (id: string) => void; onSaveBill: (bill: Bill) => void; onDeleteBill: (id: string) => void; hideValues?: boolean }) {
-  const { formatMoney, parseAmount, typeLabel, categoryLabel, t } = usePreferences();
+/** O que cada barra de fatura representa: um cartão, ou o conjunto sem cartão cadastrado. */
+interface InvoiceBar {
+  key: string;
+  label: string;
+  /** Total deste cartão no mês, para a barra mostrar de quanto ela é responsável. */
+  cents: number;
+  dueDay?: number;
+  isPaid: boolean;
+  hasItems: boolean;
+  calendarAdded: boolean;
+  calendarLoading: boolean;
+  /** O que pertence a esta barra: com mais de um cartão, isto vira o corpo do bloco retrátil. */
+  invoices: CreditCardInvoice[];
+  bills: Bill[];
+  /** Os controles viajam com a barra porque só ela sabe quais faturas e contas são suas. */
+  onTogglePaid: () => void;
+  onSaveDueDay: (dueDay: number) => void;
+  onCalendarReminder?: () => void;
+}
+
+/**
+ * Qual bloco de cartão está aberto. O padrão é fechado: a fatura inteira na tela empurra o
+ * resto do mês para baixo, e quem quer ver as compras abre. É preferência de tela, não dado,
+ * então vai no mesmo blob (sem sufixo de conta) que guarda a seção escolhida.
+ */
+function useCollapsedCardGroups() {
+  const [open, setOpen] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('financa_sections_v1');
+      const keys = saved ? JSON.parse(saved)['cardGroupsOpen'] : undefined;
+      return Array.isArray(keys) ? keys.filter((key): key is string => typeof key === 'string') : [];
+    } catch { return []; }
+  });
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('financa_sections_v1');
+      const settings = saved ? JSON.parse(saved) : {};
+      settings['cardGroupsOpen'] = open;
+      localStorage.setItem('financa_sections_v1', JSON.stringify(settings));
+    } catch { /* ignore */ }
+  }, [open]);
+  const toggle = (key: string) => setOpen((current) => (
+    current.includes(key) ? current.filter((item) => item !== key) : [...current, key]
+  ));
+  const isExpanded = (key: string) => open.includes(key);
+  return { toggle, isExpanded };
+}
+
+interface DueBarProps {
+  label: string;
+  cents: number;
+  dueDay?: number;
+  isPaid: boolean;
+  hasItems: boolean;
+  calendarAdded: boolean;
+  calendarLoading: boolean;
+  hideValues?: boolean;
+  onTogglePaid: () => void;
+  onSaveDueDay: (dueDay: number) => void;
+  onCalendarReminder?: () => void;
+  /** Com as compras do cartão dentro, a barra vira o bloco retrátil do banco: cabeçalho + corpo. */
+  children?: React.ReactNode;
+  expanded?: boolean;
+  onToggleExpand?: () => void;
+}
+
+/** Uma barra por cartão: marcar a fatura daquele cartão como paga, o vencimento dele e o lembrete dele. */
+function InvoiceDueBar({ label, cents, dueDay, isPaid, hasItems, calendarAdded, calendarLoading, hideValues, onTogglePaid, onSaveDueDay, onCalendarReminder, children, expanded, onToggleExpand }: DueBarProps) {
+  const { formatMoney, t } = usePreferences();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(String(dueDay ?? ''));
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDraft(String(dueDay ?? '')), 0);
+    return () => window.clearTimeout(timer);
+  }, [dueDay]);
+  const save = () => {
+    const value = Number(draft);
+    if (value < 1 || value > 31) return;
+    onSaveDueDay(value);
+    setEditing(false);
+  };
+
+  const amount = hasItems ? (
+    <span className="privacy-mask" style={{ fontSize: 14, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#e8e8e8', whiteSpace: 'nowrap', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
+      {hideValues ? '••••' : formatMoney(centsToAmount(cents))}
+    </span>
+  ) : null;
+
+  const header = (
+    <div className="theme-card-due-setting" style={{ opacity: isPaid ? 0.6 : 1, flexWrap: 'wrap' }}>
+      {hasItems && (
+        <button type="button"
+          role="checkbox"
+          aria-checked={isPaid}
+          aria-label={isPaid ? t('markAsUnpaid') : t('markAsPaid')}
+          title={isPaid ? t('markAsUnpaid') : t('markAsPaid')}
+          onClick={onTogglePaid}
+          style={{
+            width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
+            border: 'none',
+            background: 'transparent',
+            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
+          }}
+        >
+          <span style={{
+            width: 20, height: 20, borderRadius: '50%',
+            border: `2px solid ${isPaid ? '#10b981' : '#3b82f6'}`,
+            background: isPaid ? '#10b981' : 'transparent',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            transition: 'all 0.15s',
+          }}>
+            {isPaid && (
+              <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                <path d="M2 6l3 3 5-5" stroke="#000" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
+          </span>
+        </button>
+      )}
+      <div style={{ flex: '1 1 120px', minWidth: 0 }}>
+        {/* O alvo de abrir/fechar é a linha inteira do nome e do valor: ninguém precisa acertar a setinha. */}
+        {onToggleExpand ? (
+          <button
+            type="button"
+            className="cc-bar-toggle"
+            aria-expanded={Boolean(expanded)}
+            title={expanded ? t('hideCardPurchases') : t('showCardPurchases')}
+            aria-label={`${expanded ? t('hideCardPurchases') : t('showCardPurchases')} — ${label}`}
+            onClick={onToggleExpand}
+            style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, width: '100%', margin: 0, padding: '2px 0', background: 'transparent', border: 'none', color: 'inherit', font: 'inherit', textAlign: 'left', cursor: 'pointer' }}
+          >
+            <span className="cc-bar-title" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, margin: 0 }}>
+              <svg className="cc-bar-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden style={{ flexShrink: 0, transform: expanded ? 'rotate(0deg)' : 'rotate(-90deg)' }}>
+                <path d="M2.5 4.5 6 8l3.5-3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <strong style={{ textDecoration: isPaid ? 'line-through' : 'none', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</strong>
+            </span>
+            {amount}
+          </button>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+            <strong style={{ textDecoration: isPaid ? 'line-through' : 'none' }}>{label}</strong>
+            {amount}
+          </div>
+        )}
+        {editing ? (
+          <div className="theme-card-due-form">
+            <input autoFocus inputMode="numeric" value={draft} onChange={(event) => setDraft(event.target.value.replace(/[^0-9]/g, ''))} onKeyDown={(event) => { if (event.key === 'Enter') save(); if (event.key === 'Escape') setEditing(false); }} placeholder={t('dayPlaceholder')} aria-label={t('invoiceDueDayAria')} />
+            <button type="button" onClick={save}>{t('save')}</button>
+          </div>
+        ) : (
+          /* O dia é o próprio controle: sem um segundo CTA azul, a barra cabe numa linha no celular. */
+          <button type="button" title={t('editDueDate')} className={dueDay ? 'cc-due-day-link' : 'cc-due-day-link is-empty'} onClick={() => { setDraft(String(dueDay ?? '')); setEditing(true); }}>
+            {dueDay ? t('invoiceDueEveryDay', { day: dueDay }) : t('addDueDate')}
+          </button>
+        )}
+      </div>
+      {hasItems && !isPaid && onCalendarReminder && (
+        <div style={{ flexShrink: 0 }}>
+          <CalendarReminderButton iconOnly added={calendarAdded} loading={calendarLoading} onClick={onCalendarReminder} />
+        </div>
+      )}
+    </div>
+  );
+
+  // Sem corpo para mostrar, a barra continua sendo só a barra de sempre.
+  if (!onToggleExpand) return header;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 10, background: '#0c0c0c', border: '1px solid #1c1c1c', borderRadius: 10 }}>
+      {header}
+      {expanded && children}
+    </div>
+  );
+}
+
+interface InvoiceTransactionsProps {
+  invoices: CreditCardInvoice[];
+  monthBills: Bill[];
+  /** Cada barra vem como bloco retrátil: fechado, a lista de compras não empurra o resto da tela. */
+  bars?: InvoiceBar[];
+  /** A conta lançada à mão precisa poder trocar de cartão sem sair da fatura. */
+  paymentCards: PaymentCard[];
+  userId: string | null;
+  onUpdate: (invoice: CreditCardInvoice) => void;
+  onTogglePaid: (id: string) => void;
+  onSaveBill: (bill: Bill) => void;
+  onDeleteBill: (id: string) => void;
+  hideValues?: boolean;
+}
+
+function InvoiceTransactions({ invoices, monthBills, bars, paymentCards, userId, onUpdate, onTogglePaid, onSaveBill, onDeleteBill, hideValues }: InvoiceTransactionsProps) {
+  const { formatMoney, parseAmount, typeLabel, categoryColor, t } = usePreferences();
   const ownerOptions = getOwnerOptions(t);
   const [filter, setFilter] = useState<OwnerFilter>('ALL');
   const [pendingRemoval, setPendingRemoval] = useState<CreditCardTransaction | null>(null);
   const summaryRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef({ active: false, startX: 0, scrollLeft: 0 });
+  const { toggle, isExpanded } = useCollapsedCardGroups();
   const allTransactions = invoices.flatMap((invoice) => invoice.transactions);
+  // Resumo e chips valem para o mês inteiro: por cartão só muda a lista que fica dentro do bloco.
   const charges = getCardCharges(invoices, monthBills);
   // O "Eu" traz o compartilhado junto: a parte pessoal dele também é minha.
   const matchesFilter = (transaction: CreditCardTransaction) => {
@@ -104,10 +301,9 @@ function InvoiceTransactions({ invoices, monthBills, onUpdate, onTogglePaid, onS
     const index = getMonthIndex(invoice?.month ?? '');
     return index >= 0 ? index : new Date().getMonth();
   };
-  // Só as parcelas lançadas na mão que ainda não vieram na fatura; a fixa vinculada tem seção própria abaixo.
-  const visibleCreditCardBills = filter === 'ALL' || filter === 'ME'
-    ? charges.pendingBills.filter((bill) => bill.type === 'parcela')
-    : [];
+  // Toda conta lançada na mão que pesa na fatura mora aqui: mensal, variável ou parcela. Só a parcela
+  // era listada antes, e o resto somava na barra sem aparecer em lugar nenhum.
+  const pendingBillsOf = (bills: Bill[]): Bill[] => (filter === 'ALL' || filter === 'ME' ? bills : []);
   // Um chip por pessoa nomeada; os que não têm valor no mês somem para não ocupar espaço.
   const ownerChips: OwnerChip[] = [
     { value: 'ME', label: t('me'), cents: charges.personalCents },
@@ -119,9 +315,73 @@ function InvoiceTransactions({ invoices, monthBills, onUpdate, onTogglePaid, onS
     { value: 'ALL', label: t('all'), cents: charges.totalCents },
   ];
   const chips = ownerChips.filter((chip) => chip.value === 'ME' || chip.value === 'ALL' || chip.cents !== 0);
+  const visibleCreditCardBills = pendingBillsOf(charges.pendingBills);
+  // Com cartão cadastrado a lista sempre mora dentro do bloco do banco, mesmo que seja um só.
+  const grouped = Boolean(bars && bars.length > 0);
+
+  const rowsList = (rows: CreditCardTransaction[], bills: Bill[]) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {rows.map((transaction) => (
+        <div key={transaction.id} className="cc-transaction-row" style={{ background: '#131313', border: '1px solid #1e1e1e', borderRadius: 10, padding: '11px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <strong className="cc-merchant" style={{ fontSize: 13, color: '#d4d4d4' }}>{transaction.merchant}</strong>
+              {transaction.installmentCurrent && transaction.installmentTotal && transaction.installmentTotal > 1 && <span style={{ fontSize: 10, color: '#9a9a9a' }}>{typeLabel('parcela')} {transaction.installmentCurrent}/{transaction.installmentTotal}</span>}
+              <span style={{ fontSize: 10, color: '#9a9a9a' }}>{transaction.type}</span>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 5, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                <span style={{ fontSize: 10, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{t('dayPlaceholder')}</span>
+                <input inputMode="numeric" pattern="[0-9]*" aria-label={`${t('transactionDayAria')} — ${transaction.merchant}`} placeholder="--" value={getTransactionDay(transaction.date) ?? ''} onChange={(event) => updateTransaction(transaction.id, { date: setTransactionDay(transaction.date, parseInt(event.target.value) || undefined, invoiceMonthIndex(transaction.id)) })} style={{ ...fieldStyle, width: 42, padding: '5px 6px', fontSize: 11, textAlign: 'center' }} />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                <span aria-hidden style={{ flexShrink: 0, width: 8, height: 8, borderRadius: '50%', background: transaction.category ? categoryColor(transaction.category) : '#3f3f3f' }} />
+                <CategorySelect value={transaction.category ?? ''} ariaLabel={t('categoryAria')} unsetLabel={t('noCategory')} onChange={(category) => updateTransaction(transaction.id, { category: category || undefined })} style={{ ...fieldStyle, width: 138, padding: '5px 8px', fontSize: 11 }} />
+              </div>
+              <select value={transaction.owner} onChange={(event) => updateTransaction(transaction.id, { owner: event.target.value as ExpenseOwner, personalAmountCents: event.target.value === 'SHARED' ? transaction.personalAmountCents : undefined })} style={{ ...fieldStyle, width: 150, padding: '5px 8px', fontSize: 11 }}>
+                {ownerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                {/* Um lançamento salvo antes pode vir sem dono; some da lista, mas não pode ficar sem rótulo. */}
+                {!ownerOptions.some((option) => option.value === transaction.owner) && <option value={transaction.owner}>{getOwnerLabel(transaction.owner)}</option>}
+              </select>
+              {transaction.owner === 'THIRD_PARTY' && <input value={transaction.thirdPartyName ?? ''} onChange={(event) => updateTransaction(transaction.id, { thirdPartyName: event.target.value })} placeholder={t('who')} style={{ ...fieldStyle, width: 130, padding: '5px 8px', fontSize: 11 }} />}
+              {transaction.owner === 'SHARED' && <input inputMode="decimal" value={transaction.personalAmountCents == null ? '' : (transaction.personalAmountCents / 100).toFixed(2).replace('.', ',')} onChange={(event) => { const typed = event.target.value.trim(); updateTransaction(transaction.id, { personalAmountCents: typed ? Math.min(transaction.amountCents, Math.max(0, Math.round(parseAmount(typed) * 100))) : 0 }); }} placeholder={t('myShare')} style={{ ...fieldStyle, width: 110, padding: '5px 8px', fontSize: 11 }} />}
+              {transaction.owner === 'SHARED' && <input value={transaction.thirdPartyName ?? ''} aria-label={t('whoPaysRest')} onChange={(event) => updateTransaction(transaction.id, { thirdPartyName: event.target.value })} placeholder={t('whoPaysRest')} style={{ ...fieldStyle, width: 130, padding: '5px 8px', fontSize: 11 }} />}
+              <span className="cc-owner-badge" style={{ fontSize: 10, color: '#9a9a9a' }}>{getOwnerLabel(transaction.owner)}</span>
+            </div>
+          </div>
+          <strong className={transaction.type === 'REFUND' ? 'cc-amount-refund' : 'cc-amount'} style={{ fontSize: 14, color: transaction.type === 'REFUND' ? '#10b981' : '#d4d4d4', whiteSpace: 'nowrap' }}>{hideValues ? '••••' : formatMoney(centsToAmount(transaction.amountCents))}</strong>
+          <button
+            type="button"
+            title={t('removeTransaction')}
+            aria-label={`${t('removeTransaction')} ${transaction.merchant}`}
+            onClick={() => setPendingRemoval(transaction)}
+            className="cc-transaction-remove"
+            style={{ background: 'transparent', border: '1px solid #2a1a1a', borderRadius: 6, color: '#e57373', cursor: 'pointer', width: 36, height: 36, fontSize: 18, lineHeight: 1 }}
+          >
+            ×
+          </button>
+        </div>
+      ))}
+      {bills.map((bill) => (
+        <BillRow key={`legacy-card-bill-${bill.id}`} bill={bill} onTogglePaid={() => onTogglePaid(bill.id)} onSave={onSaveBill} onDelete={() => onDeleteBill(bill.id)} hideValues={hideValues} paymentCards={paymentCards} userId={userId} showPaidToggle={false} />
+      ))}
+    </div>
+  );
+
+  /** O corpo de um bloco: as compras daquele cartão que passam pelo filtro, mais as parcelas postas na mão. */
+  const groupBody = (bar: InvoiceBar) => {
+    const rows = sortInvoiceTransactions(bar.invoices.flatMap((invoice) => invoice.transactions).filter(matchesFilter));
+    const bills = pendingBillsOf(bar.bills);
+    if (rows.length + bills.length === 0) {
+      return <div style={{ fontSize: 11, color: '#7a7a7a', padding: '2px 4px' }}>{t('noTransactionsInFilter')}</div>;
+    }
+    return rowsList(rows, bills);
+  };
 
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* Com os blocos por cartão, as somas do mês já aparecem em cima: repetir aqui é ruído. */}
+      {!grouped && (
       <div
         ref={summaryRef}
         className="theme-invoice-summary"
@@ -151,6 +411,7 @@ function InvoiceTransactions({ invoices, monthBills, onUpdate, onTogglePaid, onS
           </div>
         ))}
       </div>
+      )}
       <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2, touchAction: 'pan-x' }}>
         {chips.map((chip) => {
           const active = filter === chip.value;
@@ -162,59 +423,35 @@ function InvoiceTransactions({ invoices, monthBills, onUpdate, onTogglePaid, onS
           );
         })}
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: -6 }}>
-        <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#8f8f8f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('invoiceItems')}</h3>
-        <span className="theme-card-count" style={{ fontSize: 10, color: '#8b8b8b', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 7px', fontWeight: 600 }}>{transactions.length + visibleCreditCardBills.length}</span>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {transactions.map((transaction) => (
-          <div key={transaction.id} className="cc-transaction-row" style={{ background: '#131313', border: '1px solid #1e1e1e', borderRadius: 10, padding: '11px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <strong className="cc-merchant" style={{ fontSize: 13, color: '#d4d4d4' }}>{transaction.merchant}</strong>
-                {transaction.installmentCurrent && transaction.installmentTotal && transaction.installmentTotal > 1 && <span style={{ fontSize: 10, color: '#9a9a9a' }}>{typeLabel('parcela')} {transaction.installmentCurrent}/{transaction.installmentTotal}</span>}
-                <span style={{ fontSize: 10, color: '#9a9a9a' }}>{transaction.type}</span>
-              </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 5, flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                  <span style={{ fontSize: 10, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{t('dayPlaceholder')}</span>
-                  <input inputMode="numeric" pattern="[0-9]*" aria-label={`${t('transactionDayAria')} — ${transaction.merchant}`} placeholder="--" value={getTransactionDay(transaction.date) ?? ''} onChange={(event) => updateTransaction(transaction.id, { date: setTransactionDay(transaction.date, parseInt(event.target.value) || undefined, invoiceMonthIndex(transaction.id)) })} style={{ ...fieldStyle, width: 42, padding: '5px 6px', fontSize: 11, textAlign: 'center' }} />
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
-                  <span aria-hidden style={{ flexShrink: 0, width: 8, height: 8, borderRadius: '50%', background: transaction.category ? BILL_CATEGORY_COLORS[transaction.category] : '#3f3f3f' }} />
-                  <select value={transaction.category ?? ''} aria-label={t('categoryAria')} onChange={(event) => updateTransaction(transaction.id, { category: (event.target.value || undefined) as BillCategory | undefined })} style={{ ...fieldStyle, width: 138, padding: '5px 8px', fontSize: 11 }}>
-                    <option value="">{t('noCategory')}</option>
-                    {(Object.keys(BILL_CATEGORY_LABELS) as BillCategory[]).map((key) => <option key={key} value={key}>{categoryLabel(key)}</option>)}
-                  </select>
-                </div>
-                <select value={transaction.owner} onChange={(event) => updateTransaction(transaction.id, { owner: event.target.value as ExpenseOwner, personalAmountCents: event.target.value === 'SHARED' ? transaction.personalAmountCents : undefined })} style={{ ...fieldStyle, width: 150, padding: '5px 8px', fontSize: 11 }}>
-                  {ownerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                  {/* Um lançamento salvo antes pode vir sem dono; some da lista, mas não pode ficar sem rótulo. */}
-                  {!ownerOptions.some((option) => option.value === transaction.owner) && <option value={transaction.owner}>{getOwnerLabel(transaction.owner)}</option>}
-                </select>
-                {transaction.owner === 'THIRD_PARTY' && <input value={transaction.thirdPartyName ?? ''} onChange={(event) => updateTransaction(transaction.id, { thirdPartyName: event.target.value })} placeholder={t('who')} style={{ ...fieldStyle, width: 130, padding: '5px 8px', fontSize: 11 }} />}
-                {transaction.owner === 'SHARED' && <input inputMode="decimal" value={transaction.personalAmountCents == null ? '' : (transaction.personalAmountCents / 100).toFixed(2).replace('.', ',')} onChange={(event) => { const typed = event.target.value.trim(); updateTransaction(transaction.id, { personalAmountCents: typed ? Math.min(transaction.amountCents, Math.max(0, Math.round(parseAmount(typed) * 100))) : 0 }); }} placeholder={t('myShare')} style={{ ...fieldStyle, width: 110, padding: '5px 8px', fontSize: 11 }} />}
-                {transaction.owner === 'SHARED' && <input value={transaction.thirdPartyName ?? ''} aria-label={t('whoPaysRest')} onChange={(event) => updateTransaction(transaction.id, { thirdPartyName: event.target.value })} placeholder={t('whoPaysRest')} style={{ ...fieldStyle, width: 130, padding: '5px 8px', fontSize: 11 }} />}
-                <span className="cc-owner-badge" style={{ fontSize: 10, color: '#9a9a9a' }}>{getOwnerLabel(transaction.owner)}</span>
-              </div>
-            </div>
-            <strong className={transaction.type === 'REFUND' ? 'cc-amount-refund' : 'cc-amount'} style={{ fontSize: 14, color: transaction.type === 'REFUND' ? '#10b981' : '#d4d4d4', whiteSpace: 'nowrap' }}>{hideValues ? '••••' : formatMoney(centsToAmount(transaction.amountCents))}</strong>
-            <button
-              type="button"
-              title={t('removeTransaction')}
-              aria-label={`${t('removeTransaction')} ${transaction.merchant}`}
-              onClick={() => setPendingRemoval(transaction)}
-              className="cc-transaction-remove"
-              style={{ background: 'transparent', border: '1px solid #2a1a1a', borderRadius: 6, color: '#e57373', cursor: 'pointer', width: 36, height: 36, fontSize: 18, lineHeight: 1 }}
-            >
-              ×
-            </button>
-          </div>
-        ))}
-        {visibleCreditCardBills.map((bill) => (
-          <BillRow key={`legacy-card-bill-${bill.id}`} bill={bill} onTogglePaid={() => onTogglePaid(bill.id)} onSave={onSaveBill} onDelete={() => onDeleteBill(bill.id)} hideValues={hideValues} showPaidToggle={false} />
-        ))}
-      </div>
+      {!grouped && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: -6 }}>
+          <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#8f8f8f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('invoiceItems')}</h3>
+          <span className="theme-card-count" style={{ fontSize: 10, color: '#8b8b8b', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 7px', fontWeight: 600 }}>{transactions.length + visibleCreditCardBills.length}</span>
+        </div>
+      )}
+      {/* Cada bloco é a fatura daquele plástico: abre e fecha como no app do banco. */}
+      {grouped && bars
+        ? bars.map((bar) => (
+          <InvoiceDueBar
+            key={bar.key}
+            label={bar.label}
+            cents={bar.cents}
+            dueDay={bar.dueDay}
+            isPaid={bar.isPaid}
+            hasItems={bar.hasItems}
+            calendarAdded={bar.calendarAdded}
+            calendarLoading={bar.calendarLoading}
+            hideValues={hideValues}
+            onTogglePaid={bar.onTogglePaid}
+            onSaveDueDay={bar.onSaveDueDay}
+            onCalendarReminder={bar.onCalendarReminder}
+            expanded={isExpanded(bar.key)}
+            onToggleExpand={() => toggle(bar.key)}
+          >
+            {groupBody(bar)}
+          </InvoiceDueBar>
+        ))
+        : rowsList(transactions, visibleCreditCardBills)}
       <ConfirmDialog
         open={pendingRemoval !== null}
         title={t('removeTransaction')}
@@ -235,12 +472,13 @@ function InvoiceTransactions({ invoices, monthBills, onUpdate, onTogglePaid, onS
 export const CreditCardView: React.FC<Props> = ({
   userId, selectedMonthName, selectedMonthYear, creditCardInvoices, debitPixBills, linkedFixedBills, monthBills, allMonths,
   onTogglePaid, onSaveBill, onDeleteBill, onAddPurchase, onImportInvoice, onUpdateInvoice, getAffectedMonths, onPayCreditCard, onUnpayCreditCard, creditCardDueDay, onUpdateCreditCardDueDay, hideValues,
-  invoiceCalendarEventId, onInvoiceCalendarReminder, invoiceCalendarReminderLoading,
+  invoiceCalendarEventId, invoiceCalendarEventIds, onInvoiceCalendarReminder, invoiceCalendarReminderLoading, paymentCards,
 }) => {
-  const { formatMoney, formatMonthShort, parseAmount, categoryLabel, t } = usePreferences();
+  const { formatMoney, formatMonthShort, parseAmount, t } = usePreferences();
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');
-  const [category, setCategory] = useState<BillCategory>('compras');
+  const [category, setCategory] = useState<CategoryId>('compras');
+  const [cardId, setCardId] = useState<string>(() => paymentCards[0]?.id ?? '');
   const [paymentMethod, setPaymentMethod] = useState<'credito' | 'debito_pix'>('credito');
   const [owner, setOwner] = useState<ExpenseOwner>('ME');
   const [personalAmount, setPersonalAmount] = useState('');
@@ -253,17 +491,10 @@ export const CreditCardView: React.FC<Props> = ({
   const [curInstallment, setCurInstallment] = useState('1');
   const [totalInstallment, setTotalInstallment] = useState('1');
   const [lastLaunched, setLastLaunched] = useState('');
-  const [invoiceDueDayInput, setInvoiceDueDayInput] = useState(String(creditCardDueDay ?? ''));
-  const [invoiceDueDayEditing, setInvoiceDueDayEditing] = useState(false);
   const [section, setSection] = useState<CardSection>(() => {
     try { const saved = localStorage.getItem('financa_sections_v1'); if (saved) { return JSON.parse(saved)['creditCardSection'] ?? 'fatura'; } } catch { /* ignore */ }
     return 'fatura';
   });
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setInvoiceDueDayInput(String(creditCardDueDay ?? '')), 0);
-    return () => window.clearTimeout(timer);
-  }, [creditCardDueDay]);
 
   const selectSection = (next: CardSection) => {
     setSection(next);
@@ -299,6 +530,94 @@ export const CreditCardView: React.FC<Props> = ({
     && charges.pendingBills.every((bill) => bill.isPaid)
     && creditCardInvoices.every((invoice) => invoice.isPaid);
 
+  // Sem cartão cadastrado a tela é exatamente a de antes: uma barra única de "Fatura do mês".
+  const cardGroups = groupInvoicesByCard(creditCardInvoices, paymentCards);
+  const unassignedInvoices = cardGroups.find((group) => !group.cardId)?.invoices ?? [];
+  // Cada conta lançada na mão vai para a barra do cartão escolhido nela; sem escolha vale a mesma
+  // herança da fatura: com um único cartão cadastrado, ela vence junto dele.
+  const pendingBillsByCard = new Map<string, Bill[]>();
+  const orphanPendingBills: Bill[] = [];
+  charges.pendingBills.forEach((bill) => {
+    const owner = resolveBillCardId(bill, paymentCards);
+    if (!owner) { orphanPendingBills.push(bill); return; }
+    pendingBillsByCard.set(owner, [...(pendingBillsByCard.get(owner) ?? []), bill]);
+  });
+  // A conta que já mora na barra do cartão não precisa de uma segunda lista embaixo. Ali ficam só as
+  // fixas vinculadas que o banco já cobrou — vieram na fatura importada e por isso não somam de novo.
+  const pendingBillIds = new Set(charges.pendingBills.map((bill) => bill.id));
+  const unlistedLinkedBills = linkedFixedBills.filter((bill) => !pendingBillIds.has(bill.id));
+  const reminderLoading = Boolean(invoiceCalendarReminderLoading);
+  const unassignedPaid = unassignedInvoices.every((invoice) => invoice.isPaid) && orphanPendingBills.every((bill) => bill.isPaid);
+  const invoiceBars: InvoiceBar[] = paymentCards.length === 0
+    ? [{
+      key: 'mes',
+      label: t('monthlyInvoice'),
+      cents: charges.totalCents,
+      dueDay: creditCardDueDay,
+      isPaid: allCardPaid,
+      hasItems: hasCardItems,
+      calendarAdded: Boolean(invoiceCalendarEventId),
+      calendarLoading: reminderLoading,
+      invoices: creditCardInvoices,
+      bills: charges.pendingBills,
+      // Sem ids, o toggle é o "pagar tudo" anterior ao recurso de vários cartões.
+      onTogglePaid: () => (allCardPaid ? onUnpayCreditCard() : onPayCreditCard()),
+      onSaveDueDay: (dueDay) => onUpdateCreditCardDueDay(dueDay),
+      onCalendarReminder: onInvoiceCalendarReminder ? () => onInvoiceCalendarReminder() : undefined,
+    }]
+    : [
+      ...paymentCards
+        .filter((card) => cardGroups.some((group) => group.cardId === card.id) || pendingBillsByCard.has(card.id))
+        .map((card): InvoiceBar => {
+          const groupInvoices = cardGroups.find((group) => group.cardId === card.id)?.invoices ?? [];
+          const groupBills = pendingBillsByCard.get(card.id) ?? [];
+          const invoiceIds = groupInvoices.map((invoice) => invoice.id);
+          const billIds = groupBills.map((bill) => bill.id);
+          const isPaid = groupInvoices.every((invoice) => invoice.isPaid) && groupBills.every((bill) => bill.isPaid);
+          return {
+            key: card.id,
+            label: getInvoiceCardLabel({ cardId: card.id, cardLabel: groupInvoices[0]?.cardLabel }, paymentCards),
+            cents: getCardCharges(groupInvoices, groupBills).totalCents,
+            dueDay: getCardDueDay(card.id, paymentCards, creditCardDueDay),
+            isPaid,
+            hasItems: true,
+            calendarAdded: Boolean(invoiceCalendarEventIds?.[card.id]),
+            calendarLoading: reminderLoading,
+            invoices: groupInvoices,
+            bills: groupBills,
+            onTogglePaid: () => (isPaid ? onUnpayCreditCard(invoiceIds, billIds) : onPayCreditCard(invoiceIds, billIds, card.id)),
+            onSaveDueDay: (dueDay) => onUpdateCreditCardDueDay(dueDay, card.id),
+            onCalendarReminder: onInvoiceCalendarReminder ? () => onInvoiceCalendarReminder(card.id) : undefined,
+          };
+        }),
+      ...(unassignedInvoices.length > 0 || orphanPendingBills.length > 0 ? [{
+        key: 'sem-cartao',
+        label: t('noCardInvoice'),
+        cents: getCardCharges(unassignedInvoices, orphanPendingBills).totalCents,
+        dueDay: creditCardDueDay,
+        isPaid: unassignedPaid,
+        hasItems: unassignedInvoices.length > 0 || orphanPendingBills.length > 0,
+        calendarAdded: Boolean(invoiceCalendarEventId),
+        calendarLoading: reminderLoading,
+        invoices: unassignedInvoices,
+        bills: orphanPendingBills,
+        onTogglePaid: () => (unassignedPaid
+          ? onUnpayCreditCard(unassignedInvoices.map((invoice) => invoice.id), orphanPendingBills.map((bill) => bill.id))
+          : onPayCreditCard(unassignedInvoices.map((invoice) => invoice.id), orphanPendingBills.map((bill) => bill.id))),
+        onSaveDueDay: (dueDay) => onUpdateCreditCardDueDay(dueDay),
+        onCalendarReminder: onInvoiceCalendarReminder ? () => onInvoiceCalendarReminder() : undefined,
+      } satisfies InvoiceBar] : []),
+    ];
+  // Com cartão cadastrado a fatura vira bloco retrátil do banco, mesmo sendo um só: fechado, o
+  // resto do mês chega na tela sem rolar 40 linhas. Sem cartão, continua a lista de sempre.
+  const groupedBars = paymentCards.length > 0 && invoiceBars.length > 0;
+  // Cada barra já traz o total daquele cartão, então a soma repetida é ruído: "todas as faturas"
+  // só serve para somar mais de uma, e "minha parte" só existe quando a fatura é dividida.
+  const summaryTiles = [
+    ...(invoiceBars.length > 1 ? [{ label: t('totalAllInvoices'), cents: charges.totalCents, hint: t('totalAllInvoicesHint') }] : []),
+    ...(charges.personalCents !== charges.totalCents ? [{ label: t('myInvoiceShare'), cents: charges.personalCents, hint: t('myInvoiceShareHint') }] : []),
+  ];
+
   const handleAdd = () => {
     const trimmed = name.trim();
     if (!trimmed || !amount) return;
@@ -306,7 +625,8 @@ export const CreditCardView: React.FC<Props> = ({
     const installmentTotalValue = Math.max(c, total);
     const parsedAmount = parseAmount(amount);
     const amountCents = Math.round(parsedAmount * 100);
-    onAddPurchase({ name: trimmed, amount: parsedAmount, category, dueDay: parseInt(purchaseDay) || undefined, installmentCurrent: paymentMethod === 'debito_pix' ? 1 : c, installmentTotal: paymentMethod === 'debito_pix' ? 1 : installmentTotalValue, paymentMethod, owner: paymentMethod === 'debito_pix' ? 'ME' : owner, personalAmountCents: owner === 'SHARED' ? Math.min(amountCents, Math.max(0, Math.round(parseAmount(personalAmount) * 100))) : undefined, thirdPartyName: owner === 'THIRD_PARTY' || owner === 'SHARED' ? thirdPartyName.trim() || undefined : undefined });
+    const targetCard = paymentCards.find((card) => card.id === cardId);
+    onAddPurchase({ name: trimmed, amount: parsedAmount, category, dueDay: parseInt(purchaseDay) || undefined, installmentCurrent: paymentMethod === 'debito_pix' ? 1 : c, installmentTotal: paymentMethod === 'debito_pix' ? 1 : installmentTotalValue, paymentMethod, owner: paymentMethod === 'debito_pix' ? 'ME' : owner, personalAmountCents: owner === 'SHARED' ? Math.min(amountCents, Math.max(0, Math.round(parseAmount(personalAmount) * 100))) : undefined, thirdPartyName: owner === 'THIRD_PARTY' || owner === 'SHARED' ? thirdPartyName.trim() || undefined : undefined, cardId: paymentMethod === 'debito_pix' ? undefined : targetCard?.id, cardLabel: paymentMethod === 'debito_pix' || !targetCard ? undefined : getPaymentCardLabel(targetCard) });
     // O formulário limpa sozinho, então sem esta linha o usuário não tem como saber se entrou.
     setLastLaunched(`${trimmed} · ${formatMoney(parsedAmount)}${affected.length > 1 ? ` · ${t('launchMultiMonth', { count: affected.length })}` : ''}`);
     setName(''); setAmount(''); setCurInstallment('1'); setTotalInstallment('1'); setPaymentMethod('credito'); setOwner('ME'); setPersonalAmount(''); setThirdPartyName('');
@@ -353,57 +673,36 @@ export const CreditCardView: React.FC<Props> = ({
 
       {section === 'fatura' && (
         <>
-      {/* Uma barra só: marcar a fatura como paga e ajustar o vencimento, sem repetir o valor da aba. */}
-      <div className="theme-card-due-setting" style={{ opacity: allCardPaid ? 0.6 : 1, flexWrap: 'wrap' }}>
-        {hasCardItems && (
-          <button type="button"
-            role="checkbox"
-            aria-checked={allCardPaid}
-            aria-label={allCardPaid ? t('markAsUnpaid') : t('markAsPaid')}
-            title={allCardPaid ? t('markAsUnpaid') : t('markAsPaid')}
-            onClick={allCardPaid ? onUnpayCreditCard : onPayCreditCard}
-            style={{
-              width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
-              border: 'none',
-              background: 'transparent',
-              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
-            }}
-          >
-            <span style={{
-              width: 20, height: 20, borderRadius: '50%',
-              border: `2px solid ${allCardPaid ? '#10b981' : '#3b82f6'}`,
-              background: allCardPaid ? '#10b981' : 'transparent',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              transition: 'all 0.15s',
-            }}>
-            {allCardPaid && (
-              <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
-                <path d="M2 6l3 3 5-5" stroke="#000" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            )}
-            </span>
-          </button>
-        )}
-        <div style={{ flex: '1 1 120px', minWidth: 0 }}>
-          <strong style={{ textDecoration: allCardPaid ? 'line-through' : 'none' }}>{t('monthlyInvoice')}</strong>
-          {invoiceDueDayEditing ? (
-          <div className="theme-card-due-form">
-            <input autoFocus inputMode="numeric" value={invoiceDueDayInput} onChange={(event) => setInvoiceDueDayInput(event.target.value.replace(/[^0-9]/g, ''))} onKeyDown={(event) => { if (event.key === 'Enter') { const value = Number(invoiceDueDayInput); if (value >= 1 && value <= 31) { onUpdateCreditCardDueDay(value); setInvoiceDueDayEditing(false); } } if (event.key === 'Escape') setInvoiceDueDayEditing(false); }} placeholder={t('dayPlaceholder')} aria-label={t('invoiceDueDayAria')} />
-            <button type="button" onClick={() => { const value = Number(invoiceDueDayInput); if (value >= 1 && value <= 31) { onUpdateCreditCardDueDay(value); setInvoiceDueDayEditing(false); } }}>{t('save')}</button>
-          </div>
-          ) : (
-            /* O dia é o próprio controle: sem um segundo CTA azul, a barra cabe numa linha no celular. */
-            <button type="button" title={t('editDueDate')} className={creditCardDueDay ? 'cc-due-day-link' : 'cc-due-day-link is-empty'} onClick={() => { setInvoiceDueDayInput(String(creditCardDueDay ?? '')); setInvoiceDueDayEditing(true); }}>
-              {creditCardDueDay ? t('invoiceDueEveryDay', { day: creditCardDueDay }) : t('addDueDate')}
-            </button>
-          )}
+      {/* Uma barra por cartão: pagar aquele cartão, ver o vencimento dele e criar o lembrete dele.
+          Agrupado, cada barra desce para a lista de itens e vira o bloco retrátil do cartão. */}
+      {!groupedBars && invoiceBars.map((bar) => (
+        <InvoiceDueBar
+          key={bar.key}
+          label={bar.label}
+          cents={bar.cents}
+          dueDay={bar.dueDay}
+          isPaid={bar.isPaid}
+          hasItems={bar.hasItems}
+          calendarAdded={bar.calendarAdded}
+          calendarLoading={bar.calendarLoading}
+          hideValues={hideValues}
+          onTogglePaid={bar.onTogglePaid}
+          onSaveDueDay={bar.onSaveDueDay}
+          onCalendarReminder={bar.onCalendarReminder}
+        />
+      ))}
+
+      {summaryTiles.length > 0 && (
+        <div style={{ display: 'flex', gap: 8 }}>
+          {summaryTiles.map((tile) => (
+            <div key={tile.label} className="cc-summary-tile" style={{ flex: '1 1 0', minWidth: 0, background: '#131313', border: '1px solid #1e1e1e', borderRadius: 10, padding: '11px 14px' }}>
+              <div style={{ fontSize: 10, color: '#8f8f8f', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{tile.label}</div>
+              <div className="privacy-mask" style={{ marginTop: 5, fontSize: 16, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#e8e8e8', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{hideValues ? masked : formatMoney(centsToAmount(tile.cents))}</div>
+              <div style={{ fontSize: 10, color: '#7a7a7a', marginTop: 4 }}>{tile.hint}</div>
+            </div>
+          ))}
         </div>
-        {hasCardItems && !allCardPaid && onInvoiceCalendarReminder && (
-          <div style={{ flexShrink: 0 }}>
-            <CalendarReminderButton iconOnly added={Boolean(invoiceCalendarEventId)} loading={invoiceCalendarReminderLoading} onClick={onInvoiceCalendarReminder} />
-          </div>
-        )}
-      </div>
+      )}
 
       {/* O que fica em aberto em todos os meses, numa linha só. */}
       {totalDebt > 0 && (
@@ -429,10 +728,14 @@ export const CreditCardView: React.FC<Props> = ({
             <div style={{ height: 1, background: '#1a1a1a', marginBottom: 4 }} />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div><label style={labelStyle}>{t('purchaseName')}</label><input style={fieldStyle} placeholder={t('purchaseNamePlaceholder')} value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdd()} /></div>
-              <div><label style={labelStyle}>{t('category')}</label><select style={fieldStyle} value={category} onChange={(e) => setCategory(e.target.value as BillCategory)}>{(Object.keys(BILL_CATEGORY_LABELS) as BillCategory[]).map((c) => (<option key={c} value={c}>{categoryLabel(c)}</option>))}</select></div>
+              <div><label style={labelStyle}>{t('category')}</label><CategorySelect value={category} ariaLabel={t('category')} onChange={setCategory} style={fieldStyle} /></div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 104px', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: paymentMethod === 'credito' ? '1fr 1fr 104px' : '1fr 104px', gap: 12 }}>
               <div><label style={labelStyle}>{t('paymentMethod')}</label><select style={fieldStyle} value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as 'credito' | 'debito_pix')}><option value="credito">{t('creditCard')}</option><option value="debito_pix">{t('debitPix')}</option></select></div>
+              {/* A compra declara em qual cartão cai; o cartão novo nasce aqui e fica nesta conta. */}
+              {paymentMethod === 'credito' && (
+                <div><label style={labelStyle}>{t('card')}</label><CardSelect userId={userId} cards={paymentCards} value={cardId} onChange={setCardId} ariaLabel={t('selectCardAria')} style={fieldStyle} /></div>
+              )}
               <div><label style={labelStyle}>{t('purchaseDay')}</label><input style={fieldStyle} inputMode="numeric" pattern="[0-9]*" aria-label={t('transactionDayAria')} placeholder="--" maxLength={2} value={purchaseDay} onChange={(e) => setPurchaseDay(e.target.value.replace(/[^0-9]/g, ''))} onKeyDown={(e) => e.key === 'Enter' && handleAdd()} /></div>
             </div>
             {paymentMethod === 'credito' && (
@@ -485,22 +788,22 @@ export const CreditCardView: React.FC<Props> = ({
       )}
 
       {section === 'importar' && (
-        <StatementImportPanel userId={userId} month={selectedMonthName} year={selectedMonthYear} existingTransactions={creditCardInvoices.flatMap((invoice) => invoice.transactions)} onImport={onImportInvoice} onLaunched={() => selectSection('fatura')} />
+        <StatementImportPanel userId={userId} month={selectedMonthName} year={selectedMonthYear} paymentCards={paymentCards} existingTransactions={creditCardInvoices.flatMap((invoice) => invoice.transactions)} onImport={onImportInvoice} onLaunched={() => selectSection('fatura')} />
       )}
 
       {section === 'fatura' && (
         <>
-      {(creditCardInvoices.length > 0 || charges.pendingBills.length > 0) && <InvoiceTransactions invoices={creditCardInvoices} monthBills={monthBills} onUpdate={onUpdateInvoice} onTogglePaid={onTogglePaid} onSaveBill={onSaveBill} onDeleteBill={onDeleteBill} hideValues={hideValues} />}
+      {(creditCardInvoices.length > 0 || charges.pendingBills.length > 0) && <InvoiceTransactions invoices={creditCardInvoices} monthBills={monthBills} bars={groupedBars ? invoiceBars : undefined} paymentCards={paymentCards} userId={userId} onUpdate={onUpdateInvoice} onTogglePaid={onTogglePaid} onSaveBill={onSaveBill} onDeleteBill={onDeleteBill} hideValues={hideValues} />}
 
-      {/* Contas fixas vinculadas ao cartão */}
-      {linkedFixedBills.length > 0 && (
+      {/* Contas fixas vinculadas ao cartão que já estão pagas na fatura do banco. */}
+      {unlistedLinkedBills.length > 0 && (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#8f8f8f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('linkedFixedTitle')}</h3>
-            <span className="theme-card-count" style={{ fontSize: 10, color: '#60a5fa', background: '#111520', border: '1px solid #1e2a3e', borderRadius: 4, padding: '1px 7px', fontWeight: 600 }}>{linkedFixedBills.length}</span>
+            <span className="theme-card-count" style={{ fontSize: 10, color: '#60a5fa', background: '#111520', border: '1px solid #1e2a3e', borderRadius: 4, padding: '1px 7px', fontWeight: 600 }}>{unlistedLinkedBills.length}</span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {linkedFixedBills.map((bill) => (<BillRow key={bill.id} bill={bill} onTogglePaid={() => onTogglePaid(bill.id)} onSave={onSaveBill} onDelete={() => onDeleteBill(bill.id)} hideValues={hideValues} showPaidToggle={false} />))}
+            {unlistedLinkedBills.map((bill) => (<BillRow key={bill.id} bill={bill} onTogglePaid={() => onTogglePaid(bill.id)} onSave={onSaveBill} onDelete={() => onDeleteBill(bill.id)} hideValues={hideValues} paymentCards={paymentCards} userId={userId} showPaidToggle={false} />))}
           </div>
           <div className="theme-muted-text" style={{ fontSize: 11, marginTop: 8, paddingLeft: 4 }}>{t('linkedFixedNote')}</div>
         </div>

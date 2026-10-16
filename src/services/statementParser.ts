@@ -1,4 +1,4 @@
-import { BILL_CATEGORY_LABELS, type BillCategory, type CardTransactionType, type ExpenseOwner } from '../types';
+import { BILL_CATEGORY_LABELS, type BillCategory, type CardTransactionType, type CategoryId, type ExpenseOwner } from '../types';
 import type { DuplicateMatch } from './transactionDuplicates';
 import { formatTransactionDay } from './cardTransactions';
 
@@ -8,7 +8,7 @@ export interface ExtractedPurchase {
   amount: number;
   installmentCurrent: number;
   installmentTotal: number;
-  category: BillCategory;
+  category: CategoryId;
   selected: boolean;
   type: CardTransactionType;
   owner: ExpenseOwner;
@@ -64,7 +64,6 @@ export function parsePdfTransactionFallback(statementText: string, monthIndex = 
 }
 
 export const VALID_CATEGORIES = Object.keys(BILL_CATEGORY_LABELS) as BillCategory[];
-
 const MONTH_ABBR: Record<string, number> = { jan: 0, fev: 1, mar: 2, abr: 3, mai: 4, jun: 5, jul: 6, ago: 7, set: 8, out: 9, nov: 10, dez: 11 };
 
 function buildDayMonth(day: number, month: number | undefined): string | undefined {
@@ -213,4 +212,86 @@ export function parseExtractedPurchases(content: string, monthIndex = -1): Omit<
         ? normalizePurchase(item as Record<string, unknown>, monthIndex)
         : null)
     .filter((p): p is Omit<ExtractedPurchase, 'id' | 'selected'> => p !== null);
+}
+
+const CSV_NAME_KEYS = /descriç|estabelec|benefici|favorecid|pagador|nom(es)?\b|title|título|hist(orico|óric)/i;
+const CSV_AMOUNT_KEYS = /valor|amount|quantia|monto|pre[çc]/i;
+const CSV_DATE_KEYS = /data|date|\bdt\b|dia|post(ed)?|pch|vtto|vfs/i;
+const CSV_INSTALLMENT_KEYS = /parcela|parc|split|cuota|instal/i;
+const CSV_CARD_KEYS = /cart[ãa]o|card|final|últimos/i;
+
+/** Separa a linha respeitando aspas duplas: 1,"PARCERIA, AMERICANAS",254,00 é uma compra só. */
+export function splitCsvLine(line: string, delimiter: string): string[] {
+  const cells: string[] = [];
+  let current = '';
+  let quoted = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    if (quoted) {
+      if (char !== '"') { current += char; continue; }
+      if (line[index + 1] === '"') { current += '"'; index += 1; continue; }
+      quoted = false;
+      continue;
+    }
+    if (char === '"') { quoted = true; continue; }
+    if (char === delimiter) { cells.push(current.trim()); current = ''; continue; }
+    current += char;
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
+function csvDelimiter(lines: string[]): string {
+  const header = lines[0];
+  const candidates = [';', ',', '\t'].map((candidate) => ({ candidate, parts: header.split(candidate).length - 1 }));
+  const best = candidates.reduce((a, b) => (b.parts > a.parts ? b : a));
+  // Uma separação já é uma tabela de duas colunas (descrição e valor é o exportado mais simples).
+  return best.parts >= 1 ? best.candidate : '';
+}
+
+/** O cabeçalho diz em qual coluna está cada campo; extrato de app de banco costuma ter "Data,Crédito, Débito,Descrição". */
+function columnIndex(header: string[], keys: RegExp): number {
+  return header.findIndex((cell) => keys.test(cell));
+}
+
+/**
+ * Extrato em planilha (CSV/TXT exportado do app do banco). É o caminho local do import: a IA lê o
+ * mesmo texto, e se ela falhar ou o plano estourar nada fica sem lançamento na tela.
+ */
+export function parseCsvStatement(statementText: string, monthIndex = -1): Omit<ExtractedPurchase, 'id' | 'selected'>[] {
+  const lines = statementText.split(/\r?\n/).filter((line) => line.trim());
+  if (lines.length < 2) return [];
+  const delimiter = csvDelimiter(lines);
+  if (!delimiter) return [];
+  const header = splitCsvLine(lines[0], delimiter).map((cell) => cell.toLowerCase());
+  const nameIndex = columnIndex(header, CSV_NAME_KEYS);
+  const amountIndex = columnIndex(header, CSV_AMOUNT_KEYS);
+  if (nameIndex < 0 || amountIndex < 0) return [];
+  const dateIndex = columnIndex(header, CSV_DATE_KEYS);
+  const installmentIndex = columnIndex(header, CSV_INSTALLMENT_KEYS);
+  const cardIndex = columnIndex(header, CSV_CARD_KEYS);
+  // Linha de cabeçalho avulsa (metadata do banco) não é tabela: exige que as primeiras linhas
+  // tenham todas o mesmo número de colunas, senão o texto do PDF viraria "CSV" por acaso.
+  const expectedCells = header.length;
+  const tableRows = lines.slice(1, 9).filter((line) => splitCsvLine(line, delimiter).length === expectedCells);
+  if (tableRows.length < 2) return [];
+
+  const purchases: Omit<ExtractedPurchase, 'id' | 'selected'>[] = [];
+  lines.slice(1).forEach((line) => {
+    const cells = splitCsvLine(line, delimiter);
+    if (cells.length !== expectedCells) return;
+    const installmentParts = installmentIndex >= 0
+      ? cells[installmentIndex]?.match(/(\d{1,2})\s*(?:\/|de)\s*(\d{1,2})/)
+      : undefined;
+    const purchase = normalizePurchase({
+      name: cells[nameIndex],
+      amount: cells[amountIndex],
+      date: dateIndex >= 0 ? cells[dateIndex] : undefined,
+      cardLast4: cardIndex >= 0 ? cells[cardIndex] : undefined,
+      installmentCurrent: installmentParts ? Number(installmentParts[1]) : undefined,
+      installmentTotal: installmentParts ? Number(installmentParts[2]) : undefined,
+    }, monthIndex);
+    if (purchase) purchases.push(purchase);
+  });
+  return purchases;
 }

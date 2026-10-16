@@ -3,6 +3,15 @@ import { deleteGroqKey, hasGroqKey, saveGroqKey, sendGroqChat } from '../service
 import { readUserStorage, removeUserStorage, writeUserStorage } from '../services/userStorage';
 import { usePreferences } from '../i18n';
 import { MarkdownLite } from './MarkdownLite';
+import {
+  type AssistantUniverse,
+  buildAssistantDataSection,
+  buildProtocolSection,
+  monthLabel,
+  resolveMonthRef,
+} from '../services/assistantContext';
+import { type BudgetMonth } from '../types';
+import { type AssistantCommand, type AssistantOutcome } from '../services/assistantCommands';
 
 interface Message {
   role: 'user' | 'assistant' | 'error';
@@ -10,9 +19,11 @@ interface Message {
 }
 
 interface Props {
-  financialContext: string;
+  universe: AssistantUniverse;
   userId: string | null;
   calendarActions?: CalendarAssistantActions;
+  /** Interpreta o JSON do modelo contra os dados reais e devolve a resposta ou a mudança pendente. */
+  onCommand?: (command: AssistantCommand) => AssistantOutcome;
 }
 
 export interface CalendarAssistantActions {
@@ -37,9 +48,8 @@ function loadChat(userId: string | null): Message[] {
   return [];
 }
 
-interface AssistantCommand {
-  action?: 'create_bill_reminder' | 'create_invoice_reminder' | 'create_event' | 'list_events' | 'update_event' | 'delete_event' | 'none';
-  billName?: string;
+/** O comando da IA: os campos do aplicativo vêm de assistantCommands, os de agenda ficam aqui. */
+type ChatCommand = AssistantCommand & {
   title?: string;
   date?: string;
   time?: string;
@@ -47,17 +57,21 @@ interface AssistantCommand {
   description?: string;
   eventId?: string;
   query?: string;
-  response?: string;
+};
+
+interface PendingChange {
+  summary: string[];
+  apply: () => string;
 }
 
-function parseAssistantCommand(content: string): AssistantCommand | null {
+function parseAssistantCommand(content: string): ChatCommand | null {
   try {
     const parsed = JSON.parse(content) as unknown;
-    if (typeof parsed === 'object' && parsed !== null) return parsed as AssistantCommand;
+    if (typeof parsed === 'object' && parsed !== null) return parsed as ChatCommand;
   } catch {
     const match = content.match(/\{[\s\S]*\}/);
     if (match) {
-      try { return JSON.parse(match[0]) as AssistantCommand; } catch { return null; }
+      try { return JSON.parse(match[0]) as ChatCommand; } catch { return null; }
     }
   }
   return null;
@@ -70,11 +84,12 @@ const IconAI = () => (
   </svg>
 );
 
-export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarActions }) => {
+export const ChatView: React.FC<Props> = ({ universe, userId, calendarActions, onCommand }) => {
   const { t } = usePreferences();
   const [messages, setMessages] = useState<Message[]>(() => loadChat(userId));
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [pending, setPending] = useState<PendingChange | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [showKeySetup, setShowKeySetup] = useState(() => readUserStorage(userId, STORAGE_KEY_GROQ_STATUS) !== 'true');
   const [keyLoading, setKeyLoading] = useState(false);
@@ -132,31 +147,70 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
     const msg = (text ?? input).trim();
     if (!msg || showKeySetup || loading) return;
     setInput('');
+    // Uma mudança por vez: se o usuário escrever de novo, a confirmação anterior é descartada.
+    setPending(null);
     const userMsg: Message = { role: 'user', content: msg };
     const history = [...messages.filter((m) => m.role !== 'error'), userMsg].slice(-MAX_CONTEXT_MESSAGES);
     setMessages(history);
     setLoading(true);
     try {
       const today = new Date().toISOString().slice(0, 10);
-      const commandInstructions = `\n\nVocê também pode controlar o Google Agenda. Hoje é ${today}. Para qualquer pedido de agenda, responda SOMENTE um JSON válido, sem markdown, com este formato: {"action":"...","response":"..."}. Ações disponíveis: create_bill_reminder com billName para uma conta do mês atual (o lembrete usa automaticamente 9h no dia anterior ao vencimento); create_invoice_reminder para a fatura do mês atual (também usa 9h); create_event com title, date YYYY-MM-DD, time HH:mm, durationMinutes e description; list_events com date YYYY-MM-DD (omita para hoje); update_event com eventId ou query e os campos a alterar; delete_event com query ou eventId. Para create_event, NUNCA invente nem assuma título, data ou horário: se algum desses três campos faltar, use action none e escreva em response uma pergunta objetiva dizendo exatamente o que falta. Para perguntas normais use action none e coloque a resposta em response. Não invente IDs nem contas.\n`;
+      const calendarInstructions = `\n\nVocê também pode controlar o Google Agenda. Hoje é ${today}. Para qualquer pedido de agenda, responda SOMENTE um JSON válido, sem markdown, com este formato: {"action":"...","response":"..."}. Ações disponíveis: create_bill_reminder com billName para uma conta do mês atual (o lembrete usa automaticamente 9h no dia anterior ao vencimento); create_invoice_reminder para a fatura do mês atual (também usa 9h); create_event com title, date YYYY-MM-DD, time HH:mm, durationMinutes e description; list_events com date YYYY-MM-DD (omita para hoje); update_event com eventId ou query e os campos a alterar; delete_event com query ou eventId. Para create_event, NUNCA invente nem assuma título, data ou horário: se algum desses três campos faltar, use action none e escreva em response uma pergunta objetiva dizendo exatamente o que falta. Para perguntas normais use action none e coloque a resposta em response. Não invente IDs nem contas.\n`;
+      const historyMessages = history.map((m) => ({ role: m.role === 'error' ? 'user' : m.role, content: m.content }));
+      // Só um mês vai linha a linha no prompt: com o extrato de todos os meses o limite de tokens
+      // por minuto da Groq gratuita estourava e a resposta chegava cortada.
+      const systemFor = (month: BudgetMonth, withCalendar: boolean) => `${buildAssistantDataSection(universe, month)}\n\n${buildProtocolSection(universe)}${withCalendar && calendarActions ? calendarInstructions : ''}`;
       // gpt-oss gasta o orçamento em raciocínio antes de responder: com o esforço padrão a
       // Groq devolvia content vazio e o chat mostrava "encerrou a resposta antes de gerar".
-      const rawContent = await sendGroqChat({ model: CHAT_MODEL, messages: [{ role: 'system', content: financialContext + commandInstructions }, ...history.map((m) => ({ role: m.role === 'error' ? 'user' : m.role, content: m.content }))], reasoning_effort: 'low', max_completion_tokens: 1200 });
-      const command = parseAssistantCommand(rawContent);
-      if (!command || !command.action || command.action === 'none' || !calendarActions) {
+      let rawContent = await sendGroqChat({ model: CHAT_MODEL, messages: [{ role: 'system', content: systemFor(universe.selectedMonth, true) }, ...historyMessages], reasoning_effort: 'low', max_completion_tokens: 1200 });
+      let command = parseAssistantCommand(rawContent);
+      if (command?.action === 'get_month_detail') {
+        const target = resolveMonthRef(universe, command.month);
+        if (!target) {
+          setMessages((prev) => [...prev, { role: 'assistant', content: `Não há mês cadastrado com o nome "${(command?.month ?? '').trim()}". Os meses disponíveis são ${universe.months.map((month) => monthLabel(month)).join(', ')}.` }]);
+          return;
+        }
+        rawContent = await sendGroqChat({
+          model: CHAT_MODEL,
+          messages: [
+            { role: 'system', content: systemFor(target, false) },
+            ...historyMessages,
+            { role: 'assistant', content: rawContent },
+            { role: 'user', content: `Extrato completo de ${monthLabel(target)} carregado acima. Responda a pergunta agora, com action none.` },
+          ],
+          reasoning_effort: 'low',
+          max_completion_tokens: 1200,
+        });
+        command = parseAssistantCommand(rawContent);
+      }
+      // A IA pode mandar buscar o extrato de outro mês antes de responder.
+      const CALENDAR_ACTIONS = ['create_bill_reminder', 'create_invoice_reminder', 'create_event', 'list_events', 'update_event', 'delete_event'];
+      if (!command || !command.action || command.action === 'none') {
         setMessages((prev) => [...prev, { role: 'assistant', content: command?.response ?? rawContent }]);
         return;
       }
-      let result: string;
-      if (command.action === 'create_bill_reminder') result = command.billName ? await calendarActions.createBillReminder(command.billName) : 'Informe qual conta deve receber o lembrete.';
-      else if (command.action === 'create_invoice_reminder') result = await calendarActions.createInvoiceReminder();
-      else if (command.action === 'list_events') result = await calendarActions.listEvents(command.date);
-      else if (command.action === 'create_event') result = command.title && command.date ? await calendarActions.createEvent({ title: command.title, date: command.date, time: command.time, durationMinutes: command.durationMinutes, description: command.description }) : 'Informe o título e a data do evento.';
-      else if (command.action === 'update_event') result = await calendarActions.updateEvent({ eventId: command.eventId, query: command.query, title: command.title, date: command.date, time: command.time, description: command.description });
-      else if (command.action === 'delete_event') result = command.query || command.eventId ? await calendarActions.deleteEvent(command.query ?? command.eventId ?? '') : 'Informe qual evento deve ser removido.';
-      // Unknown/hallucinated action: never fall through to a destructive delete.
-      else result = command.response ?? 'Não entendi o comando de agenda.';
-      setMessages((prev) => [...prev, { role: 'assistant', content: result }]);
+      if (CALENDAR_ACTIONS.includes(command.action)) {
+        if (!calendarActions) { setMessages((prev) => [...prev, { role: 'assistant', content: command.response ?? rawContent }]); return; }
+        let result: string;
+        if (command.action === 'create_bill_reminder') result = command.billName ? await calendarActions.createBillReminder(command.billName) : 'Informe qual conta deve receber o lembrete.';
+        else if (command.action === 'create_invoice_reminder') result = await calendarActions.createInvoiceReminder();
+        else if (command.action === 'list_events') result = await calendarActions.listEvents(command.date);
+        else if (command.action === 'create_event') result = command.title && command.date ? await calendarActions.createEvent({ title: command.title, date: command.date, time: command.time, durationMinutes: command.durationMinutes, description: command.description }) : 'Informe o título e a data do evento.';
+        else if (command.action === 'update_event') result = await calendarActions.updateEvent({ eventId: command.eventId, query: command.query, title: command.title, date: command.date, time: command.time, description: command.description });
+        else if (command.action === 'delete_event') result = command.query || command.eventId ? await calendarActions.deleteEvent(command.query ?? command.eventId ?? '') : 'Informe qual evento deve ser removido.';
+        // Unknown/hallucinated action: never fall through to a destructive delete.
+        else result = command.response ?? 'Não entendi o comando de agenda.';
+        setMessages((prev) => [...prev, { role: 'assistant', content: result }]);
+        return;
+      }
+      // Alteração no aplicativo: nada muda antes de o usuário tocar em Aplicar.
+      const outcome = onCommand ? onCommand(command) : { kind: 'answer' as const, text: command.response ?? 'Não entendi esse pedido.' };
+      if (outcome.kind === 'answer') {
+        setMessages((prev) => [...prev, { role: 'assistant', content: outcome.text }]);
+        return;
+      }
+      setPending({ summary: outcome.summary, apply: outcome.apply });
+      setMessages((prev) => [...prev, { role: 'assistant', content: command.response ?? outcome.summary[0] ?? '' }]);
     } catch (err) {
       const raw = err instanceof Error ? err.message : 'Erro desconhecido';
       // O proxy responde 401 quando a sessão local venceu: o texto cru não diz ao usuário o que fazer.
@@ -168,6 +222,18 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } };
+
+  const applyPending = () => {
+    if (!pending) return;
+    const result = pending.apply();
+    setPending(null);
+    setMessages((prev) => [...prev, { role: 'assistant', content: result }]);
+  };
+
+  const cancelPending = () => {
+    setPending(null);
+    setMessages((prev) => [...prev, { role: 'assistant', content: t('assistantCancelled') }]);
+  };
 
   if (keyLoading) {
     return (
@@ -263,6 +329,20 @@ export const ChatView: React.FC<Props> = ({ financialContext, userId, calendarAc
         )}
         <div ref={bottomRef} />
       </div>
+
+      {pending && (
+        <div className="chat-pending-change" style={{ flexShrink: 0, margin: '6px 0', padding: 12, background: '#0d1522', border: '1px solid #1e3050', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#93c5fd', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('assistantConfirmTitle')}</div>
+          <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: '#c0c0c0', lineHeight: 1.7 }}>
+            {pending.summary.map((line, index) => (<li key={index}>{line}</li>))}
+          </ul>
+          <div style={{ fontSize: 10, color: '#8a8a8a' }}>{t('assistantConfirmHint')}</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" onClick={cancelPending} style={{ flex: 1, background: 'transparent', border: '1px solid #22334a', borderRadius: 6, color: '#9a9a9a', cursor: 'pointer', padding: '10px', fontSize: 13, fontWeight: 600, minHeight: 40 }}>{t('assistantCancel')}</button>
+            <button type="button" onClick={applyPending} style={{ flex: 1, background: '#3b82f6', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '10px', fontSize: 13, fontWeight: 600, minHeight: 40 }}>{t('assistantApply')}</button>
+          </div>
+        </div>
+      )}
 
       {messages.length > MAX_STORED_MESSAGES - 5 && (
         <div className="chat-history-note" style={{ fontSize: 10, color: '#8f8f8f', padding: '4px 0', textAlign: 'center', flexShrink: 0 }}>

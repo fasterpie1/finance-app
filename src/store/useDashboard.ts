@@ -1,9 +1,10 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { type Bill, type BudgetMonth, type BillCategory, type CardPaymentMethod, type CreditCardInvoice, type CreditCardTransaction, type IncomeSource, MONTH_NAMES, getMonthIndex, formatCurrency } from '../types';
+import { type Bill, type BudgetMonth, type CategoryId, type CardPaymentMethod, type CreditCardInvoice, type CreditCardTransaction, type IncomeSource, MONTH_NAMES, getMonthIndex, formatCurrency } from '../types';
 import { sampleMonths } from '../data/sampleData';
 import { supabase } from '../services/supabase';
 import { readUserStorage, removeUserStorage, writeUserStorage } from '../services/userStorage';
 import { amountToCents, centsToAmount, formatTransactionDay, getCardCharges, getInvoicePersonalTotalCents, getMonthPlannedCents, isOnCreditCardBill } from '../services/cardTransactions';
+import { cardInvoiceId, findPaymentCard, getCardDueDay, getPaymentCardLabel, groupInvoicesByCard, resolveBillCardId, type PaymentCard } from '../services/paymentCards';
 
 const STORAGE_KEY = 'financa_months_v1';
 const SELECTED_KEY = 'financa_selected_v1';
@@ -152,7 +153,7 @@ function nextMonthDate(month: BudgetMonth, dueDay: number): Date {
   return new Date(dueYear, dueMonthIndex, Math.min(Math.max(dueDay, 1), lastDay));
 }
 
-export function getBillNotifications(months: BudgetMonth[], today = new Date()): BillNotification[] {
+export function getBillNotifications(months: BudgetMonth[], today = new Date(), cards: PaymentCard[] = []): BillNotification[] {
   const currentDate = dateAtMidnight(today);
   const dayMs = 24 * 60 * 60 * 1000;
 
@@ -161,29 +162,42 @@ export function getBillNotifications(months: BudgetMonth[], today = new Date()):
     // Compras do cartão moram em creditCardInvoices (as contas antigas são migradas na
     // leitura), então o lembrete da fatura não pode vir de month.bills.
     const invoices = month.creditCardInvoices ?? [];
-    const unpaidInvoiceCents = invoices
-      .filter((invoice) => !invoice.isPaid)
-      .reduce((total, invoice) => total + getInvoicePersonalTotalCents(invoice), 0);
-    // Conta posta no cartão que ainda não veio numa fatura importada também vence com a
-    // fatura: sem isso, quem só lança as parcelas manualmente nunca recebe lembrete.
-    const pendingCardCents = getCardCharges(invoices, month.bills).pendingBills
-      .filter((bill) => !bill.isPaid)
-      .reduce((total, bill) => total + amountToCents(bill.amount), 0);
-    const cardDueCents = unpaidInvoiceCents + pendingCardCents;
-
-    if (cardDueCents > 0 && month.creditCardDueDay) {
-      const dueDate = nextMonthDate(month, month.creditCardDueDay);
+    // Cada banco cobra a própria fatura em dia próprio: um lembrete por cartão do mês.
+    const pendingCardBills = getCardCharges(invoices, month.bills).pendingBills
+      .filter((bill) => !bill.isPaid);
+    const invoiceGroups = groupInvoicesByCard(invoices, cards);
+    // Um cartão pode ter só conta lançada na mão, sem fatura: ele também precisa do próprio lembrete.
+    const dueCardIds: Array<string | undefined> = [...new Set([
+      ...invoiceGroups.map((group) => group.cardId),
+      ...pendingCardBills.map((bill) => resolveBillCardId(bill, cards)),
+    ])];
+    const dueGroups = dueCardIds.map((cardId) => ({
+      cardId,
+      cents: (invoiceGroups.find((group) => group.cardId === cardId)?.invoices ?? [])
+        .filter((invoice) => !invoice.isPaid)
+        .reduce((total, invoice) => total + getInvoicePersonalTotalCents(invoice), 0)
+        // A conta lançada na mão vence no cartão escolhido nela, ou no único cadastrado.
+        + pendingCardBills
+          .filter((bill) => resolveBillCardId(bill, cards) === cardId)
+          .reduce((total, bill) => total + amountToCents(bill.amount), 0),
+    }));
+    dueGroups.forEach((group) => {
+      if (group.cents <= 0) return;
+      const dueDay = getCardDueDay(group.cardId, cards, month.creditCardDueDay);
+      if (!dueDay) return;
+      const dueDate = nextMonthDate(month, dueDay);
       const daysUntilDue = Math.round((dueDate.getTime() - currentDate.getTime()) / dayMs);
+      const card = findPaymentCard(group.cardId, cards);
       notifications.push({
-        billId: `credit-card-invoice-${month.id}`,
-        name: 'Fatura do cartão',
-        amount: centsToAmount(cardDueCents),
+        billId: `credit-card-invoice-${month.id}-${group.cardId ?? 'sem-cartao'}`,
+        name: card ? getPaymentCardLabel(card) : 'Fatura do cartão',
+        amount: centsToAmount(group.cents),
         dueDate,
         daysUntilDue,
         isOverdue: daysUntilDue < 0,
         plannedMonth: `${month.name} ${month.year}`,
       });
-    }
+    });
 
     notifications.push(...month.bills
       .filter((bill) => !bill.isPaid && bill.cardPaymentMethod !== 'debito_pix' && !isOnCreditCardBill(bill))
@@ -231,28 +245,44 @@ function incomeOfPreviousMonth(months: BudgetMonth[], name: string, year: number
   return previous?.income ?? fallback ?? 0;
 }
 
-/** Mesma cobrança já lançada no mês (comprador, valor, parcela e data). */
-function hasSameCardTransaction(month: BudgetMonth, tx: CreditCardTransaction): boolean {
-  return (month.creditCardInvoices ?? []).some((invoice) => (invoice.transactions ?? []).some((existing) => (
-    existing.merchant === tx.merchant
-    && existing.amountCents === tx.amountCents
-    && (existing.installmentCurrent ?? 1) === (tx.installmentCurrent ?? 1)
-    && (existing.installmentTotal ?? 1) === (tx.installmentTotal ?? 1)
-    && (existing.date ?? '') === (tx.date ?? '')
-  )));
+/** Mesma cobrança já lançada no mês (comprador, valor, parcela e data).
+ *  `cardId` é o dono da fatura que está entrando. Dois cartões cadastrados podem cobrar a
+ *  mesma compra; dentro deles a comparação não cruza. Fatura antiga (sem cadastro) compara
+ *  com tudo, senão reimportar a mesma fatura passaria a contar o lançamento duas vezes. */
+function hasSameCardTransaction(month: BudgetMonth, tx: CreditCardTransaction, cardId?: string): boolean {
+  return (month.creditCardInvoices ?? []).some((invoice) => {
+    if (cardId && invoice.cardId && invoice.cardId !== cardId) return false;
+    return (invoice.transactions ?? []).some((existing) => (
+      existing.merchant === tx.merchant
+      && existing.amountCents === tx.amountCents
+      && (existing.installmentCurrent ?? 1) === (tx.installmentCurrent ?? 1)
+      && (existing.installmentTotal ?? 1) === (tx.installmentTotal ?? 1)
+      && (existing.date ?? '') === (tx.date ?? '')
+    ));
+  });
 }
 
 export interface CreditCardPurchase {
   name: string;
   amount: number;
   dueDay?: number;
-  category: BillCategory;
+  category: CategoryId;
   installmentCurrent: number;
   installmentTotal: number;
   paymentMethod?: CardPaymentMethod;
   owner?: 'ME' | 'THIRD_PARTY' | 'SHARED' | 'UNCLASSIFIED';
   personalAmountCents?: number;
   thirdPartyName?: string;
+  /** Cartão que vai cobrar esta compra. Sem ele, a compra entra no grupo "sem cartão". */
+  cardId?: string;
+  cardLabel?: string;
+}
+
+/** Destino de um lançamento movido entre cartões (ver `moveCreditCardTransactions`). */
+export interface CardMoveTarget {
+  invoiceId: string;
+  cardId: string;
+  cardLabel?: string;
 }
 
 export function useDashboard(userId: string | null = null) {
@@ -636,10 +666,15 @@ export function useDashboard(userId: string | null = null) {
   );
 
   const updateCreditCardCalendarEventId = useCallback(
-    (eventId?: string) => {
-      setMonths((prev) => prev.map((month) => (
-        month.id === selectedMonthId ? { ...month, creditCardCalendarEventId: eventId } : month
-      )));
+    (eventId?: string, cardId?: string) => {
+      setMonths((prev) => prev.map((month) => {
+        if (month.id !== selectedMonthId) return month;
+        if (!cardId) return { ...month, creditCardCalendarEventId: eventId };
+        const events = { ...(month.creditCardCalendarEventIds ?? {}) };
+        // Guardar undefined como chave existiria para sempre no JSON sincronizado.
+        if (eventId) events[cardId] = eventId; else delete events[cardId];
+        return { ...month, creditCardCalendarEventIds: events };
+      }));
     },
     [selectedMonthId]
   );
@@ -648,6 +683,7 @@ export function useDashboard(userId: string | null = null) {
     setMonths((prev) => prev.map((month) => ({
       ...month,
       creditCardCalendarEventId: undefined,
+      creditCardCalendarEventIds: undefined,
       bills: month.bills.map((bill) => (bill.calendarEventId ? { ...bill, calendarEventId: undefined } : bill)),
     })));
   }, []);
@@ -673,13 +709,16 @@ export function useDashboard(userId: string | null = null) {
         note: 'Débito/Pix', isOnCreditCard: true, cardPaymentMethod: 'debito_pix',
         installmentCurrent: 1, installmentTotal: 1,
       };
-      const invoiceId = `manual-invoice-${mi.year}-${mi.name}`;
+      const invoiceId = cardInvoiceId('manual-invoice', mi.year, mi.name, purchase.cardId);
       const transaction: CreditCardTransaction = {
         id: uuid(), invoiceId, merchant: purchase.name, amountCents: Math.round(purchase.amount * 100),
         type: purchase.installmentTotal > 1 ? 'INSTALLMENT' : 'PURCHASE',
         owner: purchase.owner ?? 'ME', personalAmountCents: purchase.personalAmountCents, thirdPartyName: purchase.thirdPartyName,
         category: purchase.category, installmentCurrent: installmentNum, date: purchaseDate,
         installmentTotal: purchase.installmentTotal, source: 'MANUAL',
+      };
+      const invoice: CreditCardInvoice = {
+        id: invoiceId, month: mi.name, year: mi.year, cardId: purchase.cardId, cardLabel: purchase.cardLabel, transactions: [transaction],
       };
       const mIdx = updated.findIndex(
         (m) => m.name.toLowerCase() === mi.name.toLowerCase() && m.year === mi.year
@@ -694,7 +733,7 @@ export function useDashboard(userId: string | null = null) {
             income: incomeOfPreviousMonth(updated, mi.name, mi.year),
             bills: isDebitPix ? [bill] : [],
             savingsGoal: 0,
-            creditCardInvoices: isDebitPix ? [] : [{ id: invoiceId, month: mi.name, year: mi.year, transactions: [transaction] }],
+            creditCardInvoices: isDebitPix ? [] : [invoice],
           },
         ];
       } else {
@@ -704,9 +743,9 @@ export function useDashboard(userId: string | null = null) {
               ? { ...m, bills: [...m.bills, bill] }
               : {
                 ...m,
-                creditCardInvoices: (m.creditCardInvoices ?? []).some((invoice) => invoice.id === invoiceId)
-                  ? (m.creditCardInvoices ?? []).map((invoice) => invoice.id === invoiceId ? { ...invoice, transactions: [...invoice.transactions, transaction] } : invoice)
-                  : [...(m.creditCardInvoices ?? []), { id: invoiceId, month: mi.name, year: mi.year, transactions: [transaction] }],
+                creditCardInvoices: (m.creditCardInvoices ?? []).some((item) => item.id === invoiceId)
+                  ? (m.creditCardInvoices ?? []).map((item) => item.id === invoiceId ? { ...item, transactions: [...item.transactions, transaction] } : item)
+                  : [...(m.creditCardInvoices ?? []), invoice],
               }
             : m
         );
@@ -746,46 +785,65 @@ export function useDashboard(userId: string | null = null) {
     [selectedMonth.name, selectedMonth.year]
   );
 
-  // ====== PAGAR CARTÃO DE CRÉDITO (tudo de uma vez) ======
-  const payCreditCard = useCallback(() => {
+  // ====== PAGAR CARTÃO DE CRÉDITO (tudo de uma vez, ou um cartão só) ======
+  /** `invoiceIds` marca somente aquelas faturas. `billIds` marca somente aquelas contas do
+   *  cartão; sem os dois, é o "pagar tudo" de sempre. */
+  const payCreditCard = useCallback((invoiceIds?: string[], billIds?: string[]) => {
+    if (!invoiceIds) {
+      setMonths((prev) =>
+        prev.map((m) => {
+          if (m.id !== selectedMonthId) return m;
+          return {
+            ...m,
+            creditCardInvoices: (m.creditCardInvoices ?? []).map((invoice) => ({ ...invoice, isPaid: true })),
+            bills: m.bills.map((b) => (isOnCreditCardBill(b) ? { ...b, isPaid: true } : b)),
+          };
+        })
+      );
+      return;
+    }
+    const only = new Set(invoiceIds);
+    const onlyBills = new Set(billIds ?? []);
     setMonths((prev) =>
       prev.map((m) => {
         if (m.id !== selectedMonthId) return m;
         return {
           ...m,
-          creditCardInvoices: (m.creditCardInvoices ?? []).map((invoice) => ({ ...invoice, isPaid: true })),
-          bills: m.bills.map((b) => {
-            // Marca parcelas do cartão como pagas
-            const isCreditCardBill = b.type === 'parcela' && b.category !== 'financiamento' && b.cardPaymentMethod !== 'debito_pix';
-            // Marca contas fixas vinculadas ao cartão como pagas. Débito/pix não
-            // faz parte da fatura do cartão, então não deve ser marcado aqui.
-            const isLinkedFixed = b.isOnCreditCard === true && b.cardPaymentMethod !== 'debito_pix';
-            if (isCreditCardBill || isLinkedFixed) {
-              return { ...b, isPaid: true };
-            }
-            return b;
-          }),
+          creditCardInvoices: (m.creditCardInvoices ?? []).map((invoice) => (
+            only.has(invoice.id) ? { ...invoice, isPaid: true } : invoice
+          )),
+          bills: m.bills.map((b) => (onlyBills.has(b.id) ? { ...b, isPaid: true } : b)),
         };
       })
     );
   }, [selectedMonthId]);
 
   // ====== DESFAZER PAGAMENTO DO CARTÃO ======
-  const unpayCreditCard = useCallback(() => {
+  const unpayCreditCard = useCallback((invoiceIds?: string[], billIds?: string[]) => {
+    if (!invoiceIds) {
+      setMonths((prev) =>
+        prev.map((m) => {
+          if (m.id !== selectedMonthId) return m;
+          return {
+            ...m,
+            creditCardInvoices: (m.creditCardInvoices ?? []).map((invoice) => ({ ...invoice, isPaid: false })),
+            bills: m.bills.map((b) => (isOnCreditCardBill(b) ? { ...b, isPaid: false } : b)),
+          };
+        })
+      );
+      return;
+    }
+    const only = new Set(invoiceIds);
+    const onlyBills = new Set(billIds ?? []);
     setMonths((prev) =>
       prev.map((m) => {
         if (m.id !== selectedMonthId) return m;
         return {
           ...m,
-          creditCardInvoices: (m.creditCardInvoices ?? []).map((invoice) => ({ ...invoice, isPaid: false })),
-          bills: m.bills.map((b) => {
-            const isCreditCardBill = b.type === 'parcela' && b.category !== 'financiamento' && b.cardPaymentMethod !== 'debito_pix';
-            const isLinkedFixed = b.isOnCreditCard === true && b.cardPaymentMethod !== 'debito_pix';
-            if (isCreditCardBill || isLinkedFixed) {
-              return { ...b, isPaid: false };
-            }
-            return b;
-          }),
+          creditCardInvoices: (m.creditCardInvoices ?? []).map((invoice) => (
+            only.has(invoice.id) ? { ...invoice, isPaid: false } : invoice
+          )),
+          bills: m.bills.map((b) => (onlyBills.has(b.id) ? { ...b, isPaid: false } : b)),
         };
       })
     );
@@ -796,10 +854,10 @@ export function useDashboard(userId: string | null = null) {
    *  continuaria sem contar nada duas vezes. */
   const addCreditCardInvoice = useCallback((invoice: CreditCardInvoice, forceDuplicateIds: string[] = []) => {
     setMonths((prev) => {
-      // Uma fatura importada por mês: o id é derivado do mês/ano, então reimportar a mesma
+      // Uma fatura importada por cartão e mês: o id é derivado deles, então reimportar a mesma
       // fatura consolida as linhas na mesma fatura em vez de criar outra com o mesmo
       // statementTotalCents (que aparecia dobrado no total do cartão).
-      const invoiceId = `imported-invoice-${invoice.year}-${invoice.month}`;
+      const invoiceId = cardInvoiceId('imported-invoice', invoice.year, invoice.month, invoice.cardId);
       const normalized: CreditCardInvoice = {
         ...invoice,
         id: invoiceId,
@@ -812,7 +870,7 @@ export function useDashboard(userId: string | null = null) {
       const target = prev.find((month) => month.id === selectedMonthId);
       const forced = new Set(forceDuplicateIds);
       const freshTransactions = normalized.transactions.filter((tx) => (
-        forced.has(tx.id) || !target || !hasSameCardTransaction(target, tx)
+        forced.has(tx.id) || !target || !hasSameCardTransaction(target, tx, invoice.cardId)
       ));
       let updated = prev.map((month) => {
         if (month.id !== selectedMonthId) return month;
@@ -843,14 +901,17 @@ export function useDashboard(userId: string | null = null) {
         const futureMonths = getMonthsFrom(startName, startYear, total - cur + 1).slice(1);
         futureMonths.forEach((mi, i) => {
           const installmentNum = cur + 1 + i;
-          const invoiceId = `manual-invoice-${mi.year}-${mi.name}`;
+          const invoiceId = cardInvoiceId('manual-invoice', mi.year, mi.name, invoice.cardId);
           const futureTx: CreditCardTransaction = { ...tx, id: uuid(), invoiceId, installmentCurrent: installmentNum };
+          const futureInvoice: CreditCardInvoice = {
+            id: invoiceId, month: mi.name, year: mi.year, cardId: invoice.cardId, cardLabel: invoice.cardLabel, transactions: [futureTx],
+          };
           const mIdx = updated.findIndex(
             (m) => m.name.toLowerCase() === mi.name.toLowerCase() && m.year === mi.year
           );
           // Evita duplicar ao reimportar a mesma fatura ou ao importar depois a
           // fatura real do mês seguinte: pula se a parcela já existir no mês.
-          const alreadyExists = !forced.has(tx.id) && mIdx !== -1 && hasSameCardTransaction(updated[mIdx], futureTx);
+          const alreadyExists = !forced.has(tx.id) && mIdx !== -1 && hasSameCardTransaction(updated[mIdx], futureTx, invoice.cardId);
           if (alreadyExists) return;
           if (mIdx === -1) {
             updated = [
@@ -862,7 +923,7 @@ export function useDashboard(userId: string | null = null) {
                 income: incomeOfPreviousMonth(updated, mi.name, mi.year),
                 bills: [],
                 savingsGoal: 0,
-                creditCardInvoices: [{ id: invoiceId, month: mi.name, year: mi.year, transactions: [futureTx] }],
+                creditCardInvoices: [futureInvoice],
               },
             ];
           } else {
@@ -872,7 +933,7 @@ export function useDashboard(userId: string | null = null) {
                   ...m,
                   creditCardInvoices: (m.creditCardInvoices ?? []).some((inv) => inv.id === invoiceId)
                     ? (m.creditCardInvoices ?? []).map((inv) => inv.id === invoiceId ? { ...inv, transactions: [...inv.transactions, futureTx] } : inv)
-                    : [...(m.creditCardInvoices ?? []), { id: invoiceId, month: mi.name, year: mi.year, transactions: [futureTx] }],
+                    : [...(m.creditCardInvoices ?? []), futureInvoice],
                 }
                 : m
             );
@@ -890,6 +951,67 @@ export function useDashboard(userId: string | null = null) {
         ? { ...month, creditCardInvoices: (month.creditCardInvoices ?? []).map((item) => item.id === invoice.id ? invoice : item) }
         : month
     )));
+  }, [selectedMonthId]);
+
+  /** Corrigir categoria e dono de lançamentos já importados, sem tocar nas demais linhas. */
+  const patchCreditCardTransactions = useCallback((
+    transactionIds: string[],
+    patch: Partial<Pick<CreditCardTransaction, 'category' | 'owner' | 'thirdPartyName' | 'personalAmountCents'>>,
+  ) => {
+    const only = new Set(transactionIds);
+    if (only.size === 0) return;
+    setMonths((prev) => prev.map((month) => (
+      month.id === selectedMonthId
+        ? {
+          ...month,
+          creditCardInvoices: (month.creditCardInvoices ?? []).map((invoice) => ({
+            ...invoice,
+            transactions: invoice.transactions.map((tx) => (only.has(tx.id) ? { ...tx, ...patch } : tx)),
+          })),
+        }
+        : month
+    )));
+  }, [selectedMonthId]);
+
+  /** Trocar o cartão que cobra estes lançamentos — é a operação "o resto das compras é do 8649".
+   *  O destino usa o mesmo id que a importação daquele cartão e mês geraria, então reimportar o
+   *  extrato depois consolida na mesma fatura em vez de duplicar nada. */
+  const moveCreditCardTransactions = useCallback((transactionIds: string[], target: CardMoveTarget) => {
+    const only = new Set(transactionIds);
+    if (only.size === 0) return;
+    setMonths((prev) => prev.map((month) => {
+      if (month.id !== selectedMonthId) return month;
+      const moved: CreditCardTransaction[] = [];
+      const stripped: CreditCardInvoice[] = [];
+      (month.creditCardInvoices ?? []).forEach((invoice) => {
+        const keep = invoice.transactions.filter((tx) => !only.has(tx.id));
+        if (keep.length === invoice.transactions.length) {
+          stripped.push(invoice);
+          return;
+        }
+        moved.push(...invoice.transactions.filter((tx) => only.has(tx.id)));
+        if (keep.length === 0) return;
+        // Tirou linha da fatura: o total do extrato do banco não é mais o total desta fatura, então
+        // ele sai e a soma passa a ser a dos lançamentos que ficaram — senão o cartão cobriria duas vezes.
+        stripped.push({ ...invoice, transactions: keep, statementTotalCents: undefined });
+      });
+      if (moved.length === 0) return month;
+      const movedTransactions = moved.map((tx) => ({ ...tx, invoiceId: target.invoiceId }));
+      const existingIndex = stripped.findIndex((invoice) => invoice.id === target.invoiceId);
+      const creditCardInvoices = existingIndex === -1
+        ? [...stripped, {
+          id: target.invoiceId,
+          month: month.name,
+          year: month.year,
+          cardId: target.cardId,
+          cardLabel: target.cardLabel,
+          transactions: movedTransactions,
+        }]
+        : stripped.map((invoice, index) => (
+          index === existingIndex ? { ...invoice, transactions: [...invoice.transactions, ...movedTransactions] } : invoice
+        ));
+      return { ...month, creditCardInvoices };
+    }));
   }, [selectedMonthId]);
 
   const resetData = useCallback(() => {
@@ -975,6 +1097,8 @@ export function useDashboard(userId: string | null = null) {
     unpayCreditCard,
     addCreditCardInvoice,
     updateCreditCardInvoice,
+    patchCreditCardTransactions,
+    moveCreditCardTransactions,
     resetData,
     exportData,
     importData,

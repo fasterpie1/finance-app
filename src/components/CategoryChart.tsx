@@ -1,9 +1,8 @@
 import React from 'react';
 import {
   type Bill,
-  type BillCategory,
+  type CategoryId,
   type CreditCardInvoice,
-  BILL_CATEGORY_COLORS,
 } from '../types';
 import { usePreferences } from '../i18n';
 import { amountToCents, centsToAmount, getCardCharges, getTransactionCategoryImpactCents, isOnCreditCardBill } from '../services/cardTransactions';
@@ -15,7 +14,7 @@ interface Props {
 }
 
 interface CategoryData {
-  category: BillCategory;
+  category: CategoryId;
   label: string;
   color: string;
   amount: number;
@@ -23,9 +22,9 @@ interface CategoryData {
 }
 
 export const CategoryChart: React.FC<Props> = ({ bills, invoices = [], hideValues }) => {
-  const { formatMoney, categoryLabel, t } = usePreferences();
-  const centsByCategory = new Map<BillCategory, number>();
-  const add = (category: BillCategory, cents: number) => {
+  const { formatMoney, categoryLabel, categoryColor, t } = usePreferences();
+  const centsByCategory = new Map<CategoryId, number>();
+  const add = (category: CategoryId, cents: number) => {
     if (cents === 0) return;
     centsByCategory.set(category, (centsByCategory.get(category) || 0) + cents);
   };
@@ -47,7 +46,7 @@ export const CategoryChart: React.FC<Props> = ({ bills, invoices = [], hideValue
   const total = centsToAmount(totalCents);
 
   const data: CategoryData[] = Array.from(centsByCategory.entries())
-    .map(([category, cents]) => ({ category, label: categoryLabel(category), color: BILL_CATEGORY_COLORS[category], amount: centsToAmount(cents), pct: (cents / totalCents) * 100 }))
+    .map(([category, cents]) => ({ category, label: categoryLabel(category), color: categoryColor(category), amount: centsToAmount(cents), pct: (cents / totalCents) * 100 }))
     .sort((a, b) => b.amount - a.amount);
 
   const size = 130;

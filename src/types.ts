@@ -20,6 +20,10 @@ export type BillCategory =
   | 'outros';
 
 export type BillType = 'mensal' | 'parcela' | 'fixa' | 'variavel';
+/** Id de categoria: uma das fixas do código ou uma criada pela conta do usuário (ver
+ *  `services/customCategories.ts`). `string` entra na união para o TypeScript não tratar
+ *  BillCategory como tipo estreito e continuar aceitando as 19 fixas. */
+export type CategoryId = BillCategory | (string & Record<never, never>);
 export type CardPaymentMethod = 'credito' | 'debito_pix';
 export type CardTransactionType = 'PURCHASE' | 'INSTALLMENT' | 'REFUND' | 'PAYMENT' | 'FEE' | 'OTHER';
 export type ExpenseOwner = 'ME' | 'THIRD_PARTY' | 'SHARED' | 'UNCLASSIFIED';
@@ -36,7 +40,7 @@ export interface CreditCardTransaction {
   date?: string;
   personalAmountCents?: number;
   thirdPartyName?: string;
-  category?: BillCategory;
+  category?: CategoryId;
   installmentCurrent?: number;
   installmentTotal?: number;
   installmentGroupId?: string;
@@ -48,6 +52,11 @@ export interface CreditCardInvoice {
   id: string;
   month: string;
   year: number;
+  /** Dono desta fatura quando a conta tem mais de um cartão (services/paymentCards.ts). */
+  cardId?: string;
+  /** Nome do cartão gravado na importação: a fatura continua legível num aparelho onde ela
+   *  foi sincronizada mas o cartão não foi cadastrado. */
+  cardLabel?: string;
   dueDate?: string;
   closingDate?: string;
   statementTotalCents?: number;
@@ -109,7 +118,7 @@ export const BILL_TYPE_LABELS: Record<BillType, string> = {
 export interface Bill {
   id: string;
   name: string;
-  category: BillCategory;
+  category: CategoryId;
   amount: number;
   dueDay: number;
   type: BillType;
@@ -122,6 +131,8 @@ export interface Bill {
   isOnCreditCard?: boolean;
   /** Forma de pagamento de uma compra lançada na área do cartão */
   cardPaymentMethod?: CardPaymentMethod;
+  /** Cartão em que a conta lançada à mão vence. Sem ele, herda o único cartão cadastrado. */
+  cardId?: string;
   /** Competência em que a compra foi realizada; a conta pode vencer no mês seguinte. */
   cardPurchaseMonth?: string;
   cardPurchaseYear?: number;
@@ -149,6 +160,9 @@ export interface BudgetMonth {
   savedAmount?: number;
   creditCardDueDay?: number;
   creditCardCalendarEventId?: string;
+  /** Lembrete do Google Agenda por cartão: chave é o id cadastrado, valor é o id do evento.
+   *  O campo único acima continua sendo o lembrete da fatura sem cartão. */
+  creditCardCalendarEventIds?: Record<string, string>;
 }
 
 export const MONTH_NAMES = [

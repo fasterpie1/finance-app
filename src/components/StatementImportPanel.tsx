@@ -1,9 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import {
-  type BillCategory,
-  BILL_CATEGORY_LABELS,
-  getMonthIndex,
-} from '../types';
+import { getMonthIndex } from '../types';
 import { type CreditCardInvoice, type CreditCardTransaction, type ExpenseOwner } from '../types';
 import { describeDuplicateMatch, getTransactionDay, setTransactionDay } from '../services/cardTransactions';
 import {
@@ -11,11 +7,14 @@ import {
   extractPurchasesFromImage,
   extractPurchasesFromText,
 } from '../services/statementImport';
-import { fileToBase64, pdfToText, sniffStatementFile } from '../services/statementFiles';
+import { fileToBase64, pdfToText, sniffStatementFile, statementTextFromFile, type StatementFileKind } from '../services/statementFiles';
+import { findPaymentCard, getPaymentCardLabel, type PaymentCard } from '../services/paymentCards';
 import { extractStatementTotalCents } from '../services/statementTotals';
 import { findDuplicateTransaction } from '../services/transactionDuplicates';
 import { hasGroqKey } from '../services/groq';
 import { readUserStorage, writeUserStorage } from '../services/userStorage';
+import { CardSelect } from './CardSelect';
+import { CategorySelect } from './CategorySelect';
 import { usePreferences } from '../i18n';
 
 interface Props {
@@ -28,6 +27,8 @@ interface Props {
   month: string;
   year: number;
   existingTransactions: CreditCardTransaction[];
+  /** Cartões desta conta; a lista é preenchida aqui mesmo, na hora de escolher o cartão. */
+  paymentCards: PaymentCard[];
 }
 
 const fieldStyle: React.CSSProperties = {
@@ -44,16 +45,19 @@ const MAX_FILE_SIZE_MB = 20;
  *  cobrança). Esse texto não serve para o usuário final, então vira a mensagem traduzida. */
 const AI_LIMIT_ERROR = /request too large|output tokens per minute|otpm|rate limit|tokens per minute|try again in|upgrade to dev tier|service tier/i;
 
-export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, userId, month, year, existingTransactions }) => {
+export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, userId, month, year, existingTransactions, paymentCards }) => {
   const { formatMoney, parseAmount, t } = usePreferences();
   const fileRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [incomplete, setIncomplete] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [previewIsPdf, setPreviewIsPdf] = useState(false);
+  const [previewKind, setPreviewKind] = useState<StatementFileKind | null>(null);
+  const [cardId, setCardId] = useState(() => paymentCards[0]?.id ?? '');
   const [items, setItems] = useState<ExtractedPurchase[]>([]);
   const [statementTotalCents, setStatementTotalCents] = useState<number | undefined>();
+  // O cartão é escolhido antes de subir, e nasce aqui mesmo: a fatura que vem dele é desta conta.
+  const selectedCard = findPaymentCard(cardId, paymentCards);
 
   const hasCachedKeyStatus = readUserStorage(userId, STORAGE_KEY_GROQ_STATUS) === 'true';
   const [apiKeyConfigured, setApiKeyConfigured] = useState(hasCachedKeyStatus);
@@ -67,7 +71,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
   const handleFile = async (file: File) => {
     setError('');
     if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
-      setError(`Arquivo muito grande (${(file.size / 1024 / 1024).toFixed(1)} MB). Envie um PDF ou imagem de até ${MAX_FILE_SIZE_MB} MB.`);
+      setError(`Arquivo muito grande (${(file.size / 1024 / 1024).toFixed(1)} MB). Envie um PDF, uma imagem ou um CSV de até ${MAX_FILE_SIZE_MB} MB.`);
       return;
     }
     setLoading(true);
@@ -80,19 +84,22 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
     try {
       if (!apiKeyConfigured) throw new Error('Configure sua chave Groq na aba Assistente antes de importar.');
       const detected = await sniffStatementFile(file);
-      setPreviewIsPdf(detected.kind === 'pdf');
-      const outcome = detected.kind === 'pdf'
+      setPreviewKind(detected.kind);
+      const outcome = detected.kind === 'image'
         ? await (async () => {
-          const text = await pdfToText(file);
-          setStatementTotalCents(extractStatementTotalCents(text));
-          return extractPurchasesFromText(text, getMonthIndex(month));
-        })()
-        : await (async () => {
           const { base64, mimeType } = await fileToBase64(file, detected.mimeType);
           return extractPurchasesFromImage(base64, mimeType, getMonthIndex(month));
+        })()
+        : await (async () => {
+          // CSV já chega como texto: mesmo leitor do PDF, sem o peso do parser de PDF.
+          const text = detected.kind === 'pdf' ? await pdfToText(file) : await statementTextFromFile(file);
+          setStatementTotalCents(extractStatementTotalCents(text));
+          return extractPurchasesFromText(text, getMonthIndex(month));
         })();
       const extracted = outcome.purchases;
-      if (extracted.length === 0) throw new Error(detected.kind === 'pdf' ? t('noItemsPdf') : t('noItemsImage'));
+      if (extracted.length === 0) {
+        throw new Error(detected.kind === 'image' ? t('noItemsImage') : detected.kind === 'csv' ? t('noItemsCsv') : t('noItemsPdf'));
+      }
       setIncomplete(!outcome.complete);
       // A linha que bate com algo já lançado chega desmarcada e explicada: nada some sozinho.
       setItems(extracted.map((p) => {
@@ -138,13 +145,17 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
       source: 'IMPORT',
     }));
     onImport(
-      { id: invoiceId, month, year, statementTotalCents, transactions: transactions.map((transaction) => ({ ...transaction, invoiceId })) },
+      {
+        id: invoiceId, month, year, statementTotalCents,
+        cardId: selectedCard?.id, cardLabel: selectedCard ? getPaymentCardLabel(selectedCard) : undefined,
+        transactions: transactions.map((transaction) => ({ ...transaction, invoiceId })),
+      },
       chosen.filter((item) => item.duplicateConfirmed).map((item) => item.id),
     );
     setItems([]);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(null);
-    setPreviewIsPdf(false);
+    setPreviewKind(null);
     setStatementTotalCents(undefined);
     onLaunched?.();
   };
@@ -195,10 +206,16 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
             {t('importInvoiceDescription')}
           </p>
 
+          <div>
+            <label style={{ fontSize: 10, color: '#8f8f8f', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4, display: 'block' }}>{t('card')}</label>
+            <CardSelect userId={userId} cards={paymentCards} value={selectedCard?.id ?? ''} onChange={setCardId} ariaLabel={t('selectCardAria')} style={fieldStyle} />
+            <div style={{ fontSize: 11, color: '#8b8b8b', marginTop: 5 }}>{t('importCardHint')}</div>
+          </div>
+
           <input
             ref={fileRef}
             type="file"
-            accept="image/*,.pdf,application/pdf"
+            accept="image/*,.pdf,application/pdf,.csv,text/csv"
             style={{ display: 'none' }}
             onChange={(e) => {
               const file = e.target.files?.[0];
@@ -242,11 +259,14 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
             )}
           </button>
 
-          {previewUrl && !previewIsPdf && (
+          {previewUrl && previewKind === 'image' && (
             <img src={previewUrl} alt={t('invoicePreviewAlt')} style={{ width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, border: '1px solid #1e1e1e' }} />
           )}
-          {previewUrl && previewIsPdf && (
+          {previewUrl && previewKind === 'pdf' && (
             <div className="import-pdf" style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, padding: '14px', color: '#999', fontSize: 12 }}>{t('pdfSelected')}</div>
+          )}
+          {previewUrl && previewKind === 'csv' && (
+            <div className="import-pdf" style={{ background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, padding: '14px', color: '#999', fontSize: 12 }}>{t('csvSelected')}</div>
           )}
 
           {error && (
@@ -312,11 +332,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
                       </div>
                       <div>
                         <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('category')}</div>
-                        <select style={fieldStyle} value={item.category} onChange={(e) => updateItem(item.id, { category: e.target.value as BillCategory })}>
-                          {(Object.keys(BILL_CATEGORY_LABELS) as BillCategory[]).map((c) => (
-                            <option key={c} value={c}>{BILL_CATEGORY_LABELS[c]}</option>
-                          ))}
-                        </select>
+                        <CategorySelect style={fieldStyle} value={item.category} ariaLabel={t('category')} onChange={(category) => updateItem(item.id, { category })} />
                       </div>
                     </div>
                     {item.installmentTotal > 1 && (

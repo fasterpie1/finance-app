@@ -1,12 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   type Bill,
-  type BillCategory,
+  type CategoryId,
   type BillType,
-  BILL_CATEGORY_LABELS,
-  BILL_CATEGORY_COLORS,
   BILL_TYPE_LABELS,
 } from '../types';
+import { CategorySelect } from './CategorySelect';
 import { usePreferences } from '../i18n';
 
 interface Props {
@@ -32,11 +31,11 @@ const fieldStyle: React.CSSProperties = {
 };
 
 export const InlineAddRow: React.FC<Props> = ({ monthName, onSave, onCancel, defaultType = 'mensal' }) => {
-  const { parseAmount, currencySymbol, categoryLabel, typeLabel, t } = usePreferences();
+  const { parseAmount, currencySymbol, categoryColor, typeLabel, t } = usePreferences();
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');
   const [dueDay, setDueDay] = useState('1');
-  const [category, setCategory] = useState<BillCategory>('outros');
+  const [category, setCategory] = useState<CategoryId>('outros');
   const [type, setType] = useState<BillType>(defaultType);
   // Parcela já nasce no cartão; nas demais o chip deixa vincular na hora de criar, sem editar depois.
   const [onCard, setOnCard] = useState(false);
@@ -66,11 +65,9 @@ export const InlineAddRow: React.FC<Props> = ({ monthName, onSave, onCancel, def
     if (e.key === 'Escape') onCancel();
   };
 
-  const categoryColor = BILL_CATEGORY_COLORS[category];
-
   return (
     <div className="theme-inline-row" style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#111', border: '1px dashed #2a2a2a', borderRadius: 10, padding: '10px 12px', flexWrap: 'wrap' }}>
-      <div style={{ width: 8, height: 8, borderRadius: '50%', background: categoryColor, flexShrink: 0, opacity: 0.8 }} />
+      <div style={{ width: 8, height: 8, borderRadius: '50%', background: categoryColor(category), flexShrink: 0, opacity: 0.8 }} />
       <input ref={nameRef} placeholder="Nome da conta..." value={name} onChange={(e) => setName(e.target.value)} onKeyDown={onKeyDown} style={{ ...fieldStyle, flex: '1 1 140px', minWidth: 120 }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
         <span style={{ fontSize: 11, color: '#8b8b8b' }}>{currencySymbol}</span>
@@ -80,11 +77,7 @@ export const InlineAddRow: React.FC<Props> = ({ monthName, onSave, onCancel, def
         <span style={{ fontSize: 11, color: '#8b8b8b' }}>{t('dayPlaceholder')}</span>
         <input inputMode="numeric" pattern="[0-9]*" value={dueDay} onChange={(e) => setDueDay(e.target.value.replace(/[^0-9]/g, ''))} onKeyDown={onKeyDown} style={{ ...fieldStyle, width: 48 }} />
       </div>
-      <select value={category} onChange={(e) => setCategory(e.target.value as BillCategory)} style={{ ...fieldStyle, minWidth: 100 }}>
-        {(Object.keys(BILL_CATEGORY_LABELS) as BillCategory[]).map((c) => (
-          <option key={c} value={c}>{categoryLabel(c)}</option>
-        ))}
-      </select>
+      <CategorySelect value={category} ariaLabel={t('category')} onChange={setCategory} style={{ ...fieldStyle, minWidth: 100 }} />
       <select value={type} onChange={(e) => setType(e.target.value as BillType)} style={{ ...fieldStyle, minWidth: 90 }}>
         {(Object.keys(BILL_TYPE_LABELS) as BillType[]).map((billType) => (
           <option key={billType} value={billType}>{typeLabel(billType)}</option>

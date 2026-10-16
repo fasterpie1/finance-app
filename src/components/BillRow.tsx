@@ -1,13 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   type Bill,
-  type BillCategory,
   type BillType,
-  BILL_CATEGORY_LABELS,
-  BILL_CATEGORY_COLORS,
   BILL_TYPE_LABELS,
 } from '../types';
+import { isOnCreditCardBill } from '../services/cardTransactions';
+import { type PaymentCard, resolveBillCardId } from '../services/paymentCards';
 import { CalendarReminderButton } from './CalendarReminderButton';
+import { CardSelect } from './CardSelect';
+import { CategorySelect } from './CategorySelect';
 import { usePreferences } from '../i18n';
 
 interface Props {
@@ -20,6 +21,9 @@ interface Props {
   showPaidToggle?: boolean;
   /** Mostrar a opção de vincular ao cartão (para contas fixas) */
   showCreditCardToggle?: boolean;
+  /** Cadastro de cartões da conta: com ele, a conta no cartão ganha o seletor de qual cartão. */
+  paymentCards?: PaymentCard[];
+  userId?: string | null;
   onCalendarReminder?: () => void;
   calendarReminderLoading?: boolean;
 }
@@ -37,8 +41,8 @@ const editInputStyle: React.CSSProperties = {
   fontFamily: 'inherit',
 };
 
-export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete, hideValues, showPaidToggle = true, showCreditCardToggle = false, onCalendarReminder, calendarReminderLoading = false }) => {
-  const { formatMoney, parseAmount, categoryLabel, typeLabel, currencySymbol, t } = usePreferences();
+export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete, hideValues, showPaidToggle = true, showCreditCardToggle = false, paymentCards, userId = null, onCalendarReminder, calendarReminderLoading = false }) => {
+  const { formatMoney, parseAmount, categoryLabel, categoryColor, typeLabel, currencySymbol, t } = usePreferences();
   const [editField, setEditField] = useState<EditField>(null);
   const [editStr, setEditStr] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -80,8 +84,9 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete,
     }
   };
 
-  const categoryColor = BILL_CATEGORY_COLORS[bill.category];
   const isCardInstallment = bill.type === 'parcela' && bill.category !== 'financiamento' && bill.cardPaymentMethod !== 'debito_pix';
+  // O seletor só aparece na conta que pesa na fatura; nas outras ele seria um campo morto.
+  const showCardPicker = Boolean(paymentCards && paymentCards.length > 0) && isOnCreditCardBill(bill);
 
   return (
     <div
@@ -159,7 +164,7 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete,
       )}
 
       {/* Color dot */}
-      <div aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', background: categoryColor, flexShrink: 0, opacity: 0.8 }} />
+      <div aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', background: categoryColor(bill.category), flexShrink: 0, opacity: 0.8 }} />
 
       {/* Nome */}
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -180,11 +185,7 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete,
 
         <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
           {editField === 'category' ? (
-            <select autoFocus value={bill.category} onChange={(e) => { onSave({ ...bill, category: e.target.value as BillCategory }); setEditField(null); }} onBlur={() => setEditField(null)} style={{ ...editInputStyle, fontSize: 11, padding: '1px 5px' }}>
-              {(Object.keys(BILL_CATEGORY_LABELS) as BillCategory[]).map((c) => (
-                <option key={c} value={c}>{categoryLabel(c)}</option>
-              ))}
-            </select>
+            <CategorySelect autoFocus value={bill.category} ariaLabel={t('categoryAria')} onChange={(category) => onSave({ ...bill, category })} onFinished={() => setEditField(null)} onBlur={() => setEditField(null)} style={{ ...editInputStyle, fontSize: 11, padding: '1px 5px' }} />
           ) : (
             <span className="theme-category-pill" role="button" tabIndex={0} onClick={() => setEditField('category')} onKeyDown={openEditOnKey(() => setEditField('category'))} style={{ fontSize: 10, color: '#8b8b8b', background: '#151515', border: '1px solid #1e1e1e', borderRadius: 4, padding: '1px 6px', cursor: 'pointer' }}>
               {categoryLabel(bill.category)}
@@ -245,8 +246,20 @@ export const BillRow: React.FC<Props> = ({ bill, onTogglePaid, onSave, onDelete,
               </span>
             </>
           )}
+          {/* Qual cartão cobra a conta: o mesmo seletor do lançamento, cartão novo nasce aqui. */}
+          {showCardPicker && (
+            <CardSelect
+              userId={userId}
+              cards={paymentCards ?? []}
+              // Mostra o cartão que realmente cobra, herdado ou escolhido: a linha e a barra têm que concordar.
+              value={resolveBillCardId(bill, paymentCards ?? []) ?? ''}
+              ariaLabel={`${t('selectCardAria')} — ${bill.name}`}
+              onChange={(cardId) => onSave({ ...bill, cardId: cardId || undefined })}
+              style={{ ...editInputStyle, fontSize: 10, padding: '1px 6px', width: 132 }}
+            />
+          )}
           {/* Indicador visual quando está no cartão (fora do modo edit) */}
-          {!showCreditCardToggle && bill.isOnCreditCard && (
+          {!showCardPicker && !showCreditCardToggle && bill.isOnCreditCard && (
             <>
               <span className="theme-muted-text" style={{ fontSize: 10 }}>·</span>
               <span className="theme-chip-card is-linked" style={{ fontSize: 9, fontWeight: 600, color: '#60a5fa', background: '#111520', border: '1px solid #1e2a3e', borderRadius: 4, padding: '1px 6px' }}>💳</span>

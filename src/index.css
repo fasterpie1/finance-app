@@ -492,6 +492,39 @@ body[data-theme='light'] .theme-ai-message-error {
   font-weight: 600;
 }
 
+/* A linha do nome do cartão é o alvo do abre-e-fecha: reacende no toque, então dá para ver isso. */
+.cc-bar-toggle {
+  border-radius: 6px;
+  transition: background-color 0.15s;
+}
+
+.cc-bar-toggle:active {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.cc-bar-toggle:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+.cc-bar-chevron {
+  color: #64748b;
+  transition: color 0.15s, transform 0.15s;
+}
+
+.cc-bar-toggle:hover .cc-bar-chevron {
+  color: #93c5fd;
+}
+
+.cc-bar-toggle:hover strong {
+  color: #e8e8e8;
+}
+
+body[data-theme='light'] .cc-bar-toggle:hover .cc-bar-chevron,
+body[data-theme='light'] .cc-bar-toggle:hover strong {
+  color: #1d4ed8;
+}
+
 /* O vencimento é um link discreto dentro da barra, não um segundo CTA azul. */
 .cc-due-day-link {
   display: block;

@@ -1,5 +1,5 @@
 import type { Bill, CreditCardInvoice, CreditCardTransaction, ExpenseOwner } from '../types';
-import { type DuplicateField, type DuplicateMatch, findDuplicateTransaction } from './transactionDuplicates';
+import type { DuplicateField, DuplicateMatch } from './transactionDuplicates';
 
 /** A tela tem que dizer com qual lançamento a linha bate, não só avisar "possível duplicado". */
 const DUPLICATE_FIELD_LABEL_KEY: Record<DuplicateField, string> = {
@@ -47,6 +47,15 @@ export function getThirdPartyImpactCents(transaction: CreditCardTransaction): nu
   return 0;
 }
 
+/** O bruto do lançamento na fatura — o que o banco cobra, sem separar quem paga. Serve para a
+ *  IA poder dizer "R$ 2.141,79 em compras, dos quais R$ 198,57 são meus" em vez de chamar de
+ *  zero o que é de terceiro. */
+export function getChargeImpactCents(transaction: CreditCardTransaction): number {
+  if (transaction.type === 'PAYMENT') return 0;
+  const sign = transaction.type === 'REFUND' ? -1 : 1;
+  return sign * transaction.amountCents;
+}
+
 export function getInvoiceTotalCents(invoice: CreditCardInvoice): number {
   if (invoice.statementTotalCents != null) return invoice.statementTotalCents;
   // Fall back to the net amount owed: charges minus refunds, excluding payments.
@@ -63,16 +72,38 @@ export function getInvoiceThirdPartyTotalCents(invoice: CreditCardInvoice): numb
   return invoice.transactions.reduce((total, transaction) => total + getThirdPartyImpactCents(transaction), 0);
 }
 
+/** Contas postas na mão e o merchant do banco falam línguas diferentes: "Cloud Apple" chega como
+ *  "APPLE.COM/BILL". Um token em comum de 4 letras ou mais é a mesma cobrança. */
+function sharesChargeName(billName: string, merchant: string): boolean {
+  const tokens = (value: string) => value.normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toUpperCase()
+    .split(/[^0-9A-Z]+/)
+    .filter((token) => token.length >= 4);
+  const mine = tokens(billName);
+  return tokens(merchant).some((token) => mine.includes(token));
+}
+
 /** Conta fixa ligada ao cartão que ainda não apareceu como gasto importado da fatura.
  *  Sem esse filtro, a academia parcelada entra duas vezes no "Meus gastos": uma como
- *  conta fixa do usuário e outra como linha que veio na fatura lida pela IA. */
+ *  conta fixa do usuário e outra como linha que veio na fatura lida pela IA.
+ *  Preço igual sozinho não identifica nada: uma assinatura de R$ 19,90 não é a compra de
+ *  R$ 19,90 do mercado. Só descarta quando o dia bate ou o nome bate; a parcela tem
+ *  identidade própria (valor + em que parcela está) e segue dispensando os dois. */
 export function getUnimportedCardBills(bills: Bill[], transactions: CreditCardTransaction[]): Bill[] {
-  return bills.filter((bill) => !findDuplicateTransaction({
-    amountCents: amountToCents(bill.amount),
-    type: (bill.installmentTotal ?? 1) > 1 ? 'INSTALLMENT' : 'PURCHASE',
-    installmentCurrent: bill.installmentCurrent,
-    installmentTotal: bill.installmentTotal,
-  }, transactions));
+  return bills.filter((bill) => {
+    const isInstallment = (bill.installmentTotal ?? 1) > 1;
+    const cents = amountToCents(bill.amount);
+    return !transactions.some((transaction) => {
+      if (transaction.amountCents !== cents) return false;
+      if (transaction.type !== (isInstallment ? 'INSTALLMENT' : 'PURCHASE')) return false;
+      if (isInstallment) {
+        return (transaction.installmentCurrent ?? 1) === (bill.installmentCurrent ?? 1)
+          && (transaction.installmentTotal ?? 1) === (bill.installmentTotal ?? 1);
+      }
+      return getTransactionDay(transaction.date) === bill.dueDay || sharesChargeName(bill.name, transaction.merchant);
+    });
+  });
 }
 
 /** A regra única de "essa conta está no cartão". Débito/Pix é cobrado na hora da compra,

@@ -21,11 +21,6 @@ export const GoogleCalendarSettings: React.FC<Props> = ({ userId, onClearCalenda
   useEffect(() => {
     if (!userId) return;
     const result = new URLSearchParams(window.location.search).get('google_calendar');
-    if (window.opener && result) {
-      window.opener.postMessage({ type: 'google-calendar-oauth', status: result }, '*');
-      window.close();
-      return;
-    }
     if (result) window.history.replaceState({}, '', window.location.pathname + window.location.hash);
     void getGoogleCalendarStatus()
       .then((nextStatus) => {
@@ -43,8 +38,12 @@ export const GoogleCalendarSettings: React.FC<Props> = ({ userId, onClearCalenda
 
   const connect = async () => {
     setWorking(true);
+    setErrorMessage(null);
     let popup: Window | null = null;
     let pollId: number | undefined;
+    // O popup pode se fechar sem nunca avisar de nada: quando o Google barra a tela de permissão
+    // (app em modo de teste) a janela fica presa na página deles e ninguém responde ao aplicativo.
+    let settled = false;
     const cleanup = () => {
       window.removeEventListener('message', onMessage);
       if (pollId !== undefined) window.clearInterval(pollId);
@@ -53,10 +52,18 @@ export const GoogleCalendarSettings: React.FC<Props> = ({ userId, onClearCalenda
     const onMessage = (event: MessageEvent<{ type?: string; status?: string }>) => {
       const allowedOrigins = new Set([window.location.origin, 'https://finance-app-alpha-opal.vercel.app']);
       if (!allowedOrigins.has(event.origin) || event.data?.type !== 'google-calendar-oauth') return;
-      const nextStatus = event.data.status === 'connected' ? 'connected' : 'error';
-      setStatus(nextStatus);
-      setErrorMessage(nextStatus === 'error' ? t('googleErrorDescription') : null);
-      if (nextStatus === 'connected') writeUserStorage(userId, STATUS_STORAGE_KEY, nextStatus);
+      settled = true;
+      if (event.data.status === 'connected') {
+        setStatus('connected');
+        setErrorMessage(null);
+        writeUserStorage(userId, STATUS_STORAGE_KEY, 'connected');
+      } else if (event.data.status === 'cancelled') {
+        setStatus('disconnected');
+        setErrorMessage(t('googleConnectCancelled'));
+      } else {
+        setStatus('error');
+        setErrorMessage(t('googleErrorDescription'));
+      }
       cleanup();
     };
     try {
@@ -66,7 +73,12 @@ export const GoogleCalendarSettings: React.FC<Props> = ({ userId, onClearCalenda
       if (!popup) throw new Error(t('googleErrorDescription'));
       window.addEventListener('message', onMessage);
       pollId = window.setInterval(() => {
-        if (popup?.closed) cleanup();
+        if (!popup?.closed) return;
+        if (!settled) {
+          setStatus('disconnected');
+          setErrorMessage(t('googleConnectIncomplete'));
+        }
+        cleanup();
       }, 500);
     } catch (error) {
       popup?.close();
@@ -99,7 +111,7 @@ export const GoogleCalendarSettings: React.FC<Props> = ({ userId, onClearCalenda
       <div className="google-calendar-heading">
         <div>
           <strong>{t('googleCalendar')}</strong>
-          <small>{loading ? t('checkingConnection') : errorMessage ?? (status === 'connected' ? t('googleConnectedDescription') : status === 'expired' ? t('googleExpiredDescription') : status === 'error' ? t('googleErrorDescription') : t('integrationsDescription'))}</small>
+          <small>{loading ? t('checkingConnection') : working ? t('googleConnectHint') : errorMessage ?? (status === 'connected' ? t('googleConnectedDescription') : status === 'expired' ? t('googleExpiredDescription') : status === 'error' ? t('googleErrorDescription') : t('integrationsDescription'))}</small>
         </div>
         {status === 'connected' && <span className="google-calendar-status is-connected">✓ {t('connected')}</span>}
         {status === 'expired' && <span className="google-calendar-status is-expired">⚠ {t('expired')}</span>}

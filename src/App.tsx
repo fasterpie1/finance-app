@@ -18,8 +18,11 @@ import { useModalA11y } from './hooks/useModalA11y';
 import { getBillNotifications, type BillNotification } from './store/useDashboard';
 import { createCalendarEvent, deleteCalendarEvent, listCalendarEvents, updateCalendarEvent } from './services/googleCalendar';
 import { billReminderInput, invoiceReminderInput } from './services/calendarReminders';
-import { type Bill, type BudgetMonth, type CreditCardTransaction, BILL_CATEGORY_LABELS, getMonthIndex } from './types';
-import { amountToCents, centsToAmount, getCardCharges, isOnCreditCardBill, getTransactionCategoryImpactCents } from './services/cardTransactions';
+import { findOrCreatePaymentCard, findPaymentCard, getCardDueDay, getPaymentCardLabel, groupInvoicesByCard, resolveBillCardId, setPaymentCardDueDay, usePaymentCards } from './services/paymentCards';
+import { type AssistantUniverse } from './services/assistantContext';
+import { findCategoryId, planAssistantCommand, type AssistantCommand, type AssistantCommandHost } from './services/assistantCommands';
+import { type Bill, getMonthIndex } from './types';
+import { centsToAmount, getCardCharges } from './services/cardTransactions';
 import { safeSetItem } from './services/safeStorage';
 import { PreferencesProvider, usePreferences, type AppLocale, type DisplayCurrency } from './i18n';
 
@@ -43,7 +46,11 @@ function loadSections(): Record<string, boolean> {
   return {};
 }
 function saveSections(sections: Record<string, boolean>) {
-  safeSetItem(SECTIONS_KEY, JSON.stringify(sections));
+  // O mesmo blob guarda a seção do cartão e os blocos abertos: mesclar evita apagar o que a tela
+  // do cartão escreveu depois que este estado foi lido no mount.
+  let stored: Record<string, unknown> = {};
+  try { const raw = localStorage.getItem(SECTIONS_KEY); if (raw) stored = JSON.parse(raw) ?? {}; } catch { /* ignore */ }
+  safeSetItem(SECTIONS_KEY, JSON.stringify({ ...stored, ...sections }));
 }
 function loadPrivacy(): boolean {
   try { return localStorage.getItem(PRIVACY_KEY) === 'true'; } catch { return false; }
@@ -106,46 +113,6 @@ async function refreshAppOrData(refreshData: () => Promise<void>): Promise<void>
     // A missing version file should not prevent the data refresh.
   }
   await refreshData();
-}
-
-/*
- * O modelo soma mal dezenas de valores: com a lista plana ele respondia R$ 707 no lugar do
- * total real. Agrupar por categoria escreve o total já calculado na mesma linha dos itens.
- */
-function formatCardBreakdown(
-  transactions: CreditCardTransaction[],
-  bills: Bill[],
-  money: (value: number) => string,
-  itemsPerCategory: number,
-): string {
-  const groups = new Map<string, { totalCents: number; items: Array<{ cents: number; text: string }> }>();
-  const push = (label: string, cents: number, text: string) => {
-    const group = groups.get(label) ?? { totalCents: 0, items: [] };
-    group.totalCents += cents;
-    // Terceiro, não classificado e item sem categoria têm impacto zero: listá-los gastaria
-    // tokens e sugeriria ao modelo um total diferente do que a própria linha escreve.
-    if (cents !== 0) group.items.push({ cents, text });
-    groups.set(label, group);
-  };
-  for (const transaction of transactions) {
-    const cents = getTransactionCategoryImpactCents(transaction);
-    push(transaction.category ? BILL_CATEGORY_LABELS[transaction.category] : 'Sem categoria', cents,
-      `${transaction.merchant} ${money(centsToAmount(cents))}${transaction.date ? ` (${transaction.date})` : ''}${transaction.installmentTotal && transaction.installmentTotal > 1 ? ` parc ${transaction.installmentCurrent ?? 1}/${transaction.installmentTotal}` : ''}`);
-  }
-  for (const bill of bills) {
-    push(BILL_CATEGORY_LABELS[bill.category], amountToCents(bill.amount),
-      `${bill.name} ${money(bill.amount)} conta no cartão (dia ${bill.dueDay})${bill.installmentCurrent && bill.installmentTotal && bill.installmentTotal > 1 ? ` parc ${bill.installmentCurrent}/${bill.installmentTotal}` : ''}`);
-  }
-  return [...groups.entries()]
-    .filter(([, group]) => group.totalCents !== 0)
-    .sort((a, b) => b[1].totalCents - a[1].totalCents)
-    .map(([label, group]) => {
-      const sorted = [...group.items].sort((a, b) => b.cents - a.cents);
-      const shown = sorted.slice(0, itemsPerCategory);
-      const rest = sorted.length - shown.length;
-      return `- ${label}: TOTAL ${money(centsToAmount(group.totalCents))} em ${sorted.length} lançamento${sorted.length > 1 ? 's' : ''}: ${shown.map((item) => item.text).join(' · ')}${rest > 0 ? ` (+${rest} menores)` : ''}`;
-    })
-    .join('\n');
 }
 
 function useKeyboardOpen() {
@@ -282,10 +249,11 @@ function EmptyState({ label, action, onAction }: { label: string; action?: strin
 
 /* ─── Main App ─── */
 function App({ userId, signOut }: { userId: string | null; signOut: () => void }) {
-  const { t, formatMoney, formatMonthShort: formatLocalizedMonthShort, locale, currency, setLocale, setCurrency, parseAmount } = usePreferences();
+  const { t, formatMoney, formatMonthShort: formatLocalizedMonthShort, locale, currency, setLocale, setCurrency, parseAmount, categoryLabel, categoryOptions, addCategory } = usePreferences();
   const formatCurrency = formatMoney;
   const formatMonthShort = formatLocalizedMonthShort;
   const db = useDashboard(userId);
+  const paymentCards = usePaymentCards(userId);
   const [tab, setTab] = useState<Tab>('dashboard');
   const [addSection, setAddSection] = useState<AddSection>(null);
   const [incomeModalOpen, setIncomeModalOpen] = useState(false);
@@ -320,6 +288,16 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'light' ? '#f4f5f7' : '#0a0a0a');
   }, [theme]);
 
+  // O callback do Google abre o app de novo, na aba do popup, com ?google_calendar=... no endereço.
+  // Aqui e não dentro de Configurações: o popup nunca abre o painel, e sem este aviso a janela fica
+  // parada mostrando o app e a tela de "Conectando" do outro lado nunca termina.
+  useEffect(() => {
+    const result = new URLSearchParams(window.location.search).get('google_calendar');
+    if (!result || !window.opener) return;
+    window.opener.postMessage({ type: 'google-calendar-oauth', status: result }, window.location.origin);
+    window.close();
+  }, []);
+
   useEffect(() => {
     monthButtonRefs.current[db.selectedMonthId]?.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'center' });
   }, [db.months, db.selectedMonthId]);
@@ -340,7 +318,7 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
     let cancelled = false;
     try {
       if (localStorage.getItem(DAILY_NOTIFICATION_KEY) === todayKey) return;
-      const upcoming = getBillNotifications(db.months);
+      const upcoming = getBillNotifications(db.months, new Date(), paymentCards);
       if (upcoming.length === 0) return;
       const timer = window.setTimeout(() => {
         if (cancelled) return;
@@ -355,7 +333,7 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
     } catch {
       // A storage failure should not block the dashboard.
     }
-  }, [db.months]);
+  }, [db.months, paymentCards]);
 
   const [hideValues, setHideValues] = useState(loadPrivacy);
   const togglePrivacy = () => {
@@ -535,102 +513,38 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
     .reduce((total, month) => total + (month.savedAmount ?? 0), 0);
   const monthlySavingsPct = savingsGoal > 0 ? Math.min(Math.round((savedAmount / savingsGoal) * 100), 100) : 0;
 
-  const summarizeMonth = (month: BudgetMonth) => {
-    // O que está no cartão já entra em cardTotal e nas categorias do cartão; somar essas
-    // contas de novo aqui era o modelo receber o mesmo gasto duas vezes.
-    const plainBills = month.bills.filter((bill) => !isOnCreditCardBill(bill));
-    const billsTotal = plainBills.reduce((sum, bill) => sum + bill.amount, 0);
-    const paidTotal = plainBills.filter((bill) => bill.isPaid).reduce((sum, bill) => sum + bill.amount, 0);
-    const invoices = month.creditCardInvoices ?? [];
-    const monthCharges = getCardCharges(invoices, month.bills);
-    const cardTransactions = invoices.flatMap((invoice) => invoice.transactions).filter((transaction) => transaction.type !== 'PAYMENT');
-    // Só entram as contas que ainda não vieram na fatura importada, senão a categoria soma em dobro.
-    const monthCardBills = monthCharges.pendingBills;
-    const cardTotals = cardTransactions.reduce<Record<string, number>>((totals, transaction) => {
-      const label = transaction.category ? BILL_CATEGORY_LABELS[transaction.category] : 'Sem categoria';
-      totals[label] = (totals[label] || 0) + centsToAmount(getTransactionCategoryImpactCents(transaction));
-      return totals;
-    }, monthCardBills
-      .reduce<Record<string, number>>((totals, bill) => {
-        const label = BILL_CATEGORY_LABELS[bill.category];
-        totals[label] = (totals[label] || 0) + bill.amount;
-        return totals;
-      }, {}));
-    const billCategoryTotals = plainBills.reduce<Record<string, number>>((totals, bill) => {
-      const label = BILL_CATEGORY_LABELS[bill.category];
-      totals[label] = (totals[label] || 0) + bill.amount;
-      return totals;
-    }, {});
-    const formatTotals = (totals: Record<string, number>) => Object.entries(totals)
-      .filter(([, amount]) => amount !== 0)
-      .sort((a, b) => b[1] - a[1])
-      .map(([label, amount]) => `${label} ${formatCurrency(amount)}`)
-      .join(', ');
-    // Detalhe por estabelecimento também dos meses antigos: sem isso o modelo só vê totais
-    // e não consegue responder "onde gastei em lazer no mês passado".
-    const cardBreakdown = formatCardBreakdown(cardTransactions, monthCardBills, formatCurrency, 4);
-    return {
-      label: `${month.name} ${month.year}`,
-      income: month.income,
-      billsTotal,
-      paidTotal,
-      cardTotal: centsToAmount(monthCharges.totalCents),
-      categories: formatTotals(billCategoryTotals) || 'sem contas',
-      cardCategories: formatTotals(cardTotals) || 'sem gastos no cartão',
-      cardBreakdown,
-      invoices: invoices.length,
-    };
+  // A assistente lê exatamente os números das telas: o universo dela só recebe o que a store e as
+  // funções de cartão já calculam, porque uma soma refeita aqui brigaria com o que ele vê na tela.
+  const assistantUniverse: AssistantUniverse = {
+    months: db.months,
+    cards: paymentCards,
+    selectedMonth: db.selectedMonth,
+    money: formatCurrency,
+    categoryLabel,
+    categoryNames: categoryOptions.map((option) => option.label),
+    dashboard: { totalPlanned: db.totalPlanned, totalPaid: db.totalPaid, remaining: db.remaining },
   };
 
-  const previousMonths = db.months.filter((month) => {
-    if (month.year !== db.selectedMonth.year) return month.year < db.selectedMonth.year;
-    return getMonthIndex(month.name) < getMonthIndex(db.selectedMonth.name);
-  }).slice(-6);
-  const historicalContext = previousMonths.length > 0
-    ? `\n\nHistórico completo dos meses anteriores (contas mensais, fixas, variáveis e lançamentos importados do cartão):\n${previousMonths.map((month, index) => {
-      const s = summarizeMonth(month);
-      // Só os três meses mais recentes vão com lista de itens: o prompt inteiro mais a resposta
-      // precisam caber nos 8k tokens/min do tier gratuito da Groq.
-      const withDetails = index >= previousMonths.length - 3 && s.cardBreakdown !== '';
-      return `- ${s.label}: entrada ${formatCurrency(s.income)}; contas fora do cartão ${formatCurrency(s.billsTotal)} (pagas ${formatCurrency(s.paidTotal)}); cartão ${formatCurrency(s.cardTotal)}${s.invoices ? ` (${s.invoices} fatura(s) importada(s))` : ''}\n  Por categoria (contas fora do cartão): ${s.categories}\n  ${withDetails ? `Gastos no cartão, total já somado por categoria com os maiores itens:\n${s.cardBreakdown.split('\n').map((line) => `    ${line}`).join('\n')}` : `Por categoria no cartão (totais completos): ${s.cardCategories}`}`;
-    }).join('\n')}`
-    : '\n\nNão há meses anteriores cadastrados para comparação.';
-  const availableMonths = db.months.map((month) => `${month.name} ${month.year}`).join(', ');
-
-  const currentCardBills = cardCharges.pendingBills;
-  const currentCardTransactions = selectedInvoices.flatMap((invoice) => invoice.transactions).filter((transaction) => transaction.type !== 'PAYMENT');
-  // O modelo somava a lista plana e devolvia R$ 707 no lugar do total real de lazer. Aqui o
-  // total é calculado no código e escrito na mesma linha dos itens, então não há soma a fazer.
-  const currentCardBreakdown = formatCardBreakdown(currentCardTransactions, currentCardBills, formatCurrency, 6);
-
-  const financialContext = `Você é um assistente financeiro pessoal inteligente e simpático. Responda sempre em português do Brasil, de forma objetiva e prática. Responda curto: até cinco linhas, citando apenas os itens que a pergunta pediu, sem tabela e sem repetir o extrato.
-
-Mês atual: ${db.selectedMonth.name} ${db.selectedMonth.year}
-Renda mensal: ${formatCurrency(db.selectedMonth.income)}
-Total previsto em contas: ${formatCurrency(db.totalPlanned)}
-Total já pago: ${formatCurrency(db.totalPaid)}
-Total pendente: ${formatCurrency(db.totalPlanned - db.totalPaid)}
-Saldo que sobra: ${formatCurrency(db.remaining)}
-Contas pagas: ${paidCount} de ${totalCount}
-Fatura do cartão: ${formatCurrency(centsToAmount(cardCharges.totalCents))}
-Impacto pessoal da fatura: ${formatCurrency(centsToAmount(cardCharges.personalCents))}
-
-Contas do mês:
-${db.billsSorted.map((b) => `- ${b.name} (${BILL_CATEGORY_LABELS[b.category]}) — ${formatCurrency(b.amount)} — Dia ${b.dueDay}${b.installmentCurrent ? ` — Parcela ${b.installmentCurrent}/${b.installmentTotal}` : ''}${isOnCreditCardBill(b) ? ' — no cartão, já somado na fatura' : ''} — ${b.isPaid ? 'Pago' : 'Pendente'}`).join('\n')}
-
-Total por categoria neste mês, somando as contas que não estão no cartão (use estes números):
-${summarizeMonth(db.selectedMonth).categories}
-
-Gastos no cartão deste mês — cada linha traz o TOTAL da categoria já somado e, na sequência, os maiores lançamentos dela:
-${currentCardBreakdown || 'nenhum gasto no cartão neste mês'}
-
-Meses cadastrados no aplicativo: ${availableMonths}
-"Mês passado" e meses citados pelo usuário (ex.: "agosto") se referem a esses mesmos meses; use os totais já listados acima em vez de estimar. Se o mês pedido não estiver nessa lista, diga que não há dados dele e oriente a criar o mês ou importar a fatura — nunca invente valores nem categorias.
-Lançamentos marcados como "Sem categoria" são compras de fatura importada que o usuário ainda não classificou; nesse caso explique isso e oriente a escolher a categoria na linha do lançamento, na tela Cartão.
-A maioria dos lançamentos importados não traz data. Quando a pergunta for "quando" e não houver data no item, responda com os estabelecimentos e valores daquela categoria no mês pedido e diga que a data não foi registrada na importação — nunca invente dia.
-Para dizer quanto foi gasto em uma categoria use SEMPRE o "TOTAL" escrito na própria linha da categoria — ele já vem calculado e inclui todos os lançamentos. Nunca some os itens listados depois do TOTAL para responder quanto foi gasto: a lista é parcial e serve apenas para citar estabelecimentos.
-
-Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus gastos, dívidas, planejamento financeiro ou como economizar.${historicalContext}`;
+  // Escrever pelo chat é o mesmo caminho da tela: o plano só aponta ids e valores, e nenhuma ação da
+  // store roda antes de ele tocar em Aplicar. Cartão e categoria novos nascem só dentro do apply().
+  const assistantHost: AssistantCommandHost = {
+    universe: assistantUniverse,
+    patchTransactions: db.patchCreditCardTransactions,
+    moveTransactions: db.moveCreditCardTransactions,
+    addPurchase: db.addCreditCardPurchase,
+    payCard: (invoiceIds, billIds) => db.payCreditCard(invoiceIds, billIds),
+    unpayCard: (invoiceIds, billIds) => db.unpayCreditCard(invoiceIds, billIds),
+    createCard: (bank, last4) => {
+      const result = findOrCreatePaymentCard(userId, bank, last4);
+      return result.ok ? result.card : undefined;
+    },
+    findCategory: (label) => findCategoryId(label, categoryOptions),
+    createCategory: (label) => {
+      const result = addCategory(label);
+      return result.ok ? result.category.id : undefined;
+    },
+  };
+  const handleAssistantCommand = (command: AssistantCommand) => planAssistantCommand(command, assistantHost);
 
   const toggleAdd = (section: AddSection) => setAddSection((prev) => (prev === section ? null : section));
   const handleAddBill = (bill: Bill) => { db.addBill(bill); setAddSection(null); };
@@ -698,17 +612,37 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
     db.deleteBill(bill.id);
   };
 
-  const addInvoiceReminder = async (): Promise<string> => {
+  /** Quanto o lembrete anuncia: o total deste cartão, ou a fatura inteira quando a conta não tem cartão cadastrado. */
+  const invoiceReminderAmount = (cardId?: string): number => {
+    if (!cardId && paymentCards.length === 0) return creditCardTotal;
+    const group = groupInvoicesByCard(db.selectedMonth.creditCardInvoices ?? [], paymentCards)
+      .find((item) => item.cardId === cardId);
+    // O lembrete tem que anunciar a mesma soma da barra: cada conta lançada na mão entra com o cartão dela.
+    const bills = cardCharges.pendingBills.filter((bill) => resolveBillCardId(bill, paymentCards) === cardId);
+    return centsToAmount(getCardCharges(group?.invoices ?? [], bills).totalCents);
+  };
+
+  const addInvoiceReminder = async (cardId?: string): Promise<string> => {
     const month = db.selectedMonth;
     if (!userId) return 'É necessário entrar na conta para usar o Google Agenda.';
-    if (month.creditCardCalendarEventId) return 'O lembrete da fatura deste mês já foi adicionado ao Google Agenda.';
+    if (cardId ? month.creditCardCalendarEventIds?.[cardId] : month.creditCardCalendarEventId) {
+      return 'O lembrete da fatura deste mês já foi adicionado ao Google Agenda.';
+    }
     if (calendarWorkingRef.current) return 'Já existe uma operação em andamento no Google Agenda.';
-    calendarWorkingRef.current = `invoice:${month.id}`;
-    setCalendarWorkingId(`invoice:${month.id}`); setCalendarError(null);
+    const card = findPaymentCard(cardId, paymentCards);
+    const dueDay = getCardDueDay(card?.id, paymentCards, month.creditCardDueDay);
+    if (!dueDay) return 'Defina o vencimento da fatura antes de criar o lembrete.';
+    const workingKey = `invoice:${month.id}${card ? `:${card.id}` : ''}`;
+    calendarWorkingRef.current = workingKey;
+    setCalendarWorkingId(workingKey); setCalendarError(null);
     try {
-      const event = await createCalendarEvent(invoiceReminderInput(month, creditCardTotal));
-      db.updateCreditCardCalendarEventId(event.id);
-      return `Lembrete da fatura de ${month.name} criado para o dia anterior ao vencimento, às 9h.`;
+      const event = await createCalendarEvent(invoiceReminderInput(
+        month,
+        invoiceReminderAmount(card?.id),
+        card ? { label: getPaymentCardLabel(card), dueDay } : undefined,
+      ));
+      db.updateCreditCardCalendarEventId(event.id, card?.id);
+      return `Lembrete da fatura${card ? ` ${getPaymentCardLabel(card)}` : ' de ' + month.name} criado para o dia anterior ao vencimento, às 9h.`;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Não foi possível criar o lembrete da fatura.';
       setCalendarError(message);
@@ -722,7 +656,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
         ?? db.selectedMonth.bills.find((item) => name.toLowerCase().includes(item.name.toLowerCase()));
       return bill ? addBillReminder(bill) : `Não encontrei uma conta chamada ${name} no mês atual.`;
     },
-    createInvoiceReminder: addInvoiceReminder,
+    createInvoiceReminder: () => addInvoiceReminder(),
     listEvents: async (day?: string) => {
       const target = day ? new Date(`${day}T00:00:00`) : new Date();
       if (Number.isNaN(target.getTime())) return 'A data informada é inválida.';
@@ -757,16 +691,27 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
     },
   };
 
-  const payCreditCardWithCalendar = () => {
-    const eventId = db.selectedMonth.creditCardCalendarEventId;
-    db.payCreditCard();
-    if (eventId) void removeCalendarEvent(eventId).then((removed) => { if (removed) db.updateCreditCardCalendarEventId(undefined); });
+  /** Pagar um cartão não pode apagar o lembrete do outro: sem cardId é o "pagar tudo" antigo. */
+  const payCreditCardWithCalendar = (invoiceIds?: string[], billIds?: string[], cardId?: string) => {
+    const month = db.selectedMonth;
+    const eventId = cardId ? month.creditCardCalendarEventIds?.[cardId] : month.creditCardCalendarEventId;
+    db.payCreditCard(invoiceIds, billIds);
+    if (eventId) void removeCalendarEvent(eventId).then((removed) => { if (removed) db.updateCreditCardCalendarEventId(undefined, cardId); });
   };
 
-  const updateInvoiceDueDayWithCalendar = (dueDay: number) => {
-    const eventId = db.selectedMonth.creditCardCalendarEventId;
-    db.updateCreditCardDueDay(dueDay);
-    if (eventId) void updateCalendarEvent(eventId, invoiceReminderInput({ ...db.selectedMonth, creditCardDueDay: dueDay }, creditCardTotal)).catch((error: unknown) => setCalendarError(error instanceof Error ? error.message : 'Não foi possível atualizar o lembrete da fatura.'));
+  const updateInvoiceDueDayWithCalendar = (dueDay: number, cardId?: string) => {
+    const month = db.selectedMonth;
+    const card = findPaymentCard(cardId, paymentCards);
+    // O vencimento do cartão é do cadastro, não do mês: assim todo mês futuro herda o dia certo.
+    if (card) setPaymentCardDueDay(userId, card.id, dueDay);
+    else db.updateCreditCardDueDay(dueDay);
+    const eventId = cardId ? month.creditCardCalendarEventIds?.[cardId] : month.creditCardCalendarEventId;
+    if (!eventId) return;
+    void updateCalendarEvent(eventId, invoiceReminderInput(
+      month,
+      invoiceReminderAmount(cardId),
+      card ? { label: getPaymentCardLabel(card), dueDay } : undefined,
+    )).catch((error: unknown) => setCalendarError(error instanceof Error ? error.message : 'Não foi possível atualizar o lembrete da fatura.'));
   };
 
   /* ─── Section renderers ─── */
@@ -853,7 +798,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
             </div>
             {!hasFixedBills && addSection !== 'fixed' && <EmptyState label={t('fixedBillEmpty')} action={t('copyPrevious')} onAction={db.copyFixedBillsFromPrevious} />}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {db.fixedBills.map((bill) => (<BillRow key={bill.id} bill={bill} onTogglePaid={() => togglePaidWithCalendar(bill)} onSave={saveBillWithCalendar} onDelete={() => deleteBillWithCalendar(bill)} onCalendarReminder={!bill.isOnCreditCard ? () => void addBillReminder(bill) : undefined} calendarReminderLoading={calendarWorkingId === bill.id} hideValues={hideValues} showCreditCardToggle />))}
+              {db.fixedBills.map((bill) => (<BillRow key={bill.id} bill={bill} onTogglePaid={() => togglePaidWithCalendar(bill)} onSave={saveBillWithCalendar} onDelete={() => deleteBillWithCalendar(bill)} onCalendarReminder={!bill.isOnCreditCard ? () => void addBillReminder(bill) : undefined} calendarReminderLoading={calendarWorkingId === bill.id} hideValues={hideValues} paymentCards={paymentCards} userId={userId} showCreditCardToggle />))}
               {addSection === 'fixed' && <InlineAddRow monthName={db.selectedMonth.name} onSave={handleAddBill} onCancel={() => setAddSection(null)} defaultType="mensal" />}
             </div>
             {hasFixedBills && (
@@ -1358,7 +1303,7 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
         )}
 
         <div className={tab === 'chat' ? undefined : 'chat-offscreen'}>
-          <ChatView financialContext={financialContext} userId={userId} calendarActions={calendarAssistantActions} />
+          <ChatView universe={assistantUniverse} userId={userId} calendarActions={calendarAssistantActions} onCommand={handleAssistantCommand} />
         </div>
         {tab === 'cartao' && (
           <CreditCardView
@@ -1371,7 +1316,8 @@ Com base nesses dados reais, ajude o usuário quando ele perguntar sobre seus ga
             onImportInvoice={db.addCreditCardInvoice} onUpdateInvoice={db.updateCreditCardInvoice}
             onPayCreditCard={payCreditCardWithCalendar} onUnpayCreditCard={db.unpayCreditCard}
             creditCardDueDay={db.selectedMonth.creditCardDueDay} onUpdateCreditCardDueDay={updateInvoiceDueDayWithCalendar}
-            invoiceCalendarEventId={db.selectedMonth.creditCardCalendarEventId} onInvoiceCalendarReminder={() => void addInvoiceReminder()} invoiceCalendarReminderLoading={calendarWorkingId === `invoice:${db.selectedMonth.id}`}
+            invoiceCalendarEventId={db.selectedMonth.creditCardCalendarEventId} invoiceCalendarEventIds={db.selectedMonth.creditCardCalendarEventIds} onInvoiceCalendarReminder={(cardId) => void addInvoiceReminder(cardId)} invoiceCalendarReminderLoading={calendarWorkingId?.startsWith(`invoice:${db.selectedMonth.id}`) ?? false}
+            paymentCards={paymentCards}
             hideValues={hideValues}
           />
         )}

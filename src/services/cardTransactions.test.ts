@@ -150,6 +150,30 @@ describe('conta fixa no cartão dentro de "Meus gastos"', () => {
     expect(getUnimportedCardBills(bills, mesmaParcela)).toHaveLength(0);
     expect(getUnimportedCardBills(bills, outraParcela)).toHaveLength(1);
   });
+
+  it('não descarta a conta só porque outra compra custou o mesmo', () => {
+    const bills = [cardBill({ name: 'Cloud Apple', amount: 19.9, dueDay: 1 })];
+    const outraCompra = [tx({ merchant: 'MP *MELIMAIS', amountCents: 1990, date: '14/10' })];
+    expect(getUnimportedCardBills(bills, outraCompra)).toHaveLength(1);
+  });
+
+  it('reconhece a mesma cobrança pelo nome quando o dia é outro', () => {
+    const bills = [cardBill({ name: 'Cloud Apple', amount: 19.9, dueDay: 1 })];
+    const importada = [tx({ merchant: 'APPLE.COM/BILL SAO PAU', amountCents: 1990, date: '05/10' })];
+    expect(getUnimportedCardBills(bills, importada)).toHaveLength(0);
+  });
+
+  it('o dia do lançamento também identifica a conta sem ajuda do nome', () => {
+    const bills = [cardBill({ name: 'Jae', amount: 20, dueDay: 7 })];
+    expect(getUnimportedCardBills(bills, [tx({ merchant: 'JOSE FARIAS', amountCents: 2000, date: '07/09' })])).toHaveLength(0);
+    expect(getUnimportedCardBills(bills, [tx({ merchant: 'JOSE FARIAS', amountCents: 2000, date: '08/09' })])).toHaveLength(1);
+  });
+
+  it('estorno de mesmo valor não é a conta já paga na fatura', () => {
+    const bills = [cardBill({ amount: 137.5 })];
+    const estorno = [tx({ merchant: 'ACADEMIA', amountCents: 13750, type: 'REFUND' })];
+    expect(getUnimportedCardBills(bills, estorno)).toHaveLength(1);
+  });
 });
 
 describe('ordem da fatura', () => {

@@ -1,4 +1,4 @@
-export type StatementFileKind = 'pdf' | 'image';
+export type StatementFileKind = 'pdf' | 'image' | 'csv';
 
 export interface SniffedStatementFile {
   kind: StatementFileKind;
@@ -12,6 +12,7 @@ const MAX_PDF_PAGES = 40;
 const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46];
 const JPEG_MAGIC = [0xff, 0xd8, 0xff];
 const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47];
+const TEXT_EXTENSIONS = ['.csv', '.txt'];
 
 function matches(head: Uint8Array, magic: number[]): boolean {
   return magic.every((byte, index) => head[index] === byte);
@@ -19,6 +20,17 @@ function matches(head: Uint8Array, magic: number[]): boolean {
 
 function textAt(head: Uint8Array, offset: number, value: string): boolean {
   return [...value].every((char, index) => head[offset + index] === char.charCodeAt(0));
+}
+
+/** Sem assinatura de bytes, o que separa um CSV de um binário renomeado é não ter byte de
+ *  controle nem byte nulo. Acento (UTF-8 acima de 127) é texto legítimo de extrato. */
+export function looksLikeText(bytes: Uint8Array): boolean {
+  if (bytes.length === 0) return false;
+  for (const byte of bytes) {
+    if (byte === 0) return false;
+    if (byte < 9 || (byte > 13 && byte < 32)) return false;
+  }
+  return true;
 }
 
 export function detectStatementFileKind(head: Uint8Array): SniffedStatementFile | null {
@@ -30,14 +42,24 @@ export function detectStatementFileKind(head: Uint8Array): SniffedStatementFile 
 }
 
 /**
- * Aceita somente PDF e imagem de verdade. Confiar no `file.type` permitiria enviar um
- * executável renomeado para .jpg direto para o modelo de visão.
+ * Aceita PDF e imagem de verdade pela assinatura de bytes. CSV não tem assinatura: exige a
+ * extensão e que os primeiros bytes sejam texto, o que mantém um binário renomeado fora do prompt.
  */
 export async function sniffStatementFile(file: File): Promise<SniffedStatementFile> {
   const head = new Uint8Array(await file.slice(0, 12).arrayBuffer());
   const detected = detectStatementFileKind(head);
-  if (!detected) throw new Error('O arquivo não é um PDF ou uma imagem (JPEG, PNG ou WebP).');
-  return detected;
+  if (detected) return detected;
+  const name = file.name.toLowerCase();
+  if (TEXT_EXTENSIONS.some((extension) => name.endsWith(extension))) {
+    const sample = new Uint8Array(await file.slice(0, 1024).arrayBuffer());
+    if (looksLikeText(sample)) return { kind: 'csv', mimeType: 'text/csv' };
+  }
+  throw new Error('O arquivo não é um PDF, uma imagem (JPEG, PNG ou WebP) nem um CSV de extrato.');
+}
+
+/** O extrato vem com quebra de linha de Windows; o parser local trabalha com "\n". */
+export async function statementTextFromFile(file: File): Promise<string> {
+  return (await file.text()).replace(/\r\n?/g, '\n');
 }
 
 export async function pdfToText(file: File): Promise<string> {
