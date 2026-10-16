@@ -22,8 +22,9 @@ import { findOrCreatePaymentCard, findPaymentCard, getCardDueDay, getPaymentCard
 import { type AssistantUniverse } from './services/assistantContext';
 import { findCategoryId, planAssistantCommand, type AssistantCommand, type AssistantCommandHost } from './services/assistantCommands';
 import { type Bill, getMonthIndex } from './types';
-import { centsToAmount, getCardCharges } from './services/cardTransactions';
+import { centsToAmount, getCardCharges, getCardTotalWithPendingBillsCents } from './services/cardTransactions';
 import { safeSetItem } from './services/safeStorage';
+import { getAppUpdate, watchAppUpdate } from './services/appVersion';
 import { PreferencesProvider, usePreferences, type AppLocale, type DisplayCurrency } from './i18n';
 
 type Tab = 'dashboard' | 'cartao' | 'chat';
@@ -32,7 +33,6 @@ type AddSection = 'fixed' | 'variable' | null;
 const SECTIONS_KEY = 'financa_sections_v1';
 const PRIVACY_KEY = 'financa_privacy';
 const LAYOUT_KEY = 'financa_layout_order';
-const APP_VERSION_KEY = 'financa_app_version';
 const THEME_KEY = 'financa_theme';
 const DAILY_NOTIFICATION_KEY = 'financa_daily_bill_notification_v1';
 
@@ -93,26 +93,6 @@ function refreshPwaAssets(version: string): void {
   document.querySelectorAll<HTMLLinkElement>('link[rel="icon"]').forEach((link) => {
     link.href = `${import.meta.env.BASE_URL}icon-192.png?v=${encodeURIComponent(version)}`;
   });
-}
-
-async function refreshAppOrData(refreshData: () => Promise<void>): Promise<void> {
-  try {
-    const response = await fetch(`${import.meta.env.BASE_URL}version.json?${Date.now()}`, { cache: 'no-store' });
-    if (response.ok) {
-      const { version } = await response.json() as { version?: string };
-      const currentVersion = localStorage.getItem(APP_VERSION_KEY);
-      if (version && currentVersion && version !== currentVersion) {
-        refreshPwaAssets(version);
-        localStorage.setItem(APP_VERSION_KEY, version);
-        window.location.reload();
-        return;
-      }
-      if (version) safeSetItem(APP_VERSION_KEY, version);
-    }
-  } catch {
-    // A missing version file should not prevent the data refresh.
-  }
-  await refreshData();
 }
 
 function useKeyboardOpen() {
@@ -264,7 +244,25 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
   const [confirmKind, setConfirmKind] = useState<null | 'reset' | 'copyBills'>(null);
   const closeConfirm = useCallback(() => setConfirmKind(null), []);
   const [dismissedSyncMessage, setDismissedSyncMessage] = useState<string | null>(null);
-  const syncBannerMessage = db.syncError ?? db.syncNotice;
+  const [dismissedSyncNotice, setDismissedSyncNotice] = useState<string | null>(null);
+  const syncBannerMessage = db.syncError ?? (db.syncNotice !== dismissedSyncNotice ? db.syncNotice : null);
+  const [updateVersion, setUpdateVersion] = useState<string | null>(null);
+  useEffect(() => watchAppUpdate(setUpdateVersion), []);
+  useEffect(() => {
+    if (!db.syncNotice || db.syncError) return;
+    const timer = window.setTimeout(() => setDismissedSyncNotice(db.syncNotice), 8000);
+    return () => window.clearTimeout(timer);
+  }, [db.syncNotice, db.syncError]);
+  const refreshSharedData = async () => {
+    const version = await getAppUpdate();
+    if (version) { setUpdateVersion(version); return; }
+    await db.refreshData();
+  };
+  const reloadApp = () => {
+    if (!updateVersion) return;
+    refreshPwaAssets(updateVersion);
+    window.location.reload();
+  };
   const [helpOpen, setHelpOpen] = useState(false);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
   const closeHelp = useCallback(() => setHelpOpen(false), []);
@@ -619,7 +617,7 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
       .find((item) => item.cardId === cardId);
     // O lembrete tem que anunciar a mesma soma da barra: cada conta lançada na mão entra com o cartão dela.
     const bills = cardCharges.pendingBills.filter((bill) => resolveBillCardId(bill, paymentCards) === cardId);
-    return centsToAmount(getCardCharges(group?.invoices ?? [], bills).totalCents);
+    return centsToAmount(getCardTotalWithPendingBillsCents(group?.invoices ?? [], bills));
   };
 
   const addInvoiceReminder = async (cardId?: string): Promise<string> => {
@@ -975,7 +973,7 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {userId && (
             <>
-              <button type="button" onClick={() => void refreshAppOrData(db.refreshData)} disabled={db.isRefreshing} title={t('update')} aria-label={t('update')} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 7, color: '#666', cursor: db.isRefreshing ? 'wait' : 'pointer', width: 40, height: 38, display: 'grid', placeItems: 'center' }}>
+              <button type="button" onClick={() => void refreshSharedData()} disabled={db.isRefreshing} title={t('update')} aria-label={t('update')} style={{ background: 'transparent', border: '1px solid #1e1e1e', borderRadius: 7, color: '#666', cursor: db.isRefreshing ? 'wait' : 'pointer', width: 40, height: 38, display: 'grid', placeItems: 'center' }}>
                 <IconRefresh spinning={db.isRefreshing} />
               </button>
             </>
@@ -994,6 +992,13 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
       {calendarError && (
         <div role="alert" className="theme-alert-error" style={{ margin: '8px 0', padding: '8px 12px', border: '1px solid #2a1515', borderRadius: 6, background: '#1a1010', color: '#ef4444', fontSize: 11 }}>
           {calendarError}
+        </div>
+      )}
+
+      {updateVersion && (
+        <div className="sync-banner sync-banner-notice app-update-banner" role="status">
+          <span>{t('appUpdateAvailable')}</span>
+          <button type="button" onClick={reloadApp}>{t('appUpdateNow')}</button>
         </div>
       )}
 
@@ -1303,7 +1308,7 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
         )}
 
         <div className={tab === 'chat' ? undefined : 'chat-offscreen'}>
-          <ChatView universe={assistantUniverse} userId={userId} calendarActions={calendarAssistantActions} onCommand={handleAssistantCommand} />
+          <ChatView key={userId ?? 'local'} isActive={tab === 'chat'} universe={assistantUniverse} userId={userId} calendarActions={calendarAssistantActions} onCommand={handleAssistantCommand} />
         </div>
         {tab === 'cartao' && (
           <CreditCardView

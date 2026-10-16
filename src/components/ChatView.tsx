@@ -1,10 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { deleteGroqKey, hasGroqKey, saveGroqKey, sendGroqChat } from '../services/groq';
+import { buildAssistantChatRequest, buildAssistantHistory, classifyGroqError, deleteGroqKey, GroqRequestError, hasGroqKey, saveGroqKey, sendGroqChat } from '../services/groq';
+import { prepareChatImage, type ChatImage } from '../services/statementFiles';
+import { startSpeechInput, supportsSpeechInput } from '../services/speechInput';
 import { readUserStorage, removeUserStorage, writeUserStorage } from '../services/userStorage';
 import { usePreferences } from '../i18n';
 import { MarkdownLite } from './MarkdownLite';
 import {
   type AssistantUniverse,
+  answerAssistantQuestion,
   buildAssistantDataSection,
   buildProtocolSection,
   monthLabel,
@@ -16,11 +19,13 @@ import { type AssistantCommand, type AssistantOutcome } from '../services/assist
 interface Message {
   role: 'user' | 'assistant' | 'error';
   content: string;
+  photoName?: string;
 }
 
 interface Props {
   universe: AssistantUniverse;
   userId: string | null;
+  isActive?: boolean;
   calendarActions?: CalendarAssistantActions;
   /** Interpreta o JSON do modelo contra os dados reais e devolve a resposta ou a mudança pendente. */
   onCommand?: (command: AssistantCommand) => AssistantOutcome;
@@ -37,8 +42,6 @@ export interface CalendarAssistantActions {
 
 const STORAGE_KEY_CHAT = 'finance_chat_history';
 const STORAGE_KEY_GROQ_STATUS = 'groq_configured';
-const CHAT_MODEL = 'openai/gpt-oss-20b';
-const MAX_CONTEXT_MESSAGES = 12;
 const MAX_STORED_MESSAGES = 50;
 
 const SUGGESTION_KEYS = ['suggestion1', 'suggestion2', 'suggestion3', 'suggestion4', 'suggestion5', 'suggestion6'];
@@ -65,16 +68,30 @@ interface PendingChange {
 }
 
 function parseAssistantCommand(content: string): ChatCommand | null {
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(content) as unknown;
-    if (typeof parsed === 'object' && parsed !== null) return parsed as ChatCommand;
+    parsed = JSON.parse(content);
   } catch {
     const match = content.match(/\{[\s\S]*\}/);
-    if (match) {
-      try { return JSON.parse(match[0]) as ChatCommand; } catch { return null; }
-    }
+    if (!match) return null;
+    try { parsed = JSON.parse(match[0]); } catch { return null; }
   }
-  return null;
+  const invalid = () => { throw new GroqRequestError('Resposta inválida da IA.', 'format'); };
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return invalid();
+  const command = parsed as Record<string, unknown>;
+  const strings = ['action', 'response', 'month', 'card', 'category', 'owner', 'thirdPartyName', 'name', 'paymentMethod', 'billName', 'bank', 'last4', 'label', 'title', 'date', 'time', 'description', 'eventId', 'query'];
+  const numbers = ['personalAmount', 'amount', 'day', 'installmentCurrent', 'installmentTotal', 'dueDay', 'durationMinutes'];
+  if (strings.some((key) => command[key] !== undefined && typeof command[key] !== 'string')
+    || numbers.some((key) => command[key] !== undefined && (typeof command[key] !== 'number' || !Number.isFinite(command[key])))) return invalid();
+  if (command.scope !== undefined) {
+    if (typeof command.scope !== 'object' || command.scope === null || Array.isArray(command.scope)) return invalid();
+    const scope = command.scope as Record<string, unknown>;
+    if (['category', 'card', 'owner', 'merchant'].some((key) => scope[key] !== undefined && typeof scope[key] !== 'string')
+      || ['withoutCard', 'unclassifiedCategory'].some((key) => scope[key] !== undefined && typeof scope[key] !== 'boolean')
+      || (scope.day !== undefined && (typeof scope.day !== 'number' || !Number.isFinite(scope.day)))) return invalid();
+  }
+  if ((!command.action || command.action === 'none') && (typeof command.response !== 'string' || !command.response.trim())) return invalid();
+  return command as ChatCommand;
 }
 
 const IconAI = () => (
@@ -84,17 +101,49 @@ const IconAI = () => (
   </svg>
 );
 
-export const ChatView: React.FC<Props> = ({ universe, userId, calendarActions, onCommand }) => {
-  const { t } = usePreferences();
+export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, calendarActions, onCommand }) => {
+  const { t, locale } = usePreferences();
   const [messages, setMessages] = useState<Message[]>(() => loadChat(userId));
   const [input, setInput] = useState('');
+  const [attachment, setAttachment] = useState<ChatImage | null>(null);
+  const [imageLoading, setImageLoading] = useState(false);
+  const [composerError, setComposerError] = useState<string | null>(null);
+  const [dictating, setDictating] = useState(false);
+  const [retryUntil, setRetryUntil] = useState(0);
+  const [retrySeconds, setRetrySeconds] = useState(0);
+  const speechSupported = supportsSpeechInput();
   const [loading, setLoading] = useState(false);
   const [pending, setPending] = useState<PendingChange | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [showKeySetup, setShowKeySetup] = useState(() => readUserStorage(userId, STORAGE_KEY_GROQ_STATUS) !== 'true');
   const [keyLoading, setKeyLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const imageRequestRef = useRef(0);
+  const speechRef = useRef<ReturnType<typeof startSpeechInput> | null>(null);
+  const dictationBaseRef = useRef('');
+  const inFlightRef = useRef(false);
+  const requestRef = useRef(0);
+  const retryUntilRef = useRef(0);
+
+  useEffect(() => {
+    if (!retryUntil) return;
+    const tick = () => {
+      const seconds = Math.max(0, Math.ceil((retryUntil - Date.now()) / 1000));
+      setRetrySeconds(seconds);
+      if (!seconds) setRetryUntil(0);
+    };
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [retryUntil]);
+
+  useEffect(() => () => {
+    speechRef.current?.abort();
+    speechRef.current = null;
+    setDictating(false);
+  }, [isActive, locale, showKeySetup]);
+  useEffect(() => () => { imageRequestRef.current += 1; requestRef.current += 1; }, []);
 
   useEffect(() => {
     // offsetParent é null quando o chat está oculto (outra aba): não rolar a página.
@@ -141,28 +190,113 @@ export const ChatView: React.FC<Props> = ({ universe, userId, calendarActions, o
 
   const saveKey = async () => { const k = apiKeyInput.trim(); if (!k.startsWith('gsk_')) return; setKeyLoading(true); try { await saveGroqKey(k); writeUserStorage(userId, STORAGE_KEY_GROQ_STATUS, 'true'); setShowKeySetup(false); setApiKeyInput(''); } catch (err) { setMessages((prev) => [...prev, { role: 'error', content: err instanceof Error ? err.message : t('googleErrorDescription') }]); } finally { setKeyLoading(false); } };
   const removeKey = async () => { setKeyLoading(true); try { await deleteGroqKey(); removeUserStorage(userId, STORAGE_KEY_GROQ_STATUS); setShowKeySetup(true); } catch (err) { setMessages((prev) => [...prev, { role: 'error', content: err instanceof Error ? err.message : t('googleErrorDescription') }]); } finally { setKeyLoading(false); } };
-  const clearChat = () => { setMessages([]); removeUserStorage(userId, STORAGE_KEY_CHAT); };
+  const clearChat = () => { requestRef.current += 1; inFlightRef.current = false; setLoading(false); setPending(null); setMessages([]); removeUserStorage(userId, STORAGE_KEY_CHAT); };
+
+  const removePhoto = () => {
+    imageRequestRef.current += 1;
+    setAttachment(null);
+    setImageLoading(false);
+    setComposerError(null);
+  };
+
+  const selectPhoto = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = '';
+    if (!file || loading) return;
+    const requestId = ++imageRequestRef.current;
+    setAttachment(null);
+    setImageLoading(true);
+    setComposerError(null);
+    try {
+      const image = await prepareChatImage(file);
+      if (requestId === imageRequestRef.current) setAttachment(image);
+    } catch (error) {
+      if (requestId === imageRequestRef.current) {
+        const key = error instanceof Error && ['chatPhotoSize', 'chatPhotoInvalid', 'chatPhotoReadError'].includes(error.message)
+          ? error.message : 'chatPhotoReadError';
+        setComposerError(t(key));
+      }
+    } finally {
+      if (requestId === imageRequestRef.current) setImageLoading(false);
+    }
+  };
+
+  const toggleDictation = () => {
+    if (speechRef.current) {
+      speechRef.current.stop();
+      return;
+    }
+    if (!speechSupported || loading || !isActive) return;
+    dictationBaseRef.current = input;
+    setComposerError(null);
+    setDictating(true);
+    try {
+      speechRef.current = startSpeechInput(locale, {
+        onTranscript: (text) => setInput((previous) => `${previous}${previous && !/\s$/.test(previous) ? ' ' : ''}${text}`),
+        onEnd: () => {
+          speechRef.current?.abort();
+          speechRef.current = null;
+          setDictating(false);
+        },
+        onError: (error) => {
+          speechRef.current?.abort();
+          speechRef.current = null;
+          setDictating(false);
+          const key = error === 'not-allowed' || error === 'service-not-allowed' ? 'chatVoiceDenied'
+            : error === 'no-speech' ? 'chatVoiceNoSpeech'
+            : error === 'network' ? 'chatVoiceNetwork'
+            : error === 'audio-capture' ? 'chatVoiceNoMicrophone' : 'chatVoiceError';
+          setComposerError(t(key));
+        },
+      });
+    } catch {
+      setDictating(false);
+      setComposerError(t('chatVoiceError'));
+    }
+  };
+
+  const cancelDictation = () => {
+    speechRef.current?.abort();
+    speechRef.current = null;
+    setDictating(false);
+    setInput(dictationBaseRef.current);
+  };
 
   const sendMessage = async (text?: string) => {
-    const msg = (text ?? input).trim();
-    if (!msg || showKeySetup || loading) return;
+    const image = attachment;
+    const typed = (text ?? input).trim();
+    const msg = typed || (image ? t('chatDescribePhoto') : '');
+    if (!msg || showKeySetup || inFlightRef.current || imageLoading || dictating || !isActive) return;
+    const localAnswer = image ? null : answerAssistantQuestion(msg, universe, t);
+    if (!localAnswer && Date.now() < retryUntilRef.current) return;
+    const requestId = ++requestRef.current;
+    inFlightRef.current = true;
     setInput('');
+    setAttachment(null);
+    setComposerError(null);
     // Uma mudança por vez: se o usuário escrever de novo, a confirmação anterior é descartada.
     setPending(null);
-    const userMsg: Message = { role: 'user', content: msg };
-    const history = [...messages.filter((m) => m.role !== 'error'), userMsg].slice(-MAX_CONTEXT_MESSAGES);
+    const userMsg: Message = { role: 'user', content: msg, ...(image ? { photoName: image.name } : {}) };
+    const history = [...messages, userMsg].slice(-MAX_STORED_MESSAGES);
     setMessages(history);
+    if (localAnswer) {
+      setMessages((previous) => [...previous, { role: 'assistant', content: localAnswer }]);
+      inFlightRef.current = false;
+      return;
+    }
     setLoading(true);
     try {
       const today = new Date().toISOString().slice(0, 10);
       const calendarInstructions = `\n\nVocê também pode controlar o Google Agenda. Hoje é ${today}. Para qualquer pedido de agenda, responda SOMENTE um JSON válido, sem markdown, com este formato: {"action":"...","response":"..."}. Ações disponíveis: create_bill_reminder com billName para uma conta do mês atual (o lembrete usa automaticamente 9h no dia anterior ao vencimento); create_invoice_reminder para a fatura do mês atual (também usa 9h); create_event com title, date YYYY-MM-DD, time HH:mm, durationMinutes e description; list_events com date YYYY-MM-DD (omita para hoje); update_event com eventId ou query e os campos a alterar; delete_event com query ou eventId. Para create_event, NUNCA invente nem assuma título, data ou horário: se algum desses três campos faltar, use action none e escreva em response uma pergunta objetiva dizendo exatamente o que falta. Para perguntas normais use action none e coloque a resposta em response. Não invente IDs nem contas.\n`;
-      const historyMessages = history.map((m) => ({ role: m.role === 'error' ? 'user' : m.role, content: m.content }));
+      const historyMessages = buildAssistantHistory(history.map((m) => ({
+        role: m.role,
+        content: `${m.content}${m.photoName ? `\n${t('chatPhotoLabel', { name: m.photoName })}` : ''}`,
+      })));
       // Só um mês vai linha a linha no prompt: com o extrato de todos os meses o limite de tokens
       // por minuto da Groq gratuita estourava e a resposta chegava cortada.
-      const systemFor = (month: BudgetMonth, withCalendar: boolean) => `${buildAssistantDataSection(universe, month)}\n\n${buildProtocolSection(universe)}${withCalendar && calendarActions ? calendarInstructions : ''}`;
-      // gpt-oss gasta o orçamento em raciocínio antes de responder: com o esforço padrão a
-      // Groq devolvia content vazio e o chat mostrava "encerrou a resposta antes de gerar".
-      let rawContent = await sendGroqChat({ model: CHAT_MODEL, messages: [{ role: 'system', content: systemFor(universe.selectedMonth, true) }, ...historyMessages], reasoning_effort: 'low', max_completion_tokens: 1200 });
+      const systemFor = (month: BudgetMonth, withCalendar: boolean, detailed = false) => `${buildAssistantDataSection(universe, month, detailed)}\n\n${buildProtocolSection(universe)}\nFotos de mensagens anteriores não estão disponíveis: use apenas os dados já descritos na conversa ou peça para anexar novamente.${withCalendar && calendarActions && !image ? calendarInstructions : ''}`;
+      let rawContent = await sendGroqChat(buildAssistantChatRequest(systemFor(universe.selectedMonth, true), historyMessages, image?.dataUrl));
+      if (requestId !== requestRef.current) return;
       let command = parseAssistantCommand(rawContent);
       if (command?.action === 'get_month_detail') {
         const target = resolveMonthRef(universe, command.month);
@@ -170,19 +304,15 @@ export const ChatView: React.FC<Props> = ({ universe, userId, calendarActions, o
           setMessages((prev) => [...prev, { role: 'assistant', content: `Não há mês cadastrado com o nome "${(command?.month ?? '').trim()}". Os meses disponíveis são ${universe.months.map((month) => monthLabel(month)).join(', ')}.` }]);
           return;
         }
-        rawContent = await sendGroqChat({
-          model: CHAT_MODEL,
-          messages: [
-            { role: 'system', content: systemFor(target, false) },
-            ...historyMessages,
-            { role: 'assistant', content: rawContent },
-            { role: 'user', content: `Extrato completo de ${monthLabel(target)} carregado acima. Responda a pergunta agora, com action none.` },
-          ],
-          reasoning_effort: 'low',
-          max_completion_tokens: 1200,
-        });
+        rawContent = await sendGroqChat(buildAssistantChatRequest(systemFor(target, false, true), [
+          ...historyMessages,
+          { role: 'assistant', content: rawContent },
+          { role: 'user', content: `Extrato completo de ${monthLabel(target)} carregado acima. Responda a pergunta agora, com action none.` },
+        ], image?.dataUrl));
+        if (requestId !== requestRef.current) return;
         command = parseAssistantCommand(rawContent);
       }
+      if (!command && /^[{[\x60]/.test(rawContent.trim())) throw new GroqRequestError('Resposta inválida da IA.', 'format');
       // A IA pode mandar buscar o extrato de outro mês antes de responder.
       const CALENDAR_ACTIONS = ['create_bill_reminder', 'create_invoice_reminder', 'create_event', 'list_events', 'update_event', 'delete_event'];
       if (!command || !command.action || command.action === 'none') {
@@ -190,6 +320,10 @@ export const ChatView: React.FC<Props> = ({ universe, userId, calendarActions, o
         return;
       }
       if (CALENDAR_ACTIONS.includes(command.action)) {
+        if (image) {
+          setMessages((prev) => [...prev, { role: 'assistant', content: t('chatPhotoCalendar') }]);
+          return;
+        }
         if (!calendarActions) { setMessages((prev) => [...prev, { role: 'assistant', content: command.response ?? rawContent }]); return; }
         let result: string;
         if (command.action === 'create_bill_reminder') result = command.billName ? await calendarActions.createBillReminder(command.billName) : 'Informe qual conta deve receber o lembrete.';
@@ -200,6 +334,7 @@ export const ChatView: React.FC<Props> = ({ universe, userId, calendarActions, o
         else if (command.action === 'delete_event') result = command.query || command.eventId ? await calendarActions.deleteEvent(command.query ?? command.eventId ?? '') : 'Informe qual evento deve ser removido.';
         // Unknown/hallucinated action: never fall through to a destructive delete.
         else result = command.response ?? 'Não entendi o comando de agenda.';
+        if (requestId !== requestRef.current) return;
         setMessages((prev) => [...prev, { role: 'assistant', content: result }]);
         return;
       }
@@ -212,16 +347,31 @@ export const ChatView: React.FC<Props> = ({ universe, userId, calendarActions, o
       setPending({ summary: outcome.summary, apply: outcome.apply });
       setMessages((prev) => [...prev, { role: 'assistant', content: command.response ?? outcome.summary[0] ?? '' }]);
     } catch (err) {
-      const raw = err instanceof Error ? err.message : 'Erro desconhecido';
-      // O proxy responde 401 quando a sessão local venceu: o texto cru não diz ao usuário o que fazer.
-      // O rate limit da Groq gratuita vem com ID de organização e link de cobrança, ainda pior.
-      const content = /rate limit|tokens per minute|try again in/i.test(raw) ? t('aiRateLimited')
-        : /não autenticado|invalid login|401|jwt expired/i.test(raw) ? t('sessionExpiredAssistant') : raw;
+      if (requestId !== requestRef.current) return;
+      if (image) setAttachment((current) => current ?? image);
+      setInput((current) => current || typed);
+      const error = err instanceof GroqRequestError ? err : classifyGroqError(err instanceof Error ? err.message : '');
+      if (error.kind === 'rate_limit') {
+        const seconds = error.retryAfterSeconds ?? 60;
+        const until = Date.now() + seconds * 1000;
+        retryUntilRef.current = until;
+        setRetryUntil(until);
+        setRetrySeconds(seconds);
+      }
+      const content = error.kind === 'rate_limit' ? t('chatRateLimited')
+        : error.kind === 'session' ? t('sessionExpiredAssistant')
+        : error.kind === 'format' ? t('chatFormatError')
+        : error.kind === 'network' ? t('chatNetworkError') : t('chatRequestError');
       setMessages((prev) => [...prev, { role: 'error', content }]);
-    } finally { setLoading(false); setTimeout(() => inputRef.current?.focus(), 100); }
+    } finally {
+      if (requestId === requestRef.current) {
+        inFlightRef.current = false;
+        setLoading(false);
+      }
+    }
   };
 
-  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } };
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void sendMessage(); } };
 
   const applyPending = () => {
     if (!pending) return;
@@ -234,6 +384,8 @@ export const ChatView: React.FC<Props> = ({ universe, userId, calendarActions, o
     setPending(null);
     setMessages((prev) => [...prev, { role: 'assistant', content: t('assistantCancelled') }]);
   };
+
+  const waitingForAI = retrySeconds > 0 && (Boolean(attachment) || !answerAssistantQuestion(input.trim(), universe, t));
 
   if (keyLoading) {
     return (
@@ -266,7 +418,7 @@ export const ChatView: React.FC<Props> = ({ universe, userId, calendarActions, o
               <li>{t('setupClick')} <strong style={{ color: '#c0c0c0' }}>Create API Key</strong></li>
               <li>{t('setupPaste')} <code style={{ color: '#f59e0b', background: '#1a1a0a', padding: '1px 4px', borderRadius: 2 }}>gsk_</code>{t('setupPasteEnd')}</li>
             </ol>
-            <div className="chat-model-label" style={{ fontSize: 10, color: '#8f8f8f', marginTop: 8 }}>Groq · GPT OSS 20B</div>
+            <div className="chat-model-label" style={{ fontSize: 10, color: '#8f8f8f', marginTop: 8 }}>{t('chatModelLabel')}</div>
           </div>
           <button type="button" className="chat-save" onClick={saveKey} disabled={keyLoading || !apiKeyInput.startsWith('gsk_')} style={{ background: apiKeyInput.startsWith('gsk_') && !keyLoading ? '#3b82f6' : '#151520', border: 'none', borderRadius: 6, color: apiKeyInput.startsWith('gsk_') && !keyLoading ? '#fff' : '#3a4a5a', cursor: apiKeyInput.startsWith('gsk_') && !keyLoading ? 'pointer' : 'not-allowed', padding: '10px', fontSize: 13, fontWeight: 600 }}>{keyLoading ? t('saving') : t('saveAndStart')}</button>
         </div>
@@ -281,7 +433,7 @@ export const ChatView: React.FC<Props> = ({ universe, userId, calendarActions, o
           <div className="chat-avatar" style={{ width: 28, height: 28, borderRadius: 8, background: '#111520', border: '1px solid #1e2a3e', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#60a5fa' }}><IconAI /></div>
           <div>
             <div className="chat-title" style={{ fontSize: 13, fontWeight: 600, color: '#c0c0c0' }}>{t('financialAssistant')}</div>
-            <div className="chat-model-label" style={{ fontSize: 10, color: '#8f8f8f' }}>Groq · GPT OSS 20B</div>
+            <div className="chat-model-label" style={{ fontSize: 11, color: '#8f8f8f' }} title={t('chatModelLabel')}>{monthLabel(universe.selectedMonth)}</div>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
@@ -301,7 +453,7 @@ export const ChatView: React.FC<Props> = ({ universe, userId, calendarActions, o
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 16 }}>
             <div style={{ textAlign: 'center', color: '#8b8b8b', fontSize: 12 }}>{t('askAboutSpending')}</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center' }}>
-              {SUGGESTION_KEYS.map((key) => (<button type="button" className="theme-ai-suggestion" key={key} onClick={() => sendMessage(t(key))} style={{ background: '#111', border: '1px solid #1e1e1e', borderRadius: 6, color: '#9a9a9a', cursor: 'pointer', padding: '7px 12px', fontSize: 11, minHeight: 34, transition: 'all 0.15s', textAlign: 'left' }}>{t(key)}</button>))}
+              {SUGGESTION_KEYS.map((key) => (<button type="button" className="theme-ai-suggestion" key={key} disabled={Boolean(attachment) || imageLoading || dictating || (retrySeconds > 0 && !answerAssistantQuestion(t(key), universe, t))} onClick={() => sendMessage(t(key))} title={t(key)} style={{ background: '#111', border: '1px solid #1e1e1e', borderRadius: 6, color: '#9a9a9a', cursor: 'pointer', padding: '7px 12px', fontSize: 12, minHeight: 40, transition: 'all 0.15s', textAlign: 'left' }}>{t(`${key}Short`)}</button>))}
             </div>
           </div>
         )}
@@ -313,14 +465,18 @@ export const ChatView: React.FC<Props> = ({ universe, userId, calendarActions, o
                 {m.role === 'error' ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" /></svg> : <IconAI />}
               </div>
             )}
-            <div className={`theme-ai-message theme-ai-message-${m.role}`} style={{ maxWidth: '85%', background: m.role === 'user' ? '#1a2a4a' : m.role === 'error' ? '#1a1010' : '#141414', border: `1px solid ${m.role === 'user' ? '#1e3050' : m.role === 'error' ? '#2a1515' : '#1e1e1e'}`, borderRadius: m.role === 'user' ? '12px 12px 4px 12px' : '12px 12px 12px 4px', padding: '9px 13px', fontSize: 13, color: m.role === 'error' ? '#ef4444' : '#c0c0c0', lineHeight: 1.6, whiteSpace: m.role === 'assistant' ? 'normal' : 'pre-wrap', wordBreak: 'break-word' }}>{m.role === 'assistant' ? <MarkdownLite text={m.content} /> : m.content}</div>
+            <div className={`theme-ai-message theme-ai-message-${m.role}`} style={{ maxWidth: '85%', background: m.role === 'user' ? '#1a2a4a' : m.role === 'error' ? '#1a1010' : '#141414', border: `1px solid ${m.role === 'user' ? '#1e3050' : m.role === 'error' ? '#2a1515' : '#1e1e1e'}`, borderRadius: m.role === 'user' ? '12px 12px 4px 12px' : '12px 12px 12px 4px', padding: '9px 13px', fontSize: 13, color: m.role === 'error' ? '#ef4444' : '#c0c0c0', lineHeight: 1.6, whiteSpace: m.role === 'assistant' ? 'normal' : 'pre-wrap', wordBreak: 'break-word' }}>
+              {m.photoName && <div className="chat-media-note">{t('chatPhotoLabel', { name: m.photoName })}</div>}
+              {m.role === 'assistant' ? <MarkdownLite text={m.content} /> : m.content}
+            </div>
           </div>
         ))}
 
         {loading && (
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6 }}>
             <div className="chat-avatar" style={{ width: 22, height: 22, borderRadius: 6, background: '#111520', border: '1px solid #1e2a3e', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#60a5fa' }}><IconAI /></div>
-            <div className="chat-typing" style={{ background: '#141414', border: '1px solid #1e1e1e', borderRadius: '12px 12px 12px 4px', padding: '10px 14px' }}>
+            <div className="chat-typing" role="status" style={{ background: '#141414', border: '1px solid #1e1e1e', borderRadius: '12px 12px 12px 4px', padding: '10px 14px' }}>
+              <div className="chat-media-note" style={{ marginBottom: 6 }}>{t('chatResponding')}</div>
               <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                 {[0, 1, 2].map((d) => (<div key={d} style={{ width: 5, height: 5, borderRadius: '50%', background: '#3b82f6', animation: `bounce 1.2s ${d * 0.2}s infinite ease-in-out` }} />))}
               </div>
@@ -331,9 +487,9 @@ export const ChatView: React.FC<Props> = ({ universe, userId, calendarActions, o
       </div>
 
       {pending && (
-        <div className="chat-pending-change" style={{ flexShrink: 0, margin: '6px 0', padding: 12, background: '#0d1522', border: '1px solid #1e3050', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div className="chat-pending-change" style={{ flexShrink: 1, minHeight: 0, margin: '6px 0', padding: 12, background: '#0d1522', border: '1px solid #1e3050', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: '#93c5fd', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('assistantConfirmTitle')}</div>
-          <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: '#c0c0c0', lineHeight: 1.7 }}>
+          <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: '#c0c0c0', lineHeight: 1.7, maxHeight: 120, overflowY: 'auto' }}>
             {pending.summary.map((line, index) => (<li key={index}>{line}</li>))}
           </ul>
           <div style={{ fontSize: 10, color: '#8a8a8a' }}>{t('assistantConfirmHint')}</div>
@@ -350,17 +506,42 @@ export const ChatView: React.FC<Props> = ({ universe, userId, calendarActions, o
         </div>
       )}
 
-      {messages.length > 0 && !loading && (
-        <div className="theme-chat-suggestions" style={{ display: 'flex', gap: 5, overflowX: 'auto', padding: '6px 0', borderTop: '1px solid #141414', flexShrink: 0 }}>
-          {SUGGESTION_KEYS.slice(0, 3).map((key) => (<button type="button" className="theme-ai-suggestion" key={key} onClick={() => sendMessage(t(key))} style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 5, color: '#9a9a9a', cursor: 'pointer', padding: '8px 12px', fontSize: 10, minHeight: 34, whiteSpace: 'nowrap', flexShrink: 0 }}>{t(key)}</button>))}
+      <div className="theme-chat-composer chat-composer">
+        {retrySeconds > 0 && <div className="chat-media-note" role="status" aria-live="off">{t('chatRetryCountdown', { seconds: retrySeconds })}</div>}
+        {(attachment || imageLoading) && (
+          <div className="chat-photo-preview">
+            {attachment && <img src={attachment.dataUrl} alt={t('chatPhotoPreview')} />}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="chat-photo-name">{imageLoading ? t('chatPreparingPhoto') : attachment?.name}</div>
+              <div className="chat-media-note">{t('chatPhotoHelp')}</div>
+            </div>
+            <button className="chat-media-button" type="button" onClick={removePhoto} aria-label={t('chatRemovePhoto')} title={t('chatRemovePhoto')}>×</button>
+          </div>
+        )}
+        {composerError && <div className="chat-composer-error" role="alert">{composerError}</div>}
+        {dictating && (
+          <div className="chat-voice-status" role="status">
+            <span>{t('chatListening')}</span>
+            <button className="chat-media-button" type="button" onClick={cancelDictation}>{t('chatCancelDictation')}</button>
+          </div>
+        )}
+        <div className="chat-input-box">
+          <textarea className="chat-text-input" aria-label={t('askAboutExpenses')} placeholder={t('askAboutExpenses')} value={input} readOnly={dictating} onChange={(e) => setInput(e.target.value)} onKeyDown={onKeyDown} rows={input ? 2 : 1} />
+          <div className="chat-composer-actions">
+            <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { void selectPhoto(event); }} hidden />
+            <button className="chat-media-button" type="button" onClick={() => fileRef.current?.click()} disabled={loading || imageLoading} aria-label={t('chatAddPhoto')} title={t('chatAddPhoto')}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="m21 15-5-5L5 21" /></svg>
+            </button>
+            <button className={`chat-media-button${dictating ? ' is-listening' : ''}`} type="button" onClick={toggleDictation} disabled={!speechSupported || loading} aria-label={t(dictating ? 'chatStopDictation' : 'chatStartDictation')} aria-pressed={dictating} title={t(speechSupported ? (dictating ? 'chatStopDictation' : 'chatStartDictation') : 'chatVoiceUnavailable')}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{dictating ? <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" /> : <><rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8" /></>}</svg>
+            </button>
+            <div style={{ flex: 1 }} />
+            <button className="chat-send" type="button" aria-label={t('chatSendMessage')} onClick={() => { void sendMessage(); }} disabled={(!input.trim() && !attachment) || loading || imageLoading || dictating || waitingForAI}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
+            </button>
+          </div>
         </div>
-      )}
-
-      <div className="theme-chat-composer" style={{ display: 'flex', gap: 8, alignItems: 'flex-end', paddingTop: 8, borderTop: '1px solid #141414', flexShrink: 0 }}>
-        <textarea ref={inputRef} placeholder={t('askAboutExpenses')} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onKeyDown} rows={2} style={{ flex: 1, background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 8, color: '#e0e0e0', padding: '9px 12px', fontSize: 14, outline: 'none', fontFamily: 'inherit', resize: 'none', lineHeight: 1.5, transition: 'border-color 0.15s' }} onFocus={(e) => { e.currentTarget.style.borderColor = '#2a3a4a'; }} onBlur={(e) => { e.currentTarget.style.borderColor = '#1e1e1e'; }} />
-        <button className="chat-send" type="button" aria-label="Enviar mensagem" onClick={() => sendMessage()} disabled={!input.trim() || loading} style={{ background: input.trim() && !loading ? '#3b82f6' : '#151520', border: 'none', borderRadius: 8, color: input.trim() && !loading ? '#fff' : '#3a4a5a', cursor: input.trim() && !loading ? 'pointer' : 'not-allowed', padding: '9px 14px', transition: 'all 0.15s', alignSelf: 'stretch', display: 'flex', alignItems: 'center' }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
-        </button>
+        <div className="chat-media-note">{t(speechSupported ? 'chatMediaHint' : 'chatVoiceUnavailable')}</div>
       </div>
 
       <style>{`@keyframes bounce { 0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; } 40% { transform: scale(1); opacity: 1; } }`}</style>

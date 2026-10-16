@@ -7,7 +7,7 @@ import {
   getMonthIndex,
 } from '../types';
 import { type CreditCardPurchase, type MonthInfo } from '../store/useDashboard';
-import { amountToCents, centsToAmount, describeDuplicateMatch, formatTransactionDay, getCardCharges, getInvoiceTotalCents, getOwnerLabel, getThirdPartyTotalsCents, getTransactionDay, setTransactionDay, sortInvoiceTransactions } from '../services/cardTransactions';
+import { amountToCents, centsToAmount, describeDuplicateMatch, formatTransactionDay, getCardCharges, getCardTotalWithPendingBillsCents, getInvoiceTotalCents, getOwnerLabel, getThirdPartyTotalsCents, getTransactionDay, setTransactionDay, sortInvoiceTransactions } from '../services/cardTransactions';
 import { findDuplicateTransaction } from '../services/transactionDuplicates';
 import { getCardDueDay, getInvoiceCardLabel, getPaymentCardLabel, groupInvoicesByCard, type PaymentCard, resolveBillCardId } from '../services/paymentCards';
 import { BillRow } from './BillRow';
@@ -577,7 +577,7 @@ export const CreditCardView: React.FC<Props> = ({
           return {
             key: card.id,
             label: getInvoiceCardLabel({ cardId: card.id, cardLabel: groupInvoices[0]?.cardLabel }, paymentCards),
-            cents: getCardCharges(groupInvoices, groupBills).totalCents,
+            cents: getCardTotalWithPendingBillsCents(groupInvoices, groupBills),
             dueDay: getCardDueDay(card.id, paymentCards, creditCardDueDay),
             isPaid,
             hasItems: true,
@@ -593,7 +593,7 @@ export const CreditCardView: React.FC<Props> = ({
       ...(unassignedInvoices.length > 0 || orphanPendingBills.length > 0 ? [{
         key: 'sem-cartao',
         label: t('noCardInvoice'),
-        cents: getCardCharges(unassignedInvoices, orphanPendingBills).totalCents,
+        cents: getCardTotalWithPendingBillsCents(unassignedInvoices, orphanPendingBills),
         dueDay: creditCardDueDay,
         isPaid: unassignedPaid,
         hasItems: unassignedInvoices.length > 0 || orphanPendingBills.length > 0,

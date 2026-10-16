@@ -57,10 +57,10 @@ interface Call {
   label?: string;
 }
 
-function hostOf() {
+function hostOf(context: AssistantUniverse = universe) {
   const calls: Record<string, Call[]> = { patch: [], move: [], add: [], pay: [], unpay: [], createCard: [], createCategory: [] };
   const host: AssistantCommandHost = {
-    universe,
+    universe: context,
     patchTransactions: (ids, patch) => { calls.patch.push({ ids, patch }); },
     moveTransactions: (ids, target) => { calls.move.push({ ids, target }); },
     addPurchase: (purchase) => { calls.add.push({ ids: [], purchase }); },
@@ -88,6 +88,7 @@ function expectNoCall(calls: ReturnType<typeof hostOf>['calls']) {
   expect(calls.move).toHaveLength(0);
   expect(calls.add).toHaveLength(0);
   expect(calls.pay).toHaveLength(0);
+  expect(calls.unpay).toHaveLength(0);
   expect(calls.createCard).toHaveLength(0);
   expect(calls.createCategory).toHaveLength(0);
 }
@@ -159,6 +160,56 @@ describe('comandos da assistente', () => {
     expectNoCall(calls);
     outcome.apply();
     expect(calls.pay).toEqual([{ ids: [], invoiceIds: ['inv_c6'], billIds: [] }]);
+  });
+
+  it.each(['mark_paid', 'mark_unpaid'])('%s inclui só as contas manuais do cartão pedido, após Aplicar', (action) => {
+    const bill = { id: 'wellhub', name: 'Wellhub', amount: 137.5, category: 'assinatura' as const, dueDay: 10, isPaid: false, type: 'mensal' as const, month: 'Outubro', note: '', isOnCreditCard: true, cardId: cardC6.id };
+    const month: BudgetMonth = { ...october, bills: [
+      ...october.bills,
+      bill,
+      { ...bill, id: 'cloud', name: 'Cloud Apple', amount: 19.9 },
+      { ...bill, id: 'nb', cardId: cardNubank.id },
+      { ...bill, id: 'sem', cardId: undefined },
+      { ...bill, id: 'pix', cardPaymentMethod: 'debito_pix' },
+    ] };
+    const { host, calls } = hostOf({ ...universe, selectedMonth: month, months: [september, month] });
+    const outcome = planAssistantCommand({ action, card: 'C6 8649' }, host);
+    if (outcome.kind !== 'plan') throw new Error('esperava um plano');
+    expect(plain(outcome.summary.join('\n'))).toContain('R$ 191,40');
+    expectNoCall(calls);
+    expect(plain(outcome.apply())).toContain('R$ 191,40');
+    expect(calls[action === 'mark_paid' ? 'pay' : 'unpay']).toEqual([{ ids: [], invoiceIds: ['inv_c6'], billIds: ['wellhub', 'cloud'] }]);
+    expect(calls[action === 'mark_paid' ? 'unpay' : 'pay']).toHaveLength(0);
+  });
+
+  it.each(['mark_paid', 'mark_unpaid'])('%s aceita um cartão com somente conta manual', (action) => {
+    const month: BudgetMonth = { ...october, creditCardInvoices: [], bills: [{ ...october.bills[0], id: 'cloud', name: 'Cloud Apple', amount: 19.9, isOnCreditCard: true, cardId: cardC6.id }] };
+    const { host, calls } = hostOf({ ...universe, selectedMonth: month, months: [month] });
+    const outcome = planAssistantCommand({ action, card: 'C6 8649' }, host);
+    if (outcome.kind !== 'plan') throw new Error('esperava um plano');
+    expect(plain(outcome.summary[0])).toContain('R$ 19,90');
+    expectNoCall(calls);
+    outcome.apply();
+    expect(calls[action === 'mark_paid' ? 'pay' : 'unpay']).toEqual([{ ids: [], invoiceIds: [], billIds: ['cloud'] }]);
+  });
+
+  it('herda contas antigas no único cartão e não soma duas vezes a importada', () => {
+    const bill = { ...october.bills[0], id: 'cloud1', name: 'Cloud Apple', amount: 19.9, isOnCreditCard: true };
+    const month: BudgetMonth = { ...october, bills: [bill, { ...bill, id: 'cloud2' }], creditCardInvoices: [invoiceOf('inv_c6', cardC6.id, [transaction({ invoiceId: 'inv_c6', merchant: 'APPLE.COM/BILL', amountCents: 1990 })])] };
+    const { host, calls } = hostOf({ ...universe, cards: [cardC6], selectedMonth: month, months: [month] });
+    const outcome = planAssistantCommand({ action: 'mark_paid', card: 'C6 8649' }, host);
+    if (outcome.kind !== 'plan') throw new Error('esperava um plano');
+    expect(plain(outcome.summary[0])).toContain('R$ 39,80');
+    expectNoCall(calls);
+    outcome.apply();
+    expect(calls.pay).toEqual([{ ids: [], invoiceIds: ['inv_c6'], billIds: ['cloud2'] }]);
+  });
+
+  it('não oferece pagamento quando o cartão não tem fatura nem conta manual', () => {
+    const { host, calls } = hostOf();
+    const outcome = planAssistantCommand({ action: 'mark_paid', card: 'Nubank 6852' }, host);
+    expect(outcome.kind).toBe('answer');
+    expectNoCall(calls);
   });
 
   it('libera a conta pelo nome, somando o valor em reais da tela', () => {

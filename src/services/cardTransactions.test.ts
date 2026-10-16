@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getCardCharges, getMonthPlannedCents, getThirdPartyTotalsCents, getUnimportedCardBills, isOnCreditCardBill, sortInvoiceTransactions } from './cardTransactions';
+import { getCardCharges, getCardTotalWithPendingBillsCents, getMonthPlannedCents, getThirdPartyTotalsCents, getUnimportedCardBills, isOnCreditCardBill, sortInvoiceTransactions } from './cardTransactions';
 import type { Bill, CreditCardInvoice, CreditCardTransaction } from '../types';
 
 function tx(overrides: Partial<CreditCardTransaction>): CreditCardTransaction {
@@ -145,8 +145,8 @@ describe('conta fixa no cartão dentro de "Meus gastos"', () => {
 
   it('compara a parcela certa de uma compra parcelada', () => {
     const bills = [cardBill({ name: 'Geladeira', amount: 250, installmentCurrent: 3, installmentTotal: 12 })];
-    const mesmaParcela = [tx({ amountCents: 25000, type: 'INSTALLMENT', installmentCurrent: 3, installmentTotal: 12 })];
-    const outraParcela = [tx({ amountCents: 25000, type: 'INSTALLMENT', installmentCurrent: 4, installmentTotal: 12 })];
+    const mesmaParcela = [tx({ merchant: 'GELADEIRA', amountCents: 25000, type: 'INSTALLMENT', installmentCurrent: 3, installmentTotal: 12 })];
+    const outraParcela = [tx({ merchant: 'GELADEIRA', amountCents: 25000, type: 'INSTALLMENT', installmentCurrent: 4, installmentTotal: 12 })];
     expect(getUnimportedCardBills(bills, mesmaParcela)).toHaveLength(0);
     expect(getUnimportedCardBills(bills, outraParcela)).toHaveLength(1);
   });
@@ -163,10 +163,36 @@ describe('conta fixa no cartão dentro de "Meus gastos"', () => {
     expect(getUnimportedCardBills(bills, importada)).toHaveLength(0);
   });
 
-  it('o dia do lançamento também identifica a conta sem ajuda do nome', () => {
-    const bills = [cardBill({ name: 'Jae', amount: 20, dueDay: 7 })];
-    expect(getUnimportedCardBills(bills, [tx({ merchant: 'JOSE FARIAS', amountCents: 2000, date: '07/09' })])).toHaveLength(0);
-    expect(getUnimportedCardBills(bills, [tx({ merchant: 'JOSE FARIAS', amountCents: 2000, date: '08/09' })])).toHaveLength(1);
+  it('não usa só valor e dia para identificar estabelecimentos diferentes', () => {
+    const bills = [cardBill({ name: 'Cloud Apple', amount: 19.9, dueDay: 1 })];
+    expect(getUnimportedCardBills(bills, [tx({ merchant: 'MP *MELIMAIS', amountCents: 1990, date: '01/10' })])).toEqual(bills);
+  });
+
+  it('não confunde compras parceladas diferentes com o mesmo valor e andamento', () => {
+    const bills = [cardBill({ name: 'Geladeira', amount: 250, installmentCurrent: 3, installmentTotal: 12 })];
+    const imported = [tx({ merchant: 'NETSHOES', amountCents: 25000, type: 'INSTALLMENT', installmentCurrent: 3, installmentTotal: 12 })];
+    expect(getUnimportedCardBills(bills, imported)).toEqual(bills);
+  });
+
+  it('cada lançamento só representa uma conta, sem alterar os registros', () => {
+    const bills = [cardBill({ id: 'cloud1', name: 'Cloud Apple', amount: 19.9 }), cardBill({ id: 'cloud2', name: 'Cloud Apple', amount: 19.9 })];
+    const imported = [tx({ merchant: 'APPLE.COM/BILL', amountCents: 1990 })];
+    const before = structuredClone({ bills, imported });
+    expect(getUnimportedCardBills(bills, imported)).toEqual([bills[1]]);
+    expect(getUnimportedCardBills(bills, [...imported, tx({ merchant: 'APPLE.COM/BILL', amountCents: 1990 })])).toHaveLength(0);
+    expect({ bills, imported }).toEqual(before);
+    const invoices: CreditCardInvoice[] = [{ id: 'inv', month: 'Outubro', year: 2026, transactions: imported }];
+    const charges = getCardCharges(invoices, bills);
+    expect(charges.totalCents).toBe(3980);
+    expect(getCardTotalWithPendingBillsCents(invoices, charges.pendingBills)).toBe(3980);
+    expect(getMonthPlannedCents(bills, invoices)).toBe(3980);
+  });
+
+  it('uma compra de outro cartão não absorve a conta manual identificada', () => {
+    const bills = [cardBill({ cardId: 'c6' })];
+    const invoices: CreditCardInvoice[] = [{ id: 'inv', cardId: 'nubank', month: 'Outubro', year: 2026, transactions: [tx({ merchant: 'ACADEMIA', amountCents: 13750 })] }];
+    expect(getCardCharges(invoices, bills).pendingBills).toEqual(bills);
+    expect(getCardCharges(invoices, bills).totalCents).toBe(27500);
   });
 
   it('estorno de mesmo valor não é a conta já paga na fatura', () => {

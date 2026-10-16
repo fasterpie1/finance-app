@@ -2,12 +2,13 @@ import { type Bill, type BudgetMonth, type CategoryId, type CreditCardInvoice, t
 import {
   centsToAmount,
   getCardCharges,
+  getCardTotalWithPendingBillsCents,
   getChargeImpactCents,
   getPersonalImpactCents,
   isOnCreditCardBill,
   sortInvoiceTransactions,
 } from './cardTransactions';
-import { getInvoiceCardLabel, groupInvoicesByCard, resolveInvoiceCardId, type PaymentCard } from './paymentCards';
+import { getInvoiceCardLabel, groupInvoicesByCard, resolveBillCardId, resolveInvoiceCardId, type PaymentCard } from './paymentCards';
 
 /**
  * Tudo que a assistente precisa para enxergar o aplicativo inteiro. As somas vêm das mesmas
@@ -36,20 +37,23 @@ export function monthLabel(month: BudgetMonth): string {
   return `${month.name} ${month.year}`;
 }
 
-/** Quanto cada cartão cobra no mês. As contas postas no cartão na mão não têm dono conhecido
- *  e ficam no grupo "sem cartão", junto das faturas antigas — o mesmo critério da tela. */
 export function getCardMonthTotalsCents(
   invoices: CreditCardInvoice[],
   bills: Bill[],
   cards: PaymentCard[],
 ): Array<{ cardId: string | undefined; cents: number }> {
   const pendingBills = getCardCharges(invoices, bills).pendingBills;
-  return groupInvoicesByCard(invoices, cards).map((group) => ({
-    cardId: group.cardId,
-    cents: group.cardId
-      ? getCardCharges(group.invoices, []).totalCents
-      : getCardCharges(group.invoices, pendingBills).totalCents,
-  }));
+  const groups = groupInvoicesByCard(invoices, cards);
+  const cardIds: Array<string | undefined> = [...cards.map((card) => card.id), undefined];
+  return cardIds.filter((cardId) => groups.some((group) => group.cardId === cardId)
+    || pendingBills.some((bill) => resolveBillCardId(bill, cards) === cardId))
+    .map((cardId) => ({
+      cardId,
+      cents: getCardTotalWithPendingBillsCents(
+        groups.find((group) => group.cardId === cardId)?.invoices ?? [],
+        pendingBills.filter((bill) => resolveBillCardId(bill, cards) === cardId),
+      ),
+    }));
 }
 
 /** Os cartões da conta, com o final do plástico que o usuário usa para nomeá-los. */
@@ -86,7 +90,7 @@ export function buildOverviewSection(universe: AssistantUniverse): string {
 
 /** Categorias do mês com os dois números: o bruto da fatura e a minha parte. Sem isso a IA
  *  chamava de "não há registros" um mês em que o gasto era de terceiro. */
-function buildCategorySection(month: BudgetMonth, universe: AssistantUniverse): string {
+export function getAssistantCategoryTotals(month: BudgetMonth, universe: AssistantUniverse): Array<{ label: string; personalCents: number; chargeCents: number; count: number }> {
   const totals = new Map<string, { personalCents: number; chargeCents: number; count: number }>();
   const push = (label: string, personalCents: number, chargeCents: number) => {
     const entry = totals.get(label) ?? { personalCents: 0, chargeCents: 0, count: 0 };
@@ -110,17 +114,52 @@ function buildCategorySection(month: BudgetMonth, universe: AssistantUniverse): 
     const cents = Math.round(bill.amount * 100);
     push(universe.categoryLabel(bill.category), cents, cents);
   });
-  const lines = [...totals.entries()]
-    .filter(([, entry]) => entry.chargeCents !== 0 || entry.personalCents !== 0)
+  return [...totals.entries()]
     .sort((a, b) => b[1].chargeCents - a[1].chargeCents)
-    .map(([label, entry]) => `- ${label}: bruto ${universe.money(centsToAmount(entry.chargeCents))} | minha parte ${universe.money(centsToAmount(entry.personalCents))} | ${entry.count} lançamento(s)`);
-  return `Categorias de ${monthLabel(month)} (o bruto é o que a fatura cobra; "minha parte" tira o de terceiro e o resto da compartilhada):\n${lines.join('\n') || '- nenhuma categoria com valor neste mês'}`;
+    .map(([label, entry]) => ({ label, ...entry }));
+}
+
+function buildCategorySection(month: BudgetMonth, universe: AssistantUniverse): string {
+  const lines = getAssistantCategoryTotals(month, universe)
+    .map((entry) => `- ${entry.label}: bruto ${universe.money(centsToAmount(entry.chargeCents))} | minha parte ${universe.money(centsToAmount(entry.personalCents))} | ${entry.count} lançamento(s)`);
+  return `Categorias de ${monthLabel(month)} (total dos lançamentos, incluindo contas fora do cartão; "minha parte" tira o de terceiro e o resto da compartilhada):\n${lines.join('\n') || '- nenhuma categoria com lançamentos neste mês'}`;
+}
+
+export function answerAssistantQuestion(question: string, universe: AssistantUniverse, t: (key: string, params?: Record<string, string | number>) => string): string | null {
+  const value = normalize(question).replace(/,/g, '').replace(/[?!.]+$/g, '').trim();
+  if (/^(?:oi|ola|oi tudo bem|ola tudo bem|bom dia|boa tarde|boa noite|hello|hi|hello how are you)$/.test(value)) return t('assistantGreeting');
+  const month = universe.selectedMonth;
+  const money = universe.money;
+  if (value === 'como estou indo financeiramente este mes' || value === 'how am i doing financially this month') {
+    return t('assistantMonthSummary', {
+      month: monthLabel(month), income: money(month.income), planned: money(universe.dashboard.totalPlanned),
+      paid: money(universe.dashboard.totalPaid), pending: money(universe.dashboard.totalPlanned - universe.dashboard.totalPaid), remaining: money(universe.dashboard.remaining),
+    });
+  }
+  const purchases = /^(?:(?:o que|que|quanto)(?: eu)? gastei(?: (?:n?esse|este) mes)? (?:com|em|na categoria) compras|qual (?:e )?o total (?:de )?compras(?: (?:n?esse|este) mes)?|how much (?:did i spend|have i spent)(?: this month)? on (?:purchases|shopping))$/.test(value);
+  const card = /^(?:qual (?:e )?o total da fatura(?: (?:deste|desse) mes)?|quanto (?:eu )?gastei no cartao(?: (?:n?esse|este) mes)?|what is my card invoice total)$/.test(value);
+  if (!purchases && !card) return null;
+  const charges = getCardCharges(month.creditCardInvoices ?? [], month.bills);
+  const cardSummary = t('assistantCardSummary', { month: monthLabel(month), personal: money(centsToAmount(charges.personalCents)), invoice: money(centsToAmount(charges.totalCents)) });
+  if (card) return cardSummary;
+  const category = getAssistantCategoryTotals(month, universe).find((entry) => entry.label === universe.categoryLabel('compras'));
+  const unclassified = (month.creditCardInvoices ?? []).flatMap((invoice) => invoice.transactions).filter((transaction) => transaction.type !== 'PAYMENT' && !transaction.category).length;
+  return [
+    cardSummary,
+    t('assistantPurchasesCategory', { personal: money(centsToAmount(category?.personalCents ?? 0)), total: money(centsToAmount(category?.chargeCents ?? 0)) }),
+    unclassified ? t('assistantUncategorized', { count: unclassified }) : '',
+  ].filter(Boolean).join('\n');
 }
 
 function buildBillLines(month: BudgetMonth, universe: AssistantUniverse): string {
   const bills = [...month.bills].sort((a, b) => a.dueDay - b.dueDay);
   if (bills.length === 0) return `Contas lançadas em ${monthLabel(month)}: nenhuma.`;
-  return `Contas lançadas em ${monthLabel(month)}:\n${bills.map((bill) => `- ${bill.name} (${universe.categoryLabel(bill.category)}) ${universe.money(bill.amount)} — dia ${bill.dueDay}${bill.installmentCurrent && bill.installmentTotal && bill.installmentTotal > 1 ? ` — parcela ${bill.installmentCurrent}/${bill.installmentTotal}` : ''} — ${isOnCreditCardBill(bill) ? 'no cartão' : 'fora do cartão'} — ${bill.isPaid ? 'paga' : 'pendente'}`).join('\n')}`;
+  return `Contas lançadas em ${monthLabel(month)}:\n${bills.map((bill) => {
+    const payment = isOnCreditCardBill(bill)
+      ? `no cartão ${getInvoiceCardLabel({ cardId: resolveBillCardId(bill, universe.cards) }, universe.cards) || '(sem cartão identificado)'}`
+      : 'fora do cartão';
+    return `- ${bill.name} (${universe.categoryLabel(bill.category)}) ${universe.money(bill.amount)} — dia ${bill.dueDay}${bill.installmentCurrent && bill.installmentTotal && bill.installmentTotal > 1 ? ` — parcela ${bill.installmentCurrent}/${bill.installmentTotal}` : ''} — ${payment} — ${bill.isPaid ? 'paga' : 'pendente'}`;
+  }).join('\n')}`;
 }
 
 /** O mês inteiro linha a linha estoura os tokens por minuto da Groq gratuita: entram os maiores e
@@ -174,7 +213,7 @@ export function buildMonthDetail(month: BudgetMonth, universe: AssistantUniverse
  * uma linha de resumo cada, e a assistente pede o extrato quando a pergunta é de outro mês.
  * Assim o prompt cabe no limite de tokens por minuto da Groq gratuita com todos os meses visíveis.
  */
-export function buildAssistantDataSection(universe: AssistantUniverse, detailMonth: BudgetMonth): string {
+export function buildAssistantDataSection(universe: AssistantUniverse, detailMonth: BudgetMonth, includeDetails = true): string {
   const { selectedMonth, money, dashboard } = universe;
   const charges = getCardCharges(selectedMonth.creditCardInvoices ?? [], selectedMonth.bills);
   return [
@@ -189,11 +228,13 @@ export function buildAssistantDataSection(universe: AssistantUniverse, detailMon
     '',
     buildCategoryNamesSection(universe.categoryNames),
     '',
-    buildMonthDetail(detailMonth, universe),
+    includeDetails ? buildMonthDetail(detailMonth, universe) : `MÊS: ${monthLabel(detailMonth)}\n${buildCategorySection(detailMonth, universe)}`,
     '',
     'Regras de leitura destes dados:',
+    '- Se precisar de estabelecimentos, contas ou datas não listados aqui, peça get_month_detail para o mês desejado, inclusive o mês aberto. Não diga que não existem só porque o resumo não lista nomes.',
     `- Os totais já vêm calculados na linha de cada categoria ("bruto" e "minha parte"). Use esse número para responder quanto foi gasto; nunca some os lançamentos listados embaixo para chegar a um total.`,
-    '- "bruto" é o que o banco cobra na fatura. "minha parte" desconta o que é de terceiro e a outra metade do compartilhado. Um gasto pode ser real e ainda assim não ser do usuário: antes de dizer que não há registro, olhe o bruto.',
+    '- Categorias mostram o total dos lançamentos, inclusive contas fora do cartão; não são o total bancário da fatura. "minha parte" desconta terceiros e a outra metade do compartilhado. Nunca conclua que não há compras no cartão só porque a categoria Compras é zero.',
+    '- Responda à última pergunta do usuário, não a uma pergunta antiga do histórico. "Compras" pode significar a categoria ou todos os gastos: diferencie os dois números e informe o mês aberto.',
     '- Lançamentos "Sem categoria" são compras de fatura importada que o usuário ainda não classificou; explique isso e oriente a escolher a categoria na linha do lançamento, na tela Cartão.',
     '- Muitos lançamentos importados não têm data. Quando a pergunta for "quando" e não houver data, responda com estabelecimentos e valores daquela categoria no mês pedido e diga que a data não foi registrada na importação — nunca invente dia.',
     '- Se o mês perguntado não estiver em MESES CADASTRADOS, diga que não há dados dele e oriente a criar o mês ou importar a fatura. Nunca invente valor, categoria, cartão nem nome.',

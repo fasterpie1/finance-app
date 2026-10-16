@@ -97,6 +97,43 @@ export async function pdfToText(file: File): Promise<string> {
   return pages.join('\n');
 }
 
+export interface ChatImage {
+  name: string;
+  dataUrl: string;
+}
+
+export const MAX_CHAT_IMAGE_BYTES = 10 * 1024 * 1024;
+
+export async function prepareChatImage(file: File): Promise<ChatImage> {
+  if (file.size === 0 || file.size > MAX_CHAT_IMAGE_BYTES) throw new Error('chatPhotoSize');
+  const detected = detectStatementFileKind(new Uint8Array(await file.slice(0, 12).arrayBuffer()));
+  if (detected?.kind !== 'image') throw new Error('chatPhotoInvalid');
+  const url = URL.createObjectURL(new Blob([file], { type: detected.mimeType }));
+  try {
+    const image = new Image();
+    image.src = url;
+    await image.decode();
+    if (!image.naturalWidth || !image.naturalHeight || image.naturalWidth * image.naturalHeight > 40_000_000) {
+      throw new Error('chatPhotoReadError');
+    }
+    const scale = Math.min(1, 1600 / Math.max(image.naturalWidth, image.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('chatPhotoReadError');
+    context.fillStyle = '#fff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    // A recodificação reduz o envio e remove metadados da foto, como localização.
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+    if (!dataUrl.startsWith('data:image/jpeg;base64,')) throw new Error('chatPhotoReadError');
+    return { name: file.name, dataUrl };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 export function fileToBase64(file: File, mimeType: string): Promise<{ base64: string; mimeType: string }> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

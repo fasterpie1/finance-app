@@ -6,8 +6,8 @@ import {
   type CreditCardTransaction,
   type ExpenseOwner,
 } from '../types';
-import { centsToAmount, getCardCharges, getChargeImpactCents } from './cardTransactions';
-import { cardInvoiceId, getPaymentCardLabel, resolveInvoiceCardId, type PaymentCard } from './paymentCards';
+import { centsToAmount, getCardCharges, getCardTotalWithPendingBillsCents, getChargeImpactCents } from './cardTransactions';
+import { cardInvoiceId, getPaymentCardLabel, resolveBillCardId, resolveInvoiceCardId, type PaymentCard } from './paymentCards';
 import { type AssistantUniverse, monthLabel, resolveMonthRef } from './assistantContext';
 import { type CardMoveTarget, type CreditCardPurchase } from '../store/useDashboard';
 
@@ -441,15 +441,18 @@ export function planAssistantCommand(command: AssistantCommand, host: AssistantC
     const card = target.card;
     if (!card) return answer('Não achei esse cartão cadastrado.');
     const invoices = invoicesOfCard(data, universe.cards, card);
-    if (invoices.length === 0) return answer(`O cartão ${getPaymentCardLabel(card)} não tem fatura em ${monthLabel(data.month)}.`);
-    const cents = invoices.reduce((sum, invoice) => sum + getCardCharges([invoice], []).totalCents, 0);
+    const bills = getCardCharges(data.invoices, data.month.bills).pendingBills
+      .filter((bill) => resolveBillCardId(bill, universe.cards) === card.id);
+    if (invoices.length + bills.length === 0) return answer(`O cartão ${getPaymentCardLabel(card)} não tem fatura em ${monthLabel(data.month)}.`);
+    const cents = getCardTotalWithPendingBillsCents(invoices, bills);
+    const invoiceIds = invoices.map((invoice) => invoice.id);
+    const billIds = bills.map((bill) => bill.id);
     return {
       kind: 'plan',
       summary: [`${pay ? 'Marcar como paga' : 'Liberar para pagar'} a fatura do ${getPaymentCardLabel(card)} — ${universe.money(centsToAmount(cents))}`],
       apply: () => {
-        const ids = invoices.map((invoice) => invoice.id);
-        if (pay) host.payCard(ids, []);
-        else host.unpayCard(ids, []);
+        if (pay) host.payCard(invoiceIds, billIds);
+        else host.unpayCard(invoiceIds, billIds);
         return `Fatura do ${getPaymentCardLabel(card)} ${pay ? 'marcada como paga' : 'liberada para pagar'} (${universe.money(centsToAmount(cents))}).`;
       },
     };

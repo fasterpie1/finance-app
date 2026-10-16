@@ -72,11 +72,10 @@ export function getInvoiceThirdPartyTotalCents(invoice: CreditCardInvoice): numb
   return invoice.transactions.reduce((total, transaction) => total + getThirdPartyImpactCents(transaction), 0);
 }
 
-/** Contas postas na mão e o merchant do banco falam línguas diferentes: "Cloud Apple" chega como
- *  "APPLE.COM/BILL". Um token em comum de 4 letras ou mais é a mesma cobrança. */
+// O banco pode escrever "APPLE.COM/BILL" para a conta chamada "Cloud Apple".
 function sharesChargeName(billName: string, merchant: string): boolean {
   const tokens = (value: string) => value.normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .toUpperCase()
     .split(/[^0-9A-Z]+/)
     .filter((token) => token.length >= 4);
@@ -84,26 +83,37 @@ function sharesChargeName(billName: string, merchant: string): boolean {
   return tokens(merchant).some((token) => mine.includes(token));
 }
 
-/** Conta fixa ligada ao cartão que ainda não apareceu como gasto importado da fatura.
- *  Sem esse filtro, a academia parcelada entra duas vezes no "Meus gastos": uma como
- *  conta fixa do usuário e outra como linha que veio na fatura lida pela IA.
- *  Preço igual sozinho não identifica nada: uma assinatura de R$ 19,90 não é a compra de
- *  R$ 19,90 do mercado. Só descarta quando o dia bate ou o nome bate; a parcela tem
- *  identidade própria (valor + em que parcela está) e segue dispensando os dois. */
-export function getUnimportedCardBills(bills: Bill[], transactions: CreditCardTransaction[]): Bill[] {
+export function getUnimportedCardBills(
+  bills: Bill[],
+  transactions: CreditCardTransaction[],
+  transactionCardIds?: ReadonlyMap<string, string | undefined>,
+): Bill[] {
+  const matchedIndexes = new Set<number>();
   return bills.filter((bill) => {
     const isInstallment = (bill.installmentTotal ?? 1) > 1;
     const cents = amountToCents(bill.amount);
-    return !transactions.some((transaction) => {
+    const index = transactions.findIndex((transaction, transactionIndex) => {
+      if (matchedIndexes.has(transactionIndex)) return false;
+      const cardId = transactionCardIds?.get(transaction.id);
+      if (bill.cardId && cardId && bill.cardId !== cardId) return false;
       if (transaction.amountCents !== cents) return false;
       if (transaction.type !== (isInstallment ? 'INSTALLMENT' : 'PURCHASE')) return false;
-      if (isInstallment) {
-        return (transaction.installmentCurrent ?? 1) === (bill.installmentCurrent ?? 1)
-          && (transaction.installmentTotal ?? 1) === (bill.installmentTotal ?? 1);
-      }
-      return getTransactionDay(transaction.date) === bill.dueDay || sharesChargeName(bill.name, transaction.merchant);
+      if (!sharesChargeName(bill.name, transaction.merchant)) return false;
+      return !isInstallment || (
+        (transaction.installmentCurrent ?? 1) === (bill.installmentCurrent ?? 1)
+        && (transaction.installmentTotal ?? 1) === (bill.installmentTotal ?? 1)
+      );
     });
+    if (index < 0) return true;
+    matchedIndexes.add(index);
+    return false;
   });
+}
+
+// As contas pendentes já passaram pela correspondência; repetir o filtro consumiria a mesma linha duas vezes.
+export function getCardTotalWithPendingBillsCents(invoices: CreditCardInvoice[], pendingBills: Bill[]): number {
+  return invoices.reduce((total, invoice) => total + getInvoiceTotalCents(invoice), 0)
+    + pendingBills.reduce((total, bill) => total + amountToCents(bill.amount), 0);
 }
 
 /** A regra única de "essa conta está no cartão". Débito/Pix é cobrado na hora da compra,
@@ -131,10 +141,11 @@ export interface CardCharges {
  *  prompt da IA. Cada tela deixava de fora um pedaço diferente, e os números brigavam. */
 export function getCardCharges(invoices: CreditCardInvoice[], bills: Bill[]): CardCharges {
   const transactions = invoices.flatMap((invoice) => invoice.transactions);
-  const pendingBills = getUnimportedCardBills(bills.filter(isOnCreditCardBill), transactions);
+  const transactionCardIds = new Map(invoices.flatMap((invoice) => invoice.transactions.map((transaction) => [transaction.id, invoice.cardId] as const)));
+  const pendingBills = getUnimportedCardBills(bills.filter(isOnCreditCardBill), transactions, transactionCardIds);
   const pendingCents = pendingBills.reduce((total, bill) => total + amountToCents(bill.amount), 0);
   return {
-    totalCents: invoices.reduce((total, invoice) => total + getInvoiceTotalCents(invoice), 0) + pendingCents,
+    totalCents: getCardTotalWithPendingBillsCents(invoices, pendingBills),
     personalCents: invoices.reduce((total, invoice) => total + getInvoicePersonalTotalCents(invoice), 0) + pendingCents,
     thirdPartyCents: invoices.reduce((total, invoice) => total + getInvoiceThirdPartyTotalCents(invoice), 0),
     sharedCents: transactions.reduce((total, transaction) => (
