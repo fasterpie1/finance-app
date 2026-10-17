@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 // Nenhum cliente real, chave ou chamada de rede participa destes testes.
 vi.mock('./supabase', () => ({ supabase: null }));
-import { buildAssistantChatRequest, buildAssistantHistory, classifyGroqError, GroqRequestError, type AssistantChatMessage } from './groq';
+import { buildAssistantChatRequest, buildAssistantHistory, classifyGroqError, GroqRequestError, needsAssistantHistory, type AssistantChatMessage } from './groq';
 
 const image = 'data:image/jpeg;base64,/9j/';
 
@@ -96,7 +96,7 @@ describe('buildAssistantHistory', () => {
     expect(buildAssistantHistory(messages.slice(0, 3))).toEqual([messages[2]]);
   });
 
-  it('envia os últimos três pares completos e a pergunta atual, sem falhas consumir o limite', () => {
+  it('envia os últimos dois pares completos e a pergunta atual, sem falhas consumir o limite', () => {
     const pairs: StoredMessage[] = Array.from({ length: 5 }, (_, index): StoredMessage[] => [
       { role: 'user', content: `Pergunta ${index + 1}` },
       { role: 'assistant', content: `Resposta ${index + 1}` },
@@ -108,9 +108,25 @@ describe('buildAssistantHistory', () => {
       { role: 'error', content: 'Falha descartada' },
       current,
     ]);
-    expect(history).toEqual([...pairs.slice(-6), current]);
-    expect(history.map((message) => message.role)).toEqual(['user', 'assistant', 'user', 'assistant', 'user', 'assistant', 'user']);
-    expect(history).toHaveLength(7);
+    expect(history).toEqual([...pairs.slice(-4), current]);
+    expect(history.map((message) => message.role)).toEqual(['user', 'assistant', 'user', 'assistant', 'user']);
+    expect(history).toHaveLength(5);
+  });
+
+  it('não começa com resposta órfã quando há mais turnos que o limite', () => {
+    const messages: StoredMessage[] = Array.from({ length: 4 }, (_, index): StoredMessage[] => [
+      { role: 'user', content: `Pergunta ${index + 1}` },
+      { role: 'assistant', content: `Resposta ${index + 1}` },
+    ]).flat();
+    messages.push({ role: 'user', content: 'E depois?' });
+
+    expect(buildAssistantHistory(messages)).toEqual([
+      { role: 'user', content: 'Pergunta 3' },
+      { role: 'assistant', content: 'Resposta 3' },
+      { role: 'user', content: 'Pergunta 4' },
+      { role: 'assistant', content: 'Resposta 4' },
+      { role: 'user', content: 'E depois?' },
+    ]);
   });
 
   it('junta respostas consecutivas sem mutar a lista ou os objetos originais', () => {
@@ -137,6 +153,16 @@ describe('buildAssistantHistory', () => {
     history[1].content = 'Outra alteração no resultado';
     history[2].content = 'Pergunta alterada no resultado';
     expect(messages).toEqual(before);
+  });
+});
+
+describe('needsAssistantHistory', () => {
+  it.each(['E no mês anterior?', 'Explique melhor', 'E essa categoria?', 'What about last month?'])('preserva histórico para follow-up: %s', (question) => {
+    expect(needsAssistantHistory(question)).toBe(true);
+  });
+
+  it.each(['Quais estabelecimentos aparecem em Compras neste mês?', 'Compare setembro de 2026 e outubro de 2026', 'Quanto gastei com lazer?'])('omite histórico em pergunta autônoma: %s', (question) => {
+    expect(needsAssistantHistory(question)).toBe(false);
   });
 });
 

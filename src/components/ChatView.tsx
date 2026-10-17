@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { buildAssistantChatRequest, buildAssistantHistory, classifyGroqError, deleteGroqKey, GroqRequestError, hasGroqKey, saveGroqKey, sendGroqChat } from '../services/groq';
+import { buildAssistantChatRequest, buildAssistantHistory, classifyGroqError, deleteGroqKey, GroqRequestError, hasGroqKey, needsAssistantHistory, saveGroqKey, sendGroqChat } from '../services/groq';
 import { prepareChatImage, type ChatImage } from '../services/statementFiles';
 import { startSpeechInput, supportsSpeechInput } from '../services/speechInput';
 import { readUserStorage, removeUserStorage, writeUserStorage } from '../services/userStorage';
@@ -304,14 +304,18 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
     try {
       const today = new Date().toISOString().slice(0, 10);
       const calendarInstructions = `\n\nVocê também pode controlar o Google Agenda. Hoje é ${today}. Para qualquer pedido de agenda, responda SOMENTE um JSON válido, sem markdown, com este formato: {"action":"...","response":"..."}. Ações disponíveis: create_bill_reminder com billName para uma conta do mês atual (o lembrete usa automaticamente 9h no dia anterior ao vencimento); create_invoice_reminder para a fatura do mês atual (também usa 9h); create_event com title, date YYYY-MM-DD, time HH:mm, durationMinutes e description; list_events com date YYYY-MM-DD (omita para hoje); update_event com eventId ou query e os campos a alterar; delete_event com query ou eventId. Para create_event, NUNCA invente nem assuma título, data ou horário: se algum desses três campos faltar, use action none e escreva em response uma pergunta objetiva dizendo exatamente o que falta. Para perguntas normais use action none e coloque a resposta em response. Não invente IDs nem contas.\n`;
-      const historyMessages = buildAssistantHistory(history.map((m) => ({
+      const storedHistory = history.map((m) => ({
         role: m.role,
         content: `${m.content}${m.photoName ? `\n${t('chatPhotoLabel', { name: m.photoName })}` : ''}`,
-      })));
+      }));
+      const currentMessage = storedHistory.at(-1);
+      const historyMessages = needsAssistantHistory(msg)
+        ? buildAssistantHistory(storedHistory)
+        : currentMessage ? [{ role: currentMessage.role as 'user' | 'assistant', content: currentMessage.content }] : [];
       // Só um mês vai linha a linha no prompt: com o extrato de todos os meses o limite de tokens
       // por minuto da Groq gratuita estourava e a resposta chegava cortada.
       const includeDetails = intents.includes('action') || /\b(detalh\w*|list\w*|estabelec\w*|datas?|quando|qual dia|quem|quais compras|which purchases|merchant)\b/i.test(msg);
-      const systemFor = (month: BudgetMonth, withCalendar: boolean, detailed = false) => `${buildAssistantDataSection(universe, month, detailed, intents)}\n\n${buildProtocolSection(universe, intents)}\nFotos de mensagens anteriores não estão disponíveis: use apenas os dados já descritos na conversa ou peça para anexar novamente.${withCalendar && calendarActions && !image ? calendarInstructions : ''}`;
+      const systemFor = (month: BudgetMonth, withCalendar: boolean, detailed = false) => `${buildAssistantDataSection(universe, month, detailed, intents, msg)}\n\n${buildProtocolSection(universe, intents)}\nFotos de mensagens anteriores não estão disponíveis: use apenas os dados já descritos na conversa ou peça para anexar novamente.${withCalendar && calendarActions && !image ? calendarInstructions : ''}`;
       const sendWithJsonRetry = async (request: Record<string, unknown>) => {
         try {
           return await sendMeasured(request);

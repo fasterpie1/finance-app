@@ -123,6 +123,15 @@ describe('contexto da assistente', () => {
     expect(text).toContain('Categorias de Setembro 2026');
   });
 
+  it('filtra linhas de detalhe pela categoria perguntada sem alterar os totais', () => {
+    const universe = universeOf(october, [september, october]);
+    const text = buildAssistantDataSection(universe, october, true, ['category'], 'Quais estabelecimentos aparecem em Compras?');
+    expect(text).toContain('Mercado');
+    expect(text).not.toContain('Cinema');
+    expect(text).toContain('Compras: bruto');
+    expect(text).toContain('minha parte');
+  });
+
   it('lista todo mês numa linha e marca o mês aberto na tela', () => {
     const overview = buildOverviewSection(universeOf(october, [september, october]));
     expect(overview).toContain('- Setembro 2026:');
@@ -363,6 +372,20 @@ describe('answerAssistantQuestion', () => {
     expect(t).toHaveBeenCalledExactlyOnceWith('assistantCategorySummary', expect.objectContaining({
       category: 'Lazer', total: universe.money(210), personal: universe.money(0), count: 1,
     }));
+  });
+
+  it('lista todos os registros categorizados com totais oficiais sem contar pagamentos', () => {
+    const month = adjustedMonth();
+    const universe = universeOf(month, [month]);
+    const response = JSON.parse(answerAssistantQuestion('Quais estabelecimentos aparecem nos lançamentos de Compras deste mês?', universe, translate) ?? '{}') as { params: { rows: string; count: number; total: string; personal: string } };
+    expect(response.params.rows).toContain('Compra Teste');
+    expect(response.params.rows).toContain('Conta Manual Teste');
+    expect(response.params.rows).toContain('Estorno Teste');
+    expect(response.params.rows).not.toContain('Pagamento Teste');
+    expect(response.params.count).toBe(7);
+    const totals = getAssistantCategoryTotals(month, universe).find((entry) => entry.label === 'Compras')!;
+    expect(response.params.total).toBe(universe.money(centsToAmount(totals.chargeCents)));
+    expect(response.params.personal).toBe(universe.money(centsToAmount(totals.personalCents)));
   });
 
   it('calcula localmente a série do gráfico e diferencia cartão de categoria', () => {

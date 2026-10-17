@@ -162,10 +162,37 @@ export function getAssistantCategoryTotals(month: BudgetMonth, universe: Assista
     .map(([label, entry]) => ({ label, ...entry }));
 }
 
-function buildCategorySection(month: BudgetMonth, universe: AssistantUniverse): string {
+function buildCategorySection(month: BudgetMonth, universe: AssistantUniverse, categoryFilter?: string): string {
   const lines = getAssistantCategoryTotals(month, universe)
+    .filter((entry) => !categoryFilter || normalize(entry.label) === normalize(categoryFilter))
     .map((entry) => `- ${entry.label}: bruto ${universe.money(centsToAmount(entry.chargeCents))} | minha parte ${universe.money(centsToAmount(entry.personalCents))} | ${entry.count} lançamento(s)`);
   return `Categorias de ${monthLabel(month)} (total dos lançamentos, incluindo contas fora do cartão; "minha parte" tira o de terceiro e o resto da compartilhada):\n${lines.join('\n') || '- nenhuma categoria com lançamentos neste mês'}`;
+}
+
+function answerAssistantCategoryDetails(category: string, month: BudgetMonth, universe: AssistantUniverse, t: (key: string, params?: Record<string, string | number>) => string): string {
+  const matches = (value: CategoryId) => normalize(universe.categoryLabel(value)) === normalize(category);
+  const transactions = sortInvoiceTransactions((month.creditCardInvoices ?? []).flatMap((invoice) => invoice.transactions)
+    .filter((transaction) => transaction.type !== 'PAYMENT' && transaction.category && matches(transaction.category)));
+  const transactionRows = transactions.map((transaction) => (
+    `- ${transaction.merchant}: ${universe.money(centsToAmount(getChargeImpactCents(transaction)))} bruto, ${universe.money(centsToAmount(getPersonalImpactCents(transaction)))} minha parte${transaction.date ? `, ${transaction.date}` : ''}`
+  ));
+  const billDetails = [
+    ...getCardCharges(month.creditCardInvoices ?? [], month.bills).pendingBills,
+    ...month.bills.filter((bill) => !isOnCreditCardBill(bill)),
+  ].filter((bill) => matches(bill.category));
+  const billRows = billDetails.map((bill) => (
+    `- ${bill.name}: ${universe.money(bill.amount)}${bill.isPaid ? ', paga' : ', pendente'}${bill.dueDay ? `, dia ${bill.dueDay}` : ''}`
+  ));
+  const rows = [...transactionRows, ...billRows];
+  const totals = getAssistantCategoryTotals(month, universe).find((entry) => normalize(entry.label) === normalize(category));
+  return t('assistantCategoryDetails', {
+    category,
+    month: monthLabel(month),
+    count: rows.length,
+    rows: rows.length ? rows.join('\n') : 'Nenhum lançamento classificado nessa categoria.',
+    total: universe.money(centsToAmount(totals?.chargeCents ?? 0)),
+    personal: universe.money(centsToAmount(totals?.personalCents ?? 0)),
+  });
 }
 
 export function answerAssistantQuestion(question: string, universe: AssistantUniverse, t: (key: string, params?: Record<string, string | number>) => string): string | null {
@@ -182,10 +209,16 @@ export function answerAssistantQuestion(question: string, universe: AssistantUni
   }
   const categoryLabel = universe.categoryNames.find((category) => containsPhrase(value, category));
   const mentionsSpending = /\b(gastei|gasto|despesa|total|spend|spent|purchases|shopping)\b/.test(value);
+  const requestsCategoryDetails = /\b(estabelec\w*|lan[cç]ament\w*|detalh\w*|list\w*|quais compras|which purchases|transactions)\b/.test(value);
   const comparesPeriods = /\b(compar|diferenc|versus|vs|melhor|pior|mes passado|mes anterior|last month|previous month)\b/.test(value);
   const mentionedMonths = universe.months.filter((candidate) => (
     containsPhrase(value, monthLabel(candidate)) || containsPhrase(value, candidate.name)
   ));
+  if (categoryLabel && requestsCategoryDetails) {
+    const targetMonth = mentionedMonths.at(-1)
+      ?? (/\b(mes passado|mes anterior|last month|previous month)\b/.test(value) ? resolveMonthRef(universe, 'mês passado') : month);
+    if (targetMonth) return answerAssistantCategoryDetails(categoryLabel, targetMonth, universe, t);
+  }
   if (categoryLabel && comparesPeriods && (mentionsSpending || universe.categoryNames.some((category) => containsPhrase(value, category)))) {
     let previousMonth: BudgetMonth | undefined;
     let currentMonth = month;
@@ -313,8 +346,10 @@ function answerAssistantChartQuestion(question: string, universe: AssistantUnive
   return t('assistantChartOverview', { month: monthLabel(selectedMonth), categoryHighlights, cardTrends });
 }
 
-function buildBillLines(month: BudgetMonth, universe: AssistantUniverse): string {
-  const bills = [...month.bills].sort((a, b) => a.dueDay - b.dueDay);
+function buildBillLines(month: BudgetMonth, universe: AssistantUniverse, categoryFilter?: string): string {
+  const bills = [...month.bills]
+    .filter((bill) => !categoryFilter || normalize(universe.categoryLabel(bill.category)) === normalize(categoryFilter))
+    .sort((a, b) => a.dueDay - b.dueDay);
   if (bills.length === 0) return `Contas lançadas em ${monthLabel(month)}: nenhuma.`;
   return `Contas lançadas em ${monthLabel(month)}:\n${bills.map((bill) => {
     const payment = isOnCreditCardBill(bill)
@@ -344,9 +379,12 @@ function buildSavingsGoalSection(month: BudgetMonth, universe: AssistantUniverse
  *  o resto fica apenas contado. Os totais por categoria continuam com todos os lançamentos. */
 const MAX_DETAIL_LINES = 60;
 
-function buildTransactionLines(month: BudgetMonth, universe: AssistantUniverse): string {
+function buildTransactionLines(month: BudgetMonth, universe: AssistantUniverse, categoryFilter?: string): string {
   const invoices = month.creditCardInvoices ?? [];
-  const transactions = sortInvoiceTransactions(invoices.flatMap((invoice) => invoice.transactions).filter((transaction) => transaction.type !== 'PAYMENT'));
+  const transactions = sortInvoiceTransactions(invoices.flatMap((invoice) => invoice.transactions).filter((transaction) => (
+    transaction.type !== 'PAYMENT'
+    && (!categoryFilter || Boolean(transaction.category) && normalize(universe.categoryLabel(transaction.category!)) === normalize(categoryFilter))
+  )));
   if (transactions.length === 0) return `Lançamentos da fatura de ${monthLabel(month)}: nenhum.`;
   const shown = transactions.length > MAX_DETAIL_LINES
     ? [...transactions].sort((a, b) => Math.abs(getChargeImpactCents(b)) - Math.abs(getChargeImpactCents(a))).slice(0, MAX_DETAIL_LINES)
@@ -366,7 +404,7 @@ function buildTransactionLines(month: BudgetMonth, universe: AssistantUniverse):
 }
 
 /** O extrato completo de um mês: é o que a IA puxa quando a pergunta é de outro mês. */
-export function buildMonthDetail(month: BudgetMonth, universe: AssistantUniverse): string {
+export function buildMonthDetail(month: BudgetMonth, universe: AssistantUniverse, categoryFilter?: string): string {
   const invoices = month.creditCardInvoices ?? [];
   const charges = getCardCharges(invoices, month.bills);
   const perCard = getCardMonthTotalsCents(invoices, month.bills, universe.cards)
@@ -380,9 +418,9 @@ export function buildMonthDetail(month: BudgetMonth, universe: AssistantUniverse
   return [
     `MÊS: ${monthLabel(month)}`,
     `Entrada ${universe.money(month.income)} | fatura do cartão ${universe.money(centsToAmount(charges.totalCents))} (minha parte ${universe.money(centsToAmount(charges.personalCents))})${perCard ? ` | ${perCard}` : ''}`,
-    buildCategorySection(month, universe),
-    buildBillLines(month, universe),
-    buildTransactionLines(month, universe),
+    buildCategorySection(month, universe, categoryFilter),
+    buildBillLines(month, universe, categoryFilter),
+    buildTransactionLines(month, universe, categoryFilter),
   ].join('\n');
 }
 
@@ -391,10 +429,11 @@ export function buildMonthDetail(month: BudgetMonth, universe: AssistantUniverse
  * uma linha de resumo cada, e a assistente pede o extrato quando a pergunta é de outro mês.
  * Assim o prompt cabe no limite de tokens por minuto da Groq gratuita com todos os meses visíveis.
  */
-export function buildAssistantDataSection(universe: AssistantUniverse, detailMonth: BudgetMonth, includeDetails = true, intents?: AssistantIntent[]): string {
+export function buildAssistantDataSection(universe: AssistantUniverse, detailMonth: BudgetMonth, includeDetails = true, intents?: AssistantIntent[], question?: string): string {
   const { selectedMonth, money, dashboard } = universe;
   const allData = intents === undefined;
   const includes = (...wanted: AssistantIntent[]) => allData || wanted.some((intent) => intents.includes(intent));
+  const categoryFilter = question && universe.categoryNames.find((category) => containsPhrase(question, category));
   const charges = getCardCharges(selectedMonth.creditCardInvoices ?? [], selectedMonth.bills);
   const today = new Date();
   const dateLabel = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
@@ -417,16 +456,16 @@ export function buildAssistantDataSection(universe: AssistantUniverse, detailMon
     ...(includes('comparison', 'chart', 'diagnosis', 'savings', 'general') ? [buildOverviewSection(universe)] : []),
     ...(includes('chart', 'comparison', 'diagnosis', 'savings') ? [buildChartDataSection(universe)] : []),
     ...(includes('category', 'comparison', 'chart', 'diagnosis', 'savings', 'invoice', 'action', 'general') && detailMonth.id !== selectedMonth.id
-      ? [`Categorias do mês aberto ${monthLabel(selectedMonth)} para comparação:`, buildCategorySection(selectedMonth, universe), '']
+      ? [`Categorias do mês aberto ${monthLabel(selectedMonth)} para comparação:`, buildCategorySection(selectedMonth, universe, categoryFilter), '']
       : []),
     ...(includes('action', 'calendar') ? [buildCardsSection(universe)] : []),
     ...(includes('action', 'invoice') ? [buildCategoryNamesSection(universe.categoryNames)] : []),
     ...(includeDetails
-      ? [buildMonthDetail(detailMonth, universe)]
+      ? [buildMonthDetail(detailMonth, universe, categoryFilter)]
       : [
         `MÊS: ${monthLabel(detailMonth)}`,
-        ...(includes('category', 'comparison', 'chart', 'diagnosis', 'savings', 'goal', 'invoice', 'action', 'general') ? [buildCategorySection(detailMonth, universe)] : []),
-        ...(intents !== undefined && includes('bills', 'cashflow', 'diagnosis', 'goal') ? [buildBillLines(detailMonth, universe)] : []),
+        ...(includes('category', 'comparison', 'chart', 'diagnosis', 'savings', 'goal', 'invoice', 'action', 'general') ? [buildCategorySection(detailMonth, universe, categoryFilter)] : []),
+        ...(intents !== undefined && includes('bills', 'cashflow', 'diagnosis', 'goal') ? [buildBillLines(detailMonth, universe, categoryFilter)] : []),
       ]),
     'Use somente os dados apresentados; se um mês, valor ou detalhe não estiver disponível, informe a limitação. Se faltarem detalhes, peça get_month_detail do mês solicitado.',
     ...(includeDetails ? ['Transações sem data não permitem inferir o dia.'] : []),

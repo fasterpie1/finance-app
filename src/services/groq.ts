@@ -112,6 +112,12 @@ export interface AssistantChatMessage {
   content: string;
 }
 
+export function needsAssistantHistory(question: string): boolean {
+  const value = question.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
+  return /^(?:e\b|tambem\b|isso\b|essa\b|esse\b|ele\b|ela\b|explique melhor\b|detalhe\b|mais detalhes\b|por que\b|qual deles\b|qual delas\b|and\b|what about\b|why\b|explain more\b)/.test(value)
+    || /\b(?:e|tambem) (?:no|na|nisso|nessa|nesse|naquele|naquela|anterior|mes passado)\b/.test(value);
+}
+
 export function buildAssistantHistory(messages: Array<{ role: 'user' | 'assistant' | 'error'; content: string }>): AssistantChatMessage[] {
   const history: AssistantChatMessage[] = [];
   let pending: AssistantChatMessage | null = null;
@@ -125,8 +131,7 @@ export function buildAssistantHistory(messages: Array<{ role: 'user' | 'assistan
       history[history.length - 1].content += `\n${message.content}`;
     }
   }
-  if (pending) history.push(pending);
-  return history.slice(-7);
+  return pending ? [...history.slice(-4), pending] : history.slice(-4);
 }
 
 export function buildAssistantChatRequest(system: string, messages: AssistantChatMessage[], imageDataUrl?: string): Record<string, unknown> {

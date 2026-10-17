@@ -648,13 +648,13 @@ describe('envio e parser no ChatView', () => {
     mocks.send.mockRejectedValueOnce(new Error('Falha fictícia do segundo turno'));
     type('Pergunta que falhou'); await send();
     expect(errorTexts()).toEqual(['chatRequestError']);
-    type('Nova pergunta'); await send();
+    type('E a pergunta bem-sucedida?'); await send();
     expect(mocks.send).toHaveBeenCalledTimes(3);
     expect(mocks.send.mock.calls[2][0].messages).toEqual([
       { role: 'system', content: expect.stringContaining('CONTEXTO FICTÍCIO') },
       { role: 'user', content: 'Pergunta bem-sucedida' },
       { role: 'assistant', content: 'Análise fictícia' },
-      { role: 'user', content: 'Nova pergunta' },
+      { role: 'user', content: 'E a pergunta bem-sucedida?' },
     ]);
     expect(errorTexts()).toEqual(['chatRequestError']); // Continua visível, mas não vira contexto da IA.
   });
