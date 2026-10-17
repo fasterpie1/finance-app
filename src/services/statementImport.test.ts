@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const { groqCall } = vi.hoisted(() => ({ groqCall: vi.fn() }));
 vi.mock('./groq', () => ({ extractWithGroq: groqCall }));
 
-import { extractPurchasesFromImage } from './statementImport';
+import { extractPurchasesFromImage, extractPurchasesFromText } from './statementImport';
 const SETEMBRO = 8;
 
 function rows(...lines: unknown[][]) {
@@ -19,6 +19,16 @@ describe('orçamento de tokens de saída na importação', () => {
     groqCall.mockResolvedValue(rows(['SUBWAY', 45.9, 1, 1, 'alimentacao', 'c', '18/09', '']));
     await extractPurchasesFromImage('base64', 'image/jpeg', SETEMBRO);
     expect(groqCall.mock.calls[0][0].max_tokens).toBeLessThanOrEqual(900);
+  });
+
+  it('usa modelo e JSON estruturado também para texto extraído de PDF', async () => {
+    groqCall.mockResolvedValue(rows(['SUBWAY', 45.9, 1, 1, 'alimentacao', 'c', '18/09', '']));
+    await extractPurchasesFromText('Texto de fatura sem formato local reconhecível.');
+    const request = groqCall.mock.calls[0][0];
+    expect(request.model).toBe('qwen/qwen3.8-27b');
+    expect(request.response_format).toEqual({ type: 'json_object' });
+    expect(request.max_tokens).toBe(900);
+    expect(request).not.toHaveProperty('max_completion_tokens');
   });
 
   it('emenda a fatura quando o modelo é cortado no meio', async () => {

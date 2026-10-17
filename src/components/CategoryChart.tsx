@@ -5,7 +5,8 @@ import {
   type CreditCardInvoice,
 } from '../types';
 import { usePreferences } from '../i18n';
-import { amountToCents, centsToAmount, getCardCharges, getTransactionCategoryImpactCents, isOnCreditCardBill } from '../services/cardTransactions';
+import { centsToAmount } from '../services/cardTransactions';
+import { getCategoryChartData } from '../services/financeCharts';
 
 interface Props {
   bills: Bill[];
@@ -23,31 +24,14 @@ interface CategoryData {
 
 export const CategoryChart: React.FC<Props> = ({ bills, invoices = [], hideValues }) => {
   const { formatMoney, categoryLabel, categoryColor, t } = usePreferences();
-  const centsByCategory = new Map<CategoryId, number>();
-  const add = (category: CategoryId, cents: number) => {
-    if (cents === 0) return;
-    centsByCategory.set(category, (centsByCategory.get(category) || 0) + cents);
-  };
-  // Conta de cartão entra uma única vez: pela linha da fatura se já veio importada,
-  // pela própria conta enquanto ainda não apareceu na fatura.
-  bills.forEach((b) => {
-    if (!isOnCreditCardBill(b)) add(b.category, amountToCents(b.amount));
-  });
-  getCardCharges(invoices, bills).pendingBills.forEach((b) => add(b.category, amountToCents(b.amount)));
-  invoices.flatMap((invoice) => invoice.transactions).forEach((transaction) => {
-    if (!transaction.category) return;
-    add(transaction.category, getTransactionCategoryImpactCents(transaction));
-  });
-
-  // O denominador é a soma das fatias: somar só as contas deixava cada categoria com
-  // mais de 100% quando o mês tem fatura importada.
-  const totalCents = [...centsByCategory.values()].reduce((sum, cents) => sum + cents, 0);
+  const chartData = getCategoryChartData(bills, invoices);
+  const { totalCents } = chartData;
   if (totalCents === 0) return <div style={{ textAlign: 'center', color: '#8b8b8b', fontSize: 12, padding: 20 }}>{t('noExpenses')}</div>;
   const total = centsToAmount(totalCents);
 
-  const data: CategoryData[] = Array.from(centsByCategory.entries())
-    .map(([category, cents]) => ({ category, label: categoryLabel(category), color: categoryColor(category), amount: centsToAmount(cents), pct: (cents / totalCents) * 100 }))
-    .sort((a, b) => b.amount - a.amount);
+  const data: CategoryData[] = chartData.items.map(({ category, cents, percentage }) => ({
+    category, label: categoryLabel(category), color: categoryColor(category), amount: centsToAmount(cents), pct: percentage,
+  }));
 
   const size = 130;
   const strokeWidth = 18;

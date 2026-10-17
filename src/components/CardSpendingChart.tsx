@@ -6,7 +6,8 @@ import {
 } from '../types';
 import { usePreferences } from '../i18n';
 import { safeSetItem } from '../services/safeStorage';
-import { getCardCharges, getTransactionCategoryImpactCents } from '../services/cardTransactions';
+import { centsToAmount } from '../services/cardTransactions';
+import { getCardCategoryAmountCents, getCardChartCategories, getCardChartMonths } from '../services/financeCharts';
 
 interface MonthData {
   id: string;
@@ -42,23 +43,8 @@ function loadCategories(available: CategoryId[]): CategoryId[] {
 
 export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, selectedMonthYear, hideValues }) => {
   const { formatMoney, formatMonthShort, categoryLabel, categoryColor, locale, t } = usePreferences();
-  // Mesmo número das outras telas: só o que está no cartão e ainda não veio na fatura importada.
-  const cardBills = (month: MonthData) => getCardCharges(month.creditCardInvoices ?? [], month.bills).pendingBills;
-  const cardAmountByCategory = (month: MonthData, category: CategoryId) => {
-    const billAmount = cardBills(month).filter((bill) => bill.category === category).reduce((total, bill) => total + bill.amount, 0);
-    const invoiceAmount = (month.creditCardInvoices ?? []).flatMap((invoice) => invoice.transactions)
-      .filter((transaction) => transaction.category === category)
-      .reduce((total, transaction) => total + getTransactionCategoryImpactCents(transaction) / 100, 0);
-    return billAmount + invoiceAmount;
-  };
-
   const availableCategories = useMemo(() => {
-    const categories = new Set<CategoryId>();
-    months.forEach((month) => {
-      cardBills(month).forEach((bill) => categories.add(bill.category));
-      (month.creditCardInvoices ?? []).flatMap((invoice) => invoice.transactions).forEach((transaction) => { if (transaction.category) categories.add(transaction.category); });
-    });
-    return Array.from(categories).sort((a, b) => categoryLabel(a).localeCompare(categoryLabel(b), locale === 'en' ? 'en-US' : 'pt-BR'));
+    return getCardChartCategories(months).sort((a, b) => categoryLabel(a).localeCompare(categoryLabel(b), locale === 'en' ? 'en-US' : 'pt-BR'));
   }, [months, categoryLabel, locale]);
   const [selectedCategories, setSelectedCategories] = useState<CategoryId[]>(() => loadCategories(availableCategories));
 
@@ -85,11 +71,9 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
     });
   };
 
-  const selectedIndex = months.findIndex((month) => month.name.toLowerCase() === selectedMonthName.toLowerCase() && month.year === selectedMonthYear);
-  const monthsUntilSelected = months.slice(0, selectedIndex >= 0 ? selectedIndex + 1 : months.length);
-  const chartMonths = monthsUntilSelected.slice(-4);
+  const chartMonths = getCardChartMonths(months, selectedMonthName, selectedMonthYear);
   const values = selectedCategories.flatMap((category) => chartMonths.map((month) =>
-    cardAmountByCategory(month, category)
+    centsToAmount(getCardCategoryAmountCents(month, category))
   ));
   const maxValue = Math.max(...values, 0);
   const chartWidth = measuredWidth > 0 ? Math.round(measuredWidth) : DEFAULT_CHART_WIDTH;
@@ -107,7 +91,7 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
   const series = selectedCategories.map((category) => ({
     category,
     points: chartMonths.map((month, index) => {
-      const value = cardAmountByCategory(month, category);
+      const value = centsToAmount(getCardCategoryAmountCents(month, category));
       return { x: xFor(index), y: yFor(value), value };
     }),
   }));

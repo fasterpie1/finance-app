@@ -34,7 +34,7 @@ Regras:
 - Escreva o JSON cru, sem espaços de indentação, sem markdown, sem explicações antes ou depois.`;
 
 const VISION_MODELS = ['qwen/qwen3.8-27b'] as const;
-const TEXT_MODEL = 'openai/gpt-oss-20b';
+const TEXT_MODEL = 'qwen/qwen3.8-27b';
 /** O plano gratuito da Groq aceita no máximo 1000 tokens de saída por minuto e recusa a
  *  requisição inteira se o orçamento pedido passar disso ("Request too large ... OTPM"). */
 const MAX_OUTPUT_TOKENS = 900;
@@ -167,7 +167,8 @@ export async function extractPurchasesFromText(
     const outcome = await extractInRounds((missing) => ({
       model: TEXT_MODEL,
       messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: `Extraia todos os lançamentos individuais das seções de transações desta fatura, no formato de vetores posicionais descrito no sistema. Percorra todas as páginas e não pare antes de incluir todos os lançamentos. Aceite datas numéricas como 25/01 e linhas quebradas, sempre levando a data para a sétima posição em DD/MM. Não transforme valores de resumo como "Compras nacionais", "Total a pagar", "Valor da fatura", subtotais de cartão, limite, opções de parcelamento ou saldo de obrigações em lançamentos. Pagamentos, estornos, tarifas e anuidades devem ser preservados como lançamentos tipados, nunca como compras. O total oficial da fatura é informado separadamente e não deve ser somado novamente.${continuationText(missing)}\n\n${statementText.slice(0, 120000)}` }],
-      max_completion_tokens: MAX_OUTPUT_TOKENS,
+      response_format: { type: 'json_object' },
+      max_tokens: MAX_OUTPUT_TOKENS,
     }), monthIndex);
     extracted = outcome.purchases;
     complete = outcome.complete;

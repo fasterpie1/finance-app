@@ -6,13 +6,13 @@ import { buildAssistantChatRequest, buildAssistantHistory, classifyGroqError, Gr
 const image = 'data:image/jpeg;base64,/9j/';
 
 describe('requisições de texto e foto da assistente', () => {
-  it('mantém o modelo e o orçamento do chat sem foto', () => {
+  it('usa o modelo compatível com JSON para chat sem foto', () => {
     const messages: AssistantChatMessage[] = [{ role: 'user', content: 'Quais contas faltam?' }];
     expect(buildAssistantChatRequest('contexto', messages)).toEqual({
-      model: 'openai/gpt-oss-20b',
+      model: 'qwen/qwen3.8-27b',
       messages: [{ role: 'system', content: 'contexto' }, ...messages],
-      reasoning_effort: 'low',
-      max_completion_tokens: 900,
+      max_tokens: 500,
+      response_format: { type: 'json_object' },
     });
   });
 

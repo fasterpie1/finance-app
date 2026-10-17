@@ -10,6 +10,7 @@ import {
   answerAssistantQuestion,
   buildAssistantDataSection,
   buildProtocolSection,
+  classifyAssistantIntents,
   monthLabel,
   resolveMonthRef,
 } from '../services/assistantContext';
@@ -267,6 +268,7 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
     const typed = (text ?? input).trim();
     const msg = typed || (image ? t('chatDescribePhoto') : '');
     if (!msg || showKeySetup || inFlightRef.current || imageLoading || dictating || !isActive) return;
+    const intents = classifyAssistantIntents(msg, universe, Boolean(image));
     const localAnswer = image ? null : answerAssistantQuestion(msg, universe, t);
     if (!localAnswer && Date.now() < retryUntilRef.current) return;
     const requestId = ++requestRef.current;
@@ -285,6 +287,20 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
       return;
     }
     setLoading(true);
+    const tokenMetrics = { calls: 0, measuredCalls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, cachedInputTokens: 0, latencyMs: 0 };
+    let requestFailed = false;
+    const sendMeasured = (request: Record<string, unknown>) => {
+      tokenMetrics.calls += 1;
+      return sendGroqChat(request, (metrics) => {
+        tokenMetrics.latencyMs += metrics.latencyMs;
+        if (metrics.totalTokens === undefined) return;
+        tokenMetrics.measuredCalls += 1;
+        tokenMetrics.inputTokens += metrics.inputTokens ?? 0;
+        tokenMetrics.outputTokens += metrics.outputTokens ?? 0;
+        tokenMetrics.totalTokens += metrics.totalTokens;
+        tokenMetrics.cachedInputTokens += metrics.cachedInputTokens ?? 0;
+      });
+    };
     try {
       const today = new Date().toISOString().slice(0, 10);
       const calendarInstructions = `\n\nVocê também pode controlar o Google Agenda. Hoje é ${today}. Para qualquer pedido de agenda, responda SOMENTE um JSON válido, sem markdown, com este formato: {"action":"...","response":"..."}. Ações disponíveis: create_bill_reminder com billName para uma conta do mês atual (o lembrete usa automaticamente 9h no dia anterior ao vencimento); create_invoice_reminder para a fatura do mês atual (também usa 9h); create_event com title, date YYYY-MM-DD, time HH:mm, durationMinutes e description; list_events com date YYYY-MM-DD (omita para hoje); update_event com eventId ou query e os campos a alterar; delete_event com query ou eventId. Para create_event, NUNCA invente nem assuma título, data ou horário: se algum desses três campos faltar, use action none e escreva em response uma pergunta objetiva dizendo exatamente o que falta. Para perguntas normais use action none e coloque a resposta em response. Não invente IDs nem contas.\n`;
@@ -294,28 +310,30 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
       })));
       // Só um mês vai linha a linha no prompt: com o extrato de todos os meses o limite de tokens
       // por minuto da Groq gratuita estourava e a resposta chegava cortada.
-      const systemFor = (month: BudgetMonth, withCalendar: boolean, detailed = false) => `${buildAssistantDataSection(universe, month, detailed)}\n\n${buildProtocolSection(universe)}\nFotos de mensagens anteriores não estão disponíveis: use apenas os dados já descritos na conversa ou peça para anexar novamente.${withCalendar && calendarActions && !image ? calendarInstructions : ''}`;
-      let rawContent = await sendGroqChat(buildAssistantChatRequest(systemFor(universe.selectedMonth, true), historyMessages, image?.dataUrl));
+      const includeDetails = intents.includes('action') || /\b(detalh\w*|list\w*|estabelec\w*|datas?|quando|qual dia|quem|quais compras|which purchases|merchant)\b/i.test(msg);
+      const systemFor = (month: BudgetMonth, withCalendar: boolean, detailed = false) => `${buildAssistantDataSection(universe, month, detailed, intents)}\n\n${buildProtocolSection(universe, intents)}\nFotos de mensagens anteriores não estão disponíveis: use apenas os dados já descritos na conversa ou peça para anexar novamente.${withCalendar && calendarActions && !image ? calendarInstructions : ''}`;
+      let rawContent = await sendMeasured(buildAssistantChatRequest(systemFor(universe.selectedMonth, intents.includes('calendar'), includeDetails), historyMessages, image?.dataUrl));
       if (requestId !== requestRef.current) return;
       let command = parseAssistantCommand(rawContent);
+      if (!command) throw new GroqRequestError('Resposta inválida da IA.', 'format');
       if (command?.action === 'get_month_detail') {
         const target = resolveMonthRef(universe, command.month);
         if (!target) {
           setMessages((prev) => [...prev, { role: 'assistant', content: `Não há mês cadastrado com o nome "${(command?.month ?? '').trim()}". Os meses disponíveis são ${universe.months.map((month) => monthLabel(month)).join(', ')}.` }]);
           return;
         }
-        rawContent = await sendGroqChat(buildAssistantChatRequest(systemFor(target, false, true), [
+        rawContent = await sendMeasured(buildAssistantChatRequest(systemFor(target, false, true), [
           ...historyMessages,
           { role: 'assistant', content: rawContent },
           { role: 'user', content: `Extrato completo de ${monthLabel(target)} carregado acima. Responda a pergunta agora, com action none.` },
         ], image?.dataUrl));
         if (requestId !== requestRef.current) return;
         command = parseAssistantCommand(rawContent);
+        if (!command) throw new GroqRequestError('Resposta inválida da IA.', 'format');
       }
-      if (!command && /^[{[\x60]/.test(rawContent.trim())) throw new GroqRequestError('Resposta inválida da IA.', 'format');
       // A IA pode mandar buscar o extrato de outro mês antes de responder.
       const CALENDAR_ACTIONS = ['create_bill_reminder', 'create_invoice_reminder', 'create_event', 'list_events', 'update_event', 'delete_event'];
-      if (!command || !command.action || command.action === 'none') {
+      if (!command.action || command.action === 'none') {
         setMessages((prev) => [...prev, { role: 'assistant', content: command?.response ?? rawContent }]);
         return;
       }
@@ -348,6 +366,7 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
       setMessages((prev) => [...prev, { role: 'assistant', content: command.response ?? outcome.summary[0] ?? '' }]);
     } catch (err) {
       if (requestId !== requestRef.current) return;
+      requestFailed = true;
       if (image) setAttachment((current) => current ?? image);
       setInput((current) => current || typed);
       const error = err instanceof GroqRequestError ? err : classifyGroqError(err instanceof Error ? err.message : '');
@@ -365,6 +384,16 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
       setMessages((prev) => [...prev, { role: 'error', content }]);
     } finally {
       if (requestId === requestRef.current) {
+        if (tokenMetrics.calls > 0) console.info('[assistant-metrics]', {
+          calls: tokenMetrics.calls,
+          measuredCalls: tokenMetrics.measuredCalls,
+          inputTokens: tokenMetrics.measuredCalls ? tokenMetrics.inputTokens : null,
+          outputTokens: tokenMetrics.measuredCalls ? tokenMetrics.outputTokens : null,
+          totalTokens: tokenMetrics.measuredCalls ? tokenMetrics.totalTokens : null,
+          cachedInputTokens: tokenMetrics.measuredCalls ? tokenMetrics.cachedInputTokens : null,
+          latencyMs: tokenMetrics.latencyMs || null,
+          outcome: requestFailed ? 'error' : 'success',
+        });
         inFlightRef.current = false;
         setLoading(false);
       }

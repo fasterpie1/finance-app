@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BILL_CATEGORY_LABELS, formatCurrency, type Bill, type BudgetMonth, type CreditCardInvoice, type CreditCardTransaction } from '../types';
-import { answerAssistantQuestion, buildAssistantDataSection, buildOverviewSection, getAssistantCategoryTotals, getCardMonthTotalsCents, monthLabel, resolveMonthRef, type AssistantUniverse } from './assistantContext';
+import { answerAssistantQuestion, buildAssistantDataSection, buildChartDataSection, buildOverviewSection, buildProtocolSection, classifyAssistantIntents, getAssistantCategoryTotals, getCardMonthTotalsCents, monthLabel, resolveMonthRef, type AssistantUniverse } from './assistantContext';
 import { amountToCents, centsToAmount, getCardCharges, getChargeImpactCents, getMonthPlannedCents, getPersonalImpactCents } from './cardTransactions';
 import { cardInvoiceId, type PaymentCard } from './paymentCards';
 
@@ -116,11 +116,57 @@ describe('contexto da assistente', () => {
     expect(compras).toContain('minha parte R$ 150,00');
   });
 
+  it('mantém as categorias do mês aberto ao carregar o detalhe de outro mês', () => {
+    const text = plain(buildAssistantDataSection(universeOf(october, [september, october]), september));
+    expect(text).toContain('Categorias do mês aberto Outubro 2026 para comparação:');
+    expect(text).toContain('- Compras: bruto R$ 300,00 | minha parte R$ 150,00 | 1 lançamento(s)');
+    expect(text).toContain('Categorias de Setembro 2026');
+  });
+
   it('lista todo mês numa linha e marca o mês aberto na tela', () => {
     const overview = buildOverviewSection(universeOf(october, [september, october]));
     expect(overview).toContain('- Setembro 2026:');
     expect(overview).toContain('- Outubro 2026 ← mês aberto na tela:');
     expect(overview.match(/^- /gm)?.length).toBe(2);
+  });
+
+  it('fornece ao assistente os valores e percentuais que aparecem nos gráficos', () => {
+    const chartData = plain(buildChartDataSection(universeOf(october, [september, october])));
+    expect(chartData).toContain('GRÁFICO DE DESPESAS POR CATEGORIA (Outubro 2026): total R$ 150,00');
+    expect(chartData).toContain('- Fatia Compras: R$ 150,00 | 100.0%');
+    expect(chartData).toContain('GRÁFICO DE EVOLUÇÃO NO CARTÃO');
+    expect(chartData).toContain('- Série Compras: Setembro 2026 R$ 0,00 | Outubro 2026 R$ 150,00');
+  });
+
+  it('seleciona dados e regras conforme a intenção, sem enviar gráficos para consulta de categoria', () => {
+    const universe = universeOf(october, [september, october]);
+    const categoryContext = buildAssistantDataSection(universe, october, false, ['category']);
+    const categoryProtocol = buildProtocolSection(universe, ['category']);
+    expect(categoryContext).toContain('Categorias de Outubro 2026');
+    expect(categoryContext).not.toContain('GRÁFICO DE EVOLUÇÃO');
+    expect(categoryContext).not.toContain('MESES CADASTRADOS');
+    expect(categoryProtocol).toContain('Categorias: diferencie bruto');
+    expect(categoryProtocol).not.toContain('Ações aceitas');
+    expect(categoryProtocol).not.toContain('Agenda:');
+  });
+
+  it('envia fontes de renda e metas apenas quando a intenção pede esses campos', () => {
+    const month = {
+      ...october,
+      incomeSources: [{ id: 'salary', label: 'Salário', amount: 5000 }],
+      savingsGoal: 800,
+      savingsGoalMode: 'manual' as const,
+      savedAmount: 200,
+    };
+    const universe = universeOf(month, [month]);
+    const diagnosis = buildAssistantDataSection(universe, month, false, ['diagnosis']);
+    const goal = buildAssistantDataSection(universe, month, false, ['goal']);
+    expect(diagnosis).toContain('Salário R$');
+    expect(diagnosis).not.toContain('Meta manual de poupança');
+    expect(goal).toContain('Meta manual de poupança de Outubro 2026: R$');
+    expect(goal).toContain('guardado R$');
+    expect(goal).toContain('25% atingido');
+    expect(goal).not.toContain('Salário');
   });
 
   it('separa por cartão a fatura que o usuário precisa organizar', () => {
@@ -278,6 +324,47 @@ describe('getAssistantCategoryTotals', () => {
 });
 
 describe('answerAssistantQuestion', () => {
+  it('classifica intenções combinadas sem enviar instruções não relacionadas', () => {
+    const universe = universeOf(october, [september, october]);
+    const comparison = classifyAssistantIntents('Quanto gastei com compras comparado ao mês passado?', universe);
+    expect(comparison).toEqual(expect.arrayContaining(['category', 'comparison']));
+    expect(classifyAssistantIntents('Analise o gráfico de evolução', universe)).toContain('chart');
+    expect(classifyAssistantIntents('Quais contas vencem esta semana?', universe)).toContain('bills');
+    expect(classifyAssistantIntents('O que você consegue fazer no app?', universe)).toContain('app_help');
+  });
+
+  it('classifica comparação de categoria e calcula no app sem inferir melhora no mês parcial', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-16T12:00:00Z'));
+    try {
+      const previous = monthWith({ id: 'set', name: 'Setembro', year: 2026, creditCardInvoices: [invoiceOf(cardC6.id, [transaction({ amountCents: 29943, category: 'compras' })])] });
+      const current = monthWith({ id: 'out', name: 'Outubro', year: 2026, creditCardInvoices: [invoiceOf(cardC6.id, [transaction({ amountCents: 214179, category: 'compras' })])] });
+      const universe = universeOf(current, [previous, current]);
+      const question = 'Quanto gastei com compras no mês passado, comparado a esse mês?';
+      expect(classifyAssistantIntents(question, universe)).toEqual(expect.arrayContaining(['category', 'comparison']));
+      const t = vi.fn(translate);
+      expect(answerAssistantQuestion(question, universe, t)).toBe(translate('assistantCategoryComparison', {
+        category: 'Compras', previousMonth: 'Setembro 2026', currentMonth: 'Outubro 2026',
+        previousTotal: universe.money(299.43), currentTotal: universe.money(2141.79),
+        previousPersonal: universe.money(299.43), currentPersonal: universe.money(2141.79),
+        previousCount: 1, currentCount: 1, difference: universe.money(1842.36),
+        percentage: translate('assistantPartialMonthComparison'), periodNote: translate('assistantPartialMonthNote'),
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('responde localmente a consultas de categoria além de Compras', () => {
+    const universe = universeOf(october, [september, october]);
+    const t = vi.fn(translate);
+    const text = answerAssistantQuestion('Quanto gastei com lazer?', universe, t);
+    expect(text).toContain('assistantCategorySummary');
+    expect(t).toHaveBeenCalledExactlyOnceWith('assistantCategorySummary', expect.objectContaining({
+      category: 'Lazer', total: universe.money(210), personal: universe.money(0), count: 1,
+    }));
+  });
+
   it.each(['oi', ' OLÁ!!! ', 'Oi  tudo  bem?', 'Olá tudo bem.', 'Bom dia!', 'Boa tarde', 'Boa noite', 'hello', 'HI!', 'Hello how are you?'])('responde à saudação %s localmente', (question) => {
     const t = vi.fn(translate);
     expect(answerAssistantQuestion(question, universeOf(october, [october]), t)).toBe(translate('assistantGreeting'));
@@ -371,7 +458,7 @@ describe('answerAssistantQuestion', () => {
   it.each([
     'Adicione uma compra de 20 reais', 'Mude a categoria de compras para lazer', 'Marque a fatura como paga',
     'Oi, adicione uma compra', 'Qual é o total da fatura e marque como paga', 'Quanto gastei em compras? Depois exclua a compra',
-    'Quanto gastei em compras em setembro?', 'Quanto gastei no cartão mês passado?', 'Qual é o total da fatura de Setembro 2026?',
+    'Quanto gastei no cartão mês passado?', 'Qual é o total da fatura de Setembro 2026?',
     'Como estou indo financeiramente em setembro?', 'How much did I spend last month on purchases?',
     'Qual o total de compras em novembro?', 'Onde posso economizar?',
   ])('não intercepta alterações, outro mês ou perguntas não suportadas: %s', (question) => {
@@ -391,8 +478,8 @@ describe('buildAssistantDataSection sem detalhes', () => {
     const full = buildAssistantDataSection(universe, month);
     const compact = buildAssistantDataSection(universe, month, false);
     const charges = getCardCharges(month.creditCardInvoices ?? [], month.bills);
-    expect(compact).toContain(`Entrada ${universe.money(month.income)} | previsto em contas ${universe.money(universe.dashboard.totalPlanned)} | já pago ${universe.money(universe.dashboard.totalPaid)} | pendente ${universe.money(universe.dashboard.totalPlanned - universe.dashboard.totalPaid)} | sobra ${universe.money(universe.dashboard.remaining)}`);
-    expect(compact).toContain(`Fatura do cartão deste mês ${universe.money(centsToAmount(charges.totalCents))} (minha parte ${universe.money(centsToAmount(charges.personalCents))}, de terceiros ${universe.money(centsToAmount(charges.thirdPartyCents))})`);
+    expect(compact).toContain(`Entrada ${universe.money(month.income)} | previsto em contas ${universe.money(universe.dashboard.totalPlanned)} | já pago ${universe.money(universe.dashboard.totalPaid)} | pendente ${universe.money(universe.dashboard.totalPlanned - universe.dashboard.totalPaid)} | sobra prevista ${universe.money(universe.dashboard.remaining)}`);
+    expect(compact).toContain(`Fatura ${monthLabel(month)}: bruto ${universe.money(centsToAmount(charges.totalCents))} | minha parte ${universe.money(centsToAmount(charges.personalCents))} | terceiros ${universe.money(centsToAmount(charges.thirdPartyCents))}`);
     expect(compact).toContain(buildOverviewSection(universe));
     const categoryLines = (text: string) => text.split('\n').filter((line) => line.startsWith('- ') && line.includes(': bruto '));
     expect(categoryLines(compact)).toEqual(categoryLines(full));

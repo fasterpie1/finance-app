@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AssistantUniverse } from '../services/assistantContext';
 import type { startSpeechInput } from '../services/speechInput';
 import type { ChatImage } from '../services/statementFiles';
-import { classifyGroqError } from '../services/groq';
+import { classifyGroqError, type GroqCallMetrics } from '../services/groq';
 import { ChatView } from './ChatView';
 
 // Harness de handlers sem React/DOM montado; efeitos e cleanups são simulados.
@@ -14,7 +14,7 @@ const hooks = vi.hoisted(() => ({
   queued: [] as Array<() => void>,
 }));
 const mocks = vi.hoisted(() => ({
-  send: vi.fn<(request: Record<string, unknown>) => Promise<string>>(),
+  send: vi.fn<(request: Record<string, unknown>, onMetrics?: (metrics: GroqCallMetrics) => void) => Promise<string>>(),
   status: vi.fn<() => Promise<boolean>>(), save: vi.fn(), delete: vi.fn(),
   read: vi.fn<(id: string | null, key: string) => string | null>(),
   write: vi.fn<(id: string | null, key: string, value: string) => void>(), remove: vi.fn(),
@@ -66,6 +66,7 @@ vi.mock('../i18n', () => ({
 }));
 vi.mock('../services/assistantContext', () => ({
   buildAssistantDataSection: () => 'CONTEXTO FICTÍCIO', buildProtocolSection: () => 'PROTOCOLO FICTÍCIO',
+  classifyAssistantIntents: () => ['general'],
   answerAssistantQuestion: (question: string) => question === 'Olá tudo bem?' ? 'assistantGreeting' : question === 'Como estou indo financeiramente este mês?' ? 'assistantMonthSummary' : null,
   monthLabel: () => 'Outubro 2026', resolveMonthRef: vi.fn(),
 }));
@@ -227,7 +228,7 @@ describe('foto no ChatView', () => {
           { type: 'image_url', image_url: { url: photo.dataUrl } },
         ] },
       ],
-    }));
+    }), expect.any(Function));
     expect(previews()).toHaveLength(0);
     expect(textarea().props.value).toBe('');
     expect(find((node) => node.props.text === 'Análise fictícia')).toBeDefined();
@@ -247,7 +248,7 @@ describe('foto no ChatView', () => {
     ]);
     type('Explique melhor'); await send();
     const followUp = mocks.send.mock.calls[1][0];
-    expect(followUp.model).toBe('openai/gpt-oss-20b');
+    expect(followUp.model).toBe('qwen/qwen3.8-27b');
     expect(JSON.stringify(followUp)).not.toMatch(/base64|image_url/);
     expect(followUp.messages).toEqual(expect.arrayContaining([
       { role: 'user', content: `Compare a foto\nchatPhotoLabel: ${photo.name}` },
@@ -365,8 +366,8 @@ describe('ditado no ChatView', () => {
     expect(mocks.send).not.toHaveBeenCalled();
     await send();
     expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({
-      model: 'openai/gpt-oss-20b', messages: expect.arrayContaining([{ role: 'user', content: 'Antes durante final' }]),
-    }));
+      model: 'qwen/qwen3.8-27b', messages: expect.arrayContaining([{ role: 'user', content: 'Antes durante final' }]),
+    }), expect.any(Function));
   });
 
   it('Cancelar aborta e restaura exatamente o texto anterior', () => {
@@ -558,6 +559,14 @@ describe('envio e parser no ChatView', () => {
     expect(responding()).toHaveLength(0);
   });
 
+  it('não mostra texto livre do modelo quando o protocolo exige JSON', async () => {
+    mocks.send.mockResolvedValueOnce('Posso ajudar. All actions via the defined JSON interface.');
+    type('O que você consegue fazer?'); await send();
+    expect(errorTexts()).toEqual(['chatFormatError']);
+    expect(assistantTexts()).toEqual([]);
+    expect(props.onCommand).not.toHaveBeenCalled();
+  });
+
   it('429 conta até o deadline, bloqueia handlers diretos e só reenvia por ação explícita', async () => {
     vi.setSystemTime(new Date('2026-10-01T12:00:00Z'));
     mocks.send.mockRejectedValueOnce(classifyGroqError('HTTP 429 técnico fictício', 429, '3'));
@@ -692,7 +701,7 @@ describe('envio e parser no ChatView', () => {
         { role: 'system', content: expect.stringContaining('CONTEXTO FICTÍCIO') },
         { role: 'user', content: 'suggestion3' },
       ],
-    }));
+    }), expect.any(Function));
     expect(suggestions()).toHaveLength(0);
     expect(headerMonth().props.children).toBe('Outubro 2026');
     clear();

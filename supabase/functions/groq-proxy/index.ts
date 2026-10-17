@@ -89,13 +89,32 @@ async function loadGroqKey(userId: string): Promise<string | null> {
 }
 
 async function callGroq(apiKey: string, body: Record<string, unknown>): Promise<unknown> {
+  const startedAt = Date.now();
   const response = await fetch(groqUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify(body),
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) return { error: data?.error?.message ?? `Erro Groq ${response.status}`, status: response.status };
+  const dataRecord = data && typeof data === 'object' ? data as Record<string, unknown> : {};
+  const rawUsage = dataRecord.usage;
+  const usage = rawUsage && typeof rawUsage === 'object' ? rawUsage as Record<string, unknown> : {};
+  const rawPromptDetails = usage.prompt_tokens_details;
+  const promptDetails = rawPromptDetails && typeof rawPromptDetails === 'object' ? rawPromptDetails as Record<string, unknown> : {};
+  console.info('[groq-metrics]', JSON.stringify({
+    model: typeof body.model === 'string' ? body.model : 'unknown',
+    status: response.status,
+    latencyMs: Date.now() - startedAt,
+    inputTokens: typeof usage.prompt_tokens === 'number' ? usage.prompt_tokens : null,
+    outputTokens: typeof usage.completion_tokens === 'number' ? usage.completion_tokens : null,
+    totalTokens: typeof usage.total_tokens === 'number' ? usage.total_tokens : null,
+    cachedInputTokens: typeof promptDetails.cached_tokens === 'number' ? promptDetails.cached_tokens : null,
+  }));
+  if (!response.ok) return {
+    error: data?.error?.message ?? `Erro Groq ${response.status}`,
+    status: response.status,
+    retryAfter: response.headers.get('retry-after'),
+  };
   return data;
 }
 
@@ -127,7 +146,11 @@ Deno.serve(async (request) => {
       const apiKey = await loadGroqKey(user.id);
       if (!apiKey) return json({ error: 'Configure sua chave Groq no Assistente.' }, request, 400);
       const result = await callGroq(apiKey, sanitized.body);
-      if (typeof result === 'object' && result !== null && 'error' in result) return json(result, request, (result as { status?: number }).status ?? 502);
+      if (typeof result === 'object' && result !== null && 'error' in result) {
+        const failure = result as { status?: number; retryAfter?: string | null };
+        const retryHeaders = failure.status === 429 && failure.retryAfter ? { 'Retry-After': failure.retryAfter } : {};
+        return json(result, request, failure.status ?? 502, retryHeaders);
+      }
       return json(result, request);
     }
     return json({ error: 'Ação inválida.' }, request, 400);
