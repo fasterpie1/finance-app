@@ -171,6 +171,7 @@ function buildCategorySection(month: BudgetMonth, universe: AssistantUniverse): 
 export function answerAssistantQuestion(question: string, universe: AssistantUniverse, t: (key: string, params?: Record<string, string | number>) => string): string | null {
   const value = normalize(question).replace(/,/g, '').replace(/[?!.]+$/g, '').trim();
   if (/^(?:oi|ola|oi tudo bem|ola tudo bem|bom dia|boa tarde|boa noite|hello|hi|hello how are you)$/.test(value)) return t('assistantGreeting');
+  if (classifyAssistantIntents(question, universe).includes('chart')) return answerAssistantChartQuestion(question, universe, t);
   const month = universe.selectedMonth;
   const money = universe.money;
   if (value === 'como estou indo financeiramente este mes' || value === 'how am i doing financially this month') {
@@ -255,6 +256,61 @@ export function answerAssistantQuestion(question: string, universe: AssistantUni
     t('assistantPurchasesCategory', { personal: money(centsToAmount(category?.personalCents ?? 0)), total: money(centsToAmount(category?.chargeCents ?? 0)) }),
     unclassified ? t('assistantUncategorized', { count: unclassified }) : '',
   ].filter(Boolean).join('\n');
+}
+
+function answerAssistantChartQuestion(question: string, universe: AssistantUniverse, t: (key: string, params?: Record<string, string | number>) => string): string {
+  const { selectedMonth, months, money, categoryLabel } = universe;
+  const chartMonths = getCardChartMonths(months, selectedMonth.name, selectedMonth.year);
+  const requestedCategory = universe.categoryNames.find((category) => containsPhrase(question, category));
+  const knownCategories = [...new Set(months.flatMap((month) => [
+    ...month.bills.map((bill) => bill.category),
+    ...(month.creditCardInvoices ?? []).flatMap((invoice) => invoice.transactions.map((transaction) => transaction.category).filter((category): category is CategoryId => Boolean(category))),
+  ]))];
+  const requestedCategoryId = requestedCategory && knownCategories.find((category) => normalize(categoryLabel(category)) === normalize(requestedCategory));
+  const categoryChart = getCategoryChartData(selectedMonth.bills, selectedMonth.creditCardInvoices ?? []);
+  const cardCategories = getCardChartCategories(months);
+  if (requestedCategory && requestedCategoryId) {
+    const values = chartMonths.map((chartMonth) => getCardCategoryAmountCents(chartMonth, requestedCategoryId));
+    const first = values[0] ?? 0;
+    const last = values.at(-1) ?? 0;
+    const today = new Date();
+    const portugueseMonth = MONTH_NAMES.findIndex((name) => normalize(name) === normalize(selectedMonth.name));
+    const englishMonth = MONTH_NAMES_EN.findIndex((name) => normalize(name) === normalize(selectedMonth.name));
+    const currentIsOpen = selectedMonth.year === today.getFullYear()
+      && (portugueseMonth >= 0 ? portugueseMonth : englishMonth) === today.getMonth();
+    const percentage = currentIsOpen
+      ? t('assistantPartialMonthComparison')
+      : first === 0
+        ? t('assistantNoPercentageBase')
+        : `${((last - first) / first * 100).toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
+    const categoryItem = categoryChart.items.find((item) => item.category === requestedCategoryId);
+    const series = chartMonths.map((chartMonth, index) => (
+      `${chartMonth.name.slice(0, 3)} ${String(chartMonth.year).slice(-2)} ${money(centsToAmount(values[index] ?? 0))}`
+    )).join(' → ');
+    return t('assistantChartDetail', {
+      category: requestedCategory,
+      series: series || 'sem meses disponíveis',
+      difference: money(centsToAmount(last - first)),
+      percentage,
+      month: monthLabel(selectedMonth),
+      categoryTotal: money(centsToAmount(categoryItem?.cents ?? 0)),
+      categoryPercentage: `${(categoryItem?.percentage ?? 0).toLocaleString(undefined, { maximumFractionDigits: 1 })}%`,
+      periodNote: currentIsOpen ? t('assistantPartialMonthNote') : '',
+    });
+  }
+
+  const categoryHighlights = categoryChart.items.slice(0, 3).map((item) => (
+    `${categoryLabel(item.category)} ${money(centsToAmount(item.cents))} (${item.percentage.toLocaleString(undefined, { maximumFractionDigits: 1 })}%)`
+  )).join('; ') || 'sem gastos categorizados';
+  const cardTrends = cardCategories.map((category) => {
+    const values = chartMonths.map((chartMonth) => getCardCategoryAmountCents(chartMonth, category));
+    return { category, values, difference: (values.at(-1) ?? 0) - (values[0] ?? 0) };
+  }).filter((series) => series.values.some((value) => value !== 0))
+    .sort((a, b) => Math.abs(b.difference) - Math.abs(a.difference))
+    .slice(0, 3)
+    .map(({ category, values }) => `${categoryLabel(category)}: ${chartMonths.map((chartMonth, index) => `${chartMonth.name.slice(0, 3)} ${String(chartMonth.year).slice(-2)} ${money(centsToAmount(values[index] ?? 0))}`).join(' → ')}`)
+    .join('; ') || 'sem séries com valores';
+  return t('assistantChartOverview', { month: monthLabel(selectedMonth), categoryHighlights, cardTrends });
 }
 
 function buildBillLines(month: BudgetMonth, universe: AssistantUniverse): string {

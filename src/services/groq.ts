@@ -46,7 +46,7 @@ export function classifyGroqError(message: string, status?: number, retryAfter?:
       ? headerSeconds : duration ? Number(duration[1] ?? 0) * 60 + Number(duration[2]) : 60;
     return new GroqRequestError(message, 'rate_limit', Math.max(1, Math.min(86400, Math.ceil(seconds))));
   }
-  if (/parsing failed|failed_generation|could not be parsed|json_validate_failed|encerrou a resposta|resposta inválida/i.test(message)) return new GroqRequestError(message, 'format');
+  if (/parsing failed|failed_generation|failed to generate json|could not be parsed|json_validate_failed|encerrou a resposta|resposta inválida/i.test(message)) return new GroqRequestError(message, 'format');
   if (status === 401 || /não autenticado|invalid login|jwt expired/i.test(message)) return new GroqRequestError(message, 'session');
   if (/failed to fetch|network|tempo limite/i.test(message)) return new GroqRequestError(message, 'network');
   return new GroqRequestError(message, 'request');

@@ -312,7 +312,22 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
       // por minuto da Groq gratuita estourava e a resposta chegava cortada.
       const includeDetails = intents.includes('action') || /\b(detalh\w*|list\w*|estabelec\w*|datas?|quando|qual dia|quem|quais compras|which purchases|merchant)\b/i.test(msg);
       const systemFor = (month: BudgetMonth, withCalendar: boolean, detailed = false) => `${buildAssistantDataSection(universe, month, detailed, intents)}\n\n${buildProtocolSection(universe, intents)}\nFotos de mensagens anteriores não estão disponíveis: use apenas os dados já descritos na conversa ou peça para anexar novamente.${withCalendar && calendarActions && !image ? calendarInstructions : ''}`;
-      let rawContent = await sendMeasured(buildAssistantChatRequest(systemFor(universe.selectedMonth, intents.includes('calendar'), includeDetails), historyMessages, image?.dataUrl));
+      const sendWithJsonRetry = async (request: Record<string, unknown>) => {
+        try {
+          return await sendMeasured(request);
+        } catch (error) {
+          const format = request.response_format as { type?: unknown } | undefined;
+          if (!(error instanceof GroqRequestError) || !/failed to generate json/i.test(error.message) || format?.type !== 'json_object') throw error;
+          const requestMessages = request.messages as Array<{ role?: string; content?: unknown }>;
+          const [systemMessage, ...otherMessages] = requestMessages;
+          const fallbackSystem = {
+            ...systemMessage,
+            content: `${String(systemMessage?.content ?? '')}\nA formatação JSON do provedor falhou. Gere um único objeto JSON válido, sem markdown nem texto fora dele.`,
+          };
+          return sendMeasured({ ...request, response_format: { type: 'text' }, messages: [fallbackSystem, ...otherMessages] });
+        }
+      };
+      let rawContent = await sendWithJsonRetry(buildAssistantChatRequest(systemFor(universe.selectedMonth, intents.includes('calendar'), includeDetails), historyMessages, image?.dataUrl));
       if (requestId !== requestRef.current) return;
       let command = parseAssistantCommand(rawContent);
       if (!command) throw new GroqRequestError('Resposta inválida da IA.', 'format');
@@ -322,7 +337,7 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
           setMessages((prev) => [...prev, { role: 'assistant', content: `Não há mês cadastrado com o nome "${(command?.month ?? '').trim()}". Os meses disponíveis são ${universe.months.map((month) => monthLabel(month)).join(', ')}.` }]);
           return;
         }
-        rawContent = await sendMeasured(buildAssistantChatRequest(systemFor(target, false, true), [
+        rawContent = await sendWithJsonRetry(buildAssistantChatRequest(systemFor(target, false, true), [
           ...historyMessages,
           { role: 'assistant', content: rawContent },
           { role: 'user', content: `Extrato completo de ${monthLabel(target)} carregado acima. Responda a pergunta agora, com action none.` },

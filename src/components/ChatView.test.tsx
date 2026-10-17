@@ -460,6 +460,16 @@ describe('envio e parser no ChatView', () => {
     expect(assistantTexts()).toEqual(['Primeira resposta fictícia', 'Análise fictícia']);
   });
 
+  it('tenta uma vez em texto estrito se Groq rejeitar o modo JSON', async () => {
+    mocks.send.mockRejectedValueOnce(classifyGroqError('Failed to generate JSON. Please adjust your prompt.', 400));
+    type('Explique meus gastos'); await send();
+    expect(mocks.send).toHaveBeenCalledTimes(2);
+    expect(mocks.send.mock.calls[0][0].response_format).toEqual({ type: 'json_object' });
+    expect(mocks.send.mock.calls[1][0].response_format).toEqual({ type: 'text' });
+    expect((mocks.send.mock.calls[1][0].messages as Array<{ content: string }>)[0].content).toContain('formatação JSON do provedor falhou');
+    expect(assistantTexts()).toEqual(['Análise fictícia']);
+  });
+
   it('falha libera a trava e restaura a pergunta quando o campo segue vazio', async () => {
     const first = deferred<string>();
     mocks.send.mockReturnValueOnce(first.promise);

@@ -365,6 +365,23 @@ describe('answerAssistantQuestion', () => {
     }));
   });
 
+  it('calcula localmente a série do gráfico e diferencia cartão de categoria', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-16T12:00:00Z'));
+    try {
+      const universe = universeOf(october, [september, october]);
+      const t = vi.fn(translate);
+      expect(answerAssistantQuestion('Analise o gráfico de Compras de setembro a outubro', universe, t)).toBe(translate('assistantChartDetail', {
+        category: 'Compras', series: `Set 26 ${universe.money(0)} → Out 26 ${universe.money(150)}`,
+        difference: universe.money(150), percentage: translate('assistantPartialMonthComparison'),
+        month: 'Outubro 2026', categoryTotal: universe.money(150), categoryPercentage: '100%',
+        periodNote: translate('assistantPartialMonthNote'),
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each(['oi', ' OLÁ!!! ', 'Oi  tudo  bem?', 'Olá tudo bem.', 'Bom dia!', 'Boa tarde', 'Boa noite', 'hello', 'HI!', 'Hello how are you?'])('responde à saudação %s localmente', (question) => {
     const t = vi.fn(translate);
     expect(answerAssistantQuestion(question, universeOf(october, [october]), t)).toBe(translate('assistantGreeting'));

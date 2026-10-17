@@ -189,7 +189,7 @@ describe('classifyGroqError', () => {
   });
 
   it.each([
-    'Parsing failed', 'failed_generation', 'The response could not be parsed', 'json_validate_failed',
+    'Parsing failed', 'failed_generation', 'Failed to generate JSON. Please adjust your prompt.', 'The response could not be parsed', 'json_validate_failed',
     'A Groq encerrou a resposta antes de gerar o texto.', 'Resposta inválida',
   ])('classifica erro de formato: %s', (message) => {
     const error = classifyGroqError(message);
