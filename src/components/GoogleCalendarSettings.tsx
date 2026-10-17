@@ -60,6 +60,9 @@ export const GoogleCalendarSettings: React.FC<Props> = ({ userId, onClearCalenda
       } else if (event.data.status === 'cancelled') {
         setStatus('disconnected');
         setErrorMessage(t('googleConnectCancelled'));
+      } else if (event.data.status === 'access_denied') {
+        setStatus('error');
+        setErrorMessage(t('googleAccessDenied'));
       } else {
         setStatus('error');
         setErrorMessage(t('googleErrorDescription'));

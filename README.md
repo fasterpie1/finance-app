@@ -46,9 +46,13 @@ APP_ORIGIN=https://seu-dominio.vercel.app
 
 Para desenvolvimento, use o mesmo callback da função hospedada ou publique uma função local acessível pelo Google. O frontend nunca recebe o client secret, access token ou refresh token.
 
-Para alterar o texto exibido na tela de consentimento do Google, abra **Google Cloud Console > Google Auth Platform > Branding** e defina o nome do app como `Finança Pessoal`. O domínio `*.supabase.co` continuará sendo o domínio técnico do redirect URI, mas não precisa aparecer como nome do aplicativo depois que o branding estiver configurado. Em **Audience**, mantenha os usuários de teste autorizados enquanto o app não estiver publicado.
+Para alterar o texto exibido na tela de consentimento do Google, abra **Google Cloud Console > Google Auth Platform > Branding** e defina o nome do app como `Finança Pessoal`. O domínio `*.supabase.co` continuará sendo o domínio técnico do redirect URI, mas não precisa aparecer como nome do aplicativo depois que o branding estiver configurado.
 
-O app renova automaticamente o access token do Google usando o refresh token e a tela de configurações reaproveita o último status conhecido. Contudo, aplicativos externos em status **Teste** podem ter refresh tokens limitados a aproximadamente 7 dias pela política do Google. Para evitar nova autorização após esse período, publique o app ou conclua a verificação exigida pelo Google.
+Em **Audience**, o modo **Teste** permite conectar somente as contas adicionadas em **Test users**. Se outra pessoa receber `403: access_denied`, confira primeiro se o e-mail dela está nessa lista; o app não pode liberar contas que o Google bloqueou. Esse modo serve para testes, e os refresh tokens de aplicativos externos em teste podem expirar após aproximadamente 7 dias.
+
+Para permitir que qualquer usuário conecte a própria agenda, altere a publicação para **In production** e conclua a verificação OAuth solicitada pelo Google para o escopo `https://www.googleapis.com/auth/calendar.events.owned`. Esse escopo limita o acesso a eventos em calendários que o usuário possui; o app opera somente no calendário principal. Configure também a marca do app, e-mail de suporte e as informações públicas exigidas na tela de consentimento. Até a aprovação/publicação estar concluída, mantenha cada pessoa que precisa testar em **Test users**.
+
+O callback reconhece `access_denied` e informa que a conta não está autorizada no modo de teste, em vez de exibir que a pessoa cancelou a conexão. O app renova automaticamente o access token do Google usando o refresh token e a tela de configurações reaproveita o último status conhecido.
 
 Currently, two official plugins are available:
 

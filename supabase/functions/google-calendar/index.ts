@@ -136,6 +136,9 @@ Deno.serve(async (request) => {
   const url = new URL(request.url);
   if (url.pathname.endsWith('/oauth-callback')) {
     try {
+      const oauthError = url.searchParams.get('error');
+      if (oauthError === 'access_denied') return redirect('access_denied');
+      if (oauthError) return redirect('error');
       const state = url.searchParams.get('state');
       const code = url.searchParams.get('code');
       if (!state || !code) return redirect('cancelled');
@@ -167,7 +170,7 @@ Deno.serve(async (request) => {
       await admin.from('google_calendar_oauth_states').delete().lt('expires_at', new Date().toISOString());
       const { error } = await admin.from('google_calendar_oauth_states').insert({ state_hash: await sha256(state), user_id: user.id, expires_at: new Date(Date.now() + 10 * 60_000).toISOString() });
       if (error) throw error;
-      const params = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, response_type: 'code', access_type: 'offline', prompt: 'consent', scope: 'https://www.googleapis.com/auth/calendar.events', state });
+      const params = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, response_type: 'code', access_type: 'offline', prompt: 'consent', scope: 'https://www.googleapis.com/auth/calendar.events.owned', state });
       return json({ authorization_url: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}` }, 200, request);
     }
     if (body.action === 'status') {
