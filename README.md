@@ -28,10 +28,10 @@ Se publicar com uma versão/fluxo que ignore `supabase/config.toml`, use `supaba
 
 ## Google Agenda
 
-Ative a Google Calendar API no Google Cloud Console, configure a tela de consentimento OAuth e crie uma credencial OAuth para aplicação Web. Adicione como redirect URI:
+Ative a Google Calendar API no Google Cloud Console, configure a tela de consentimento OAuth e crie uma credencial OAuth para aplicação Web. O retorno OAuth é exposto pelo mesmo domínio Vercel do app e encaminhado para a Edge Function pela regra em `vercel.json`. Adicione como redirect URI:
 
 ```text
-https://SEU_PROJECT_REF.supabase.co/functions/v1/google-calendar/oauth-callback
+https://finance-app-alpha-opal.vercel.app/api/google-calendar/oauth-callback
 ```
 
 Configure estes secrets na Edge Function `google-calendar`:
@@ -39,14 +39,14 @@ Configure estes secrets na Edge Function `google-calendar`:
 ```text
 GOOGLE_CLIENT_ID
 GOOGLE_CLIENT_SECRET
-GOOGLE_REDIRECT_URI=https://SEU_PROJECT_REF.supabase.co/functions/v1/google-calendar/oauth-callback
+GOOGLE_REDIRECT_URI=https://finance-app-alpha-opal.vercel.app/api/google-calendar/oauth-callback
 GOOGLE_TOKEN_ENCRYPTION_SECRET
 APP_ORIGIN=https://seu-dominio.vercel.app
 ```
 
 Para desenvolvimento, use o mesmo callback da função hospedada ou publique uma função local acessível pelo Google. O frontend nunca recebe o client secret, access token ou refresh token.
 
-Para alterar o texto exibido na tela de consentimento do Google, abra **Google Cloud Console > Google Auth Platform > Branding** e defina o nome do app como `Finança Pessoal`. O domínio `*.supabase.co` continuará sendo o domínio técnico do redirect URI, mas não precisa aparecer como nome do aplicativo depois que o branding estiver configurado.
+Para alterar o texto exibido na tela de consentimento do Google, abra **Google Cloud Console > Google Auth Platform > Branding** e defina o nome do app como `Finança Pessoal`. O callback OAuth usa o domínio Vercel do app; as chamadas autenticadas à API Supabase continuam sendo feitas diretamente pelo frontend.
 
 Em **Audience**, o modo **Teste** permite conectar somente as contas adicionadas em **Test users**. Se outra pessoa receber `403: access_denied`, confira primeiro se o e-mail dela está nessa lista; o app não pode liberar contas que o Google bloqueou. Esse modo serve para testes, e os refresh tokens de aplicativos externos em teste podem expirar após aproximadamente 7 dias.
 

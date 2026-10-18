@@ -1,5 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/api/google-calendar/oauth-callback",
+      "destination": "https://mrxbpwhyekkzaguisdwj.supabase.co/functions/v1/google-calendar/oauth-callback"
+    }
+  ],
   "headers": [
     {
       "source": "/(.*)",
