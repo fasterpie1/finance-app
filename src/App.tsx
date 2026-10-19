@@ -724,18 +724,18 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
           }>
             {savingsGoal > 0 ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-                  <div className="theme-goal-card" style={{ background: '#0e0e0e', borderRadius: 8, padding: '10px 12px' }}>
+                <div className="theme-goal-metrics" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
+                  <div className="theme-goal-card" style={{ background: '#0e0e0e', borderRadius: 8, padding: '10px 12px', minWidth: 0 }}>
                     <div style={{ fontSize: 10, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{savingsGoalIsManual ? t('fixedMonthlyGoal') : t('expectedLeft')}</div>
-                    <div className="privacy-mask" style={{ fontSize: 18, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#d4d4d4', marginTop: 4 }}>{hideValues ? masked : formatCurrency(savingsGoal)}</div>
+                    <div className="privacy-mask theme-goal-metric-value" style={{ fontSize: 18, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#d4d4d4', marginTop: 4 }}>{hideValues ? masked : formatCurrency(savingsGoal)}</div>
                   </div>
-                  <div className="theme-goal-card" style={{ background: '#0e0e0e', borderRadius: 8, padding: '10px 12px' }}>
+                  <div className="theme-goal-card" style={{ background: '#0e0e0e', borderRadius: 8, padding: '10px 12px', minWidth: 0 }}>
                     <div style={{ fontSize: 10, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('savedThisMonth')}</div>
-                    <div className={`privacy-mask ${savedAmount >= savingsGoal ? 'theme-value-green' : 'theme-value-yellow'}`} style={{ fontSize: 18, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : savedAmount >= savingsGoal ? '#10b981' : '#f59e0b', marginTop: 4 }}>{hideValues ? masked : formatCurrency(savedAmount)}</div>
+                    <div className={`privacy-mask theme-goal-metric-value ${savedAmount >= savingsGoal ? 'theme-value-green' : 'theme-value-yellow'}`} style={{ fontSize: 18, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : savedAmount >= savingsGoal ? '#10b981' : '#f59e0b', marginTop: 4 }}>{hideValues ? masked : formatCurrency(savedAmount)}</div>
                   </div>
-                  <div className="theme-goal-card" style={{ background: '#0e0e0e', borderRadius: 8, padding: '10px 12px' }}>
+                  <div className="theme-goal-card" style={{ background: '#0e0e0e', borderRadius: 8, padding: '10px 12px', minWidth: 0 }}>
                     <div style={{ fontSize: 10, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('accumulated')}</div>
-                    <div className="privacy-mask theme-value-blue" style={{ fontSize: 18, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#60a5fa', marginTop: 4 }}>{hideValues ? masked : formatCurrency(accumulatedSaved)}</div>
+                    <div className="privacy-mask theme-goal-metric-value theme-value-blue" style={{ fontSize: 18, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#60a5fa', marginTop: 4 }}>{hideValues ? masked : formatCurrency(accumulatedSaved)}</div>
                   </div>
                 </div>
                 <div>
