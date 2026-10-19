@@ -55,6 +55,8 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
   const [previewKind, setPreviewKind] = useState<StatementFileKind | null>(null);
   const [cardId, setCardId] = useState(() => paymentCards[0]?.id ?? '');
   const [items, setItems] = useState<ExtractedPurchase[]>([]);
+  const [amountDrafts, setAmountDrafts] = useState<Record<string, string>>({});
+  const [personalAmountDrafts, setPersonalAmountDrafts] = useState<Record<string, string>>({});
   const [statementTotalCents, setStatementTotalCents] = useState<number | undefined>();
   // O cartão é escolhido antes de subir, e nasce aqui mesmo: a fatura que vem dele é desta conta.
   const selectedCard = findPaymentCard(cardId, paymentCards);
@@ -76,6 +78,8 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
     }
     setLoading(true);
     setItems([]);
+    setAmountDrafts({});
+    setPersonalAmountDrafts({});
     setIncomplete(false);
     setStatementTotalCents(undefined);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -153,6 +157,8 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
       chosen.filter((item) => item.duplicateConfirmed).map((item) => item.id),
     );
     setItems([]);
+    setAmountDrafts({});
+    setPersonalAmountDrafts({});
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(null);
     setPreviewKind(null);
@@ -320,7 +326,22 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 6 }}>
                       <div>
                         <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('amount')}</div>
-                        <input style={fieldStyle} inputMode="decimal" value={item.amount.toFixed(2).replace('.', ',')} onChange={(e) => updateItem(item.id, { amount: parseAmount(e.target.value) })} />
+                        <input
+                          style={fieldStyle}
+                          type="text"
+                          inputMode="decimal"
+                          value={amountDrafts[item.id] ?? item.amount.toFixed(2).replace('.', ',')}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setAmountDrafts((prev) => ({ ...prev, [item.id]: value }));
+                            updateItem(item.id, { amount: parseAmount(value) });
+                          }}
+                          onBlur={() => setAmountDrafts((prev) => {
+                            const next = { ...prev };
+                            delete next[item.id];
+                            return next;
+                          })}
+                        />
                       </div>
                       <div>
                         <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('installmentShort')}</div>
@@ -358,7 +379,23 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
                       {item.owner === 'SHARED' && (
                         <div>
                           <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('myShare')}</div>
-                          <input style={fieldStyle} inputMode="decimal" value={item.personalAmountCents == null ? '' : (item.personalAmountCents / 100).toFixed(2).replace('.', ',')} onChange={(e) => updateItem(item.id, { personalAmountCents: Math.round(parseAmount(e.target.value) * 100) })} placeholder="0,00" />
+                          <input
+                            style={fieldStyle}
+                            type="text"
+                            inputMode="decimal"
+                            value={personalAmountDrafts[item.id] ?? (item.personalAmountCents == null ? '' : (item.personalAmountCents / 100).toFixed(2).replace('.', ','))}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setPersonalAmountDrafts((prev) => ({ ...prev, [item.id]: value }));
+                              updateItem(item.id, { personalAmountCents: Math.round(parseAmount(value) * 100) });
+                            }}
+                            onBlur={() => setPersonalAmountDrafts((prev) => {
+                              const next = { ...prev };
+                              delete next[item.id];
+                              return next;
+                            })}
+                            placeholder="0,00"
+                          />
                         </div>
                       )}
                     </div>
