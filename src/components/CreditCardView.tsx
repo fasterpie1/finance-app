@@ -17,7 +17,7 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { StatementImportPanel } from './StatementImportPanel';
 import { type Bill } from '../types';
 import { CalendarReminderButton } from './CalendarReminderButton';
-import { usePreferences } from '../i18n';
+import { type AppLocale, usePreferences } from '../i18n';
 
 interface Props {
   userId: string | null;
@@ -73,6 +73,25 @@ const getOwnerOptions = (t: (key: string) => string): Array<{ value: ExpenseOwne
   { value: 'THIRD_PARTY', label: t('thirdParty') },
   { value: 'SHARED', label: t('shared') },
 ];
+
+const transactionTypeLabels: Record<AppLocale, Record<CreditCardTransaction['type'], string>> = {
+  'pt-BR': {
+    PURCHASE: 'Compra',
+    INSTALLMENT: 'Parcela',
+    REFUND: 'Estorno',
+    PAYMENT: 'Pagamento',
+    FEE: 'Tarifa',
+    OTHER: 'Outro',
+  },
+  en: {
+    PURCHASE: 'Purchase',
+    INSTALLMENT: 'Installment',
+    REFUND: 'Refund',
+    PAYMENT: 'Payment',
+    FEE: 'Fee',
+    OTHER: 'Other',
+  },
+};
 
 /** O que cada barra de fatura representa: um cartão, ou o conjunto sem cartão cadastrado. */
 interface InvoiceBar {
@@ -265,7 +284,7 @@ interface InvoiceTransactionsProps {
 }
 
 function InvoiceTransactions({ invoices, monthBills, bars, paymentCards, userId, onUpdate, onTogglePaid, onSaveBill, onDeleteBill, hideValues }: InvoiceTransactionsProps) {
-  const { formatMoney, parseAmount, typeLabel, categoryColor, t } = usePreferences();
+  const { formatMoney, parseAmount, typeLabel, categoryColor, t, locale } = usePreferences();
   const ownerOptions = getOwnerOptions(t);
   const [filter, setFilter] = useState<OwnerFilter>('ALL');
   const [pendingRemoval, setPendingRemoval] = useState<CreditCardTransaction | null>(null);
@@ -327,7 +346,7 @@ function InvoiceTransactions({ invoices, monthBills, bars, paymentCards, userId,
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <strong className="cc-merchant" style={{ fontSize: 13, color: '#d4d4d4' }}>{transaction.merchant}</strong>
               {transaction.installmentCurrent && transaction.installmentTotal && transaction.installmentTotal > 1 && <span style={{ fontSize: 10, color: '#9a9a9a' }}>{typeLabel('parcela')} {transaction.installmentCurrent}/{transaction.installmentTotal}</span>}
-              <span style={{ fontSize: 10, color: '#9a9a9a' }}>{transaction.type}</span>
+              {!(transaction.type === 'INSTALLMENT' && transaction.installmentCurrent && transaction.installmentTotal && transaction.installmentTotal > 1) && <span style={{ fontSize: 10, color: '#9a9a9a' }}>{transactionTypeLabels[locale][transaction.type]}</span>}
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 5, flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>

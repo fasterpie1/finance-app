@@ -150,6 +150,69 @@ const copy: Record<AppLocale, Record<string, string>> = {
   },
 };
 
+const helpGuideCopy: Record<AppLocale, Record<string, string>> = {
+  'pt-BR': {
+    helpTitle: 'Como usar o Finança',
+    closeGuide: 'Fechar guia',
+    helpStep1Title: '1. Navegue pelos meses',
+    helpStep1Body: 'Use os meses no topo para abrir outro período e toque em + para criar o próximo. O mês selecionado controla as contas, as faturas, os gráficos e a meta exibidos.',
+    helpStep2Title: '2. Organize entradas e contas',
+    helpStep2Body: 'No Dashboard, toque na entrada mensal para detalhar suas fontes. Adicione contas mensais, parceladas, fixas ou variáveis, edite valores e vencimentos e marque o que foi pago. Ao iniciar um mês, você pode copiar as contas fixas do anterior.',
+    helpStep3Title: '3. Organize cartões e compras',
+    helpStep3BodyA: 'Na aba Cartão, alterne entre No cartão e Débito/Pix. Ao lançar uma compra ou importar uma fatura, escolha ou cadastre o cartão correspondente. Informe o dia da compra e, se for parcelada, a parcela atual e o total. Compras compartilhadas permitem registrar minha parte e quem paga o restante. Defina o vencimento em ',
+    helpStep3BodyB: '; ele fica associado ao cartão.',
+    helpStep4Title: '4. Importe e revise a fatura',
+    helpStep4BodyA: 'Na aba Cartão, abra ',
+    helpStep4BodyB: ' e selecione uma imagem/print, PDF ou CSV legível. Para analisar imagens e PDFs, configure a chave Groq na aba IA. Revise cada linha: você pode ajustar nome, dia, valor, categoria, parcelas e responsabilidade, inclusive minha parte nas compras compartilhadas. Linhas parecidas com lançamentos existentes ficam sinalizadas; confirme “é outra compra” somente se forem compras diferentes. Marque as linhas desejadas e toque em Lançar compras.',
+    helpStep5Title: '5. Acompanhe sua meta financeira',
+    helpStep5Body: 'A meta pode acompanhar a sobra prevista ou ser fixada manualmente. Informe quanto guardou no mês para acompanhar o progresso; o acumulado soma os valores registrados nos meses anteriores.',
+    helpStep6Title: '6. Consulte os gráficos',
+    helpStep6Body: 'Em Visualizações dos gastos, veja a distribuição por categoria e a evolução mensal dos gastos no cartão. Selecione até três categorias para comparar; os valores do cartão refletem sua parte.',
+    helpStep7Title: '7. Configure lembretes',
+    helpStep7Body: 'O app avisa sobre contas próximas do vencimento e destaca as atrasadas. Para criar eventos no Google Agenda, conecte sua conta nas configurações, defina o vencimento e use Lembrar na conta ou na fatura do cartão.',
+    helpStep8Title: '8. Sincronize e faça backup',
+    helpStep8Body: 'Com sua conta conectada, os dados do app podem ser sincronizados na nuvem. Na seção Backup de dados do Dashboard, use Exportar backup para guardar uma cópia antes de trocar de aparelho ou limpar os dados do navegador; depois, use Importar backup para restaurá-la.',
+    helpStep9Title: '9. Use o assistente financeiro',
+    helpStep9BodyA: 'Na aba IA, gere uma chave em ',
+    helpStep9BodyB: ', crie sua conta, abra o painel e clique em ',
+    helpStep9BodyC: '. Copie a chave e cole no campo ',
+    helpStep9BodyD: ', depois toque em ',
+    helpStep9BodyE: '. A chave fica salva neste navegador; não a compartilhe. Pergunte sobre seus gastos e meses cadastrados ou anexe uma imagem para análise. O assistente também pode propor ações nos dados e no Google Agenda; confira o resumo e confirme antes de aplicar qualquer alteração.',
+    helpStep10Title: '10. Ajuste suas preferências',
+    helpStep10Body: 'Abra as configurações pela engrenagem para escolher idioma, moeda e tema, conectar o Google Agenda ou sair da conta. No Dashboard, use o ícone de olho para ocultar valores e Editar layout para reorganizar as seções.',
+  },
+  en: {
+    helpTitle: 'How to use Finança',
+    closeGuide: 'Close guide',
+    helpStep1Title: '1. Navigate between months',
+    helpStep1Body: 'Use the month buttons at the top to open another period, and tap + to create the next month. The selected month controls the bills, invoices, charts, and goal shown.',
+    helpStep2Title: '2. Organize income and bills',
+    helpStep2Body: 'On the Dashboard, tap monthly income to detail its sources. Add monthly, installment, fixed, or variable bills, edit amounts and due dates, and mark bills as paid. When starting a month, you can copy fixed bills from the previous one.',
+    helpStep3Title: '3. Organize cards and purchases',
+    helpStep3BodyA: 'In the Card tab, switch between On card and Debit/Pix. When adding a purchase or importing a statement, choose or add the matching card. Enter the purchase day and, for installments, the current and total installment counts. Shared purchases let you record your share and who pays the rest. Set the due date in ',
+    helpStep3BodyB: '; it is saved for that card.',
+    helpStep4Title: '4. Import and review a statement',
+    helpStep4BodyA: 'In the Card tab, open ',
+    helpStep4BodyB: ' and select a readable image/screenshot, PDF, or CSV. To analyze images and PDFs, set up your Groq key in the AI tab. Review each row: you can edit the name, day, amount, category, installments, and responsibility, including your share of shared purchases. Rows that resemble existing transactions are flagged; confirm “another purchase” only when they are different purchases. Select the rows you want and tap Add purchases.',
+    helpStep5Title: '5. Track your financial goal',
+    helpStep5Body: 'Your goal can follow the expected remaining amount or be set manually. Enter how much you saved this month to track progress; the accumulated total adds the amounts recorded in previous months.',
+    helpStep6Title: '6. Read the charts',
+    helpStep6Body: 'In Spending views, see spending by category and the monthly trend for card spending. Select up to three categories to compare; card values represent your share.',
+    helpStep7Title: '7. Set up reminders',
+    helpStep7Body: 'The app reminds you about bills approaching their due dates and highlights overdue bills. To create Google Calendar events, connect your account in Settings, set the due date, and tap Remind on a bill or card invoice.',
+    helpStep8Title: '8. Sync and back up',
+    helpStep8Body: 'When signed in, app data can sync to the cloud. In the Dashboard’s Data backup section, use Export backup to keep a copy before changing devices or clearing browser data; use Import backup to restore it.',
+    helpStep9Title: '9. Use the financial assistant',
+    helpStep9BodyA: 'In the AI tab, create a key at ',
+    helpStep9BodyB: ', create your account, open the dashboard, and click ',
+    helpStep9BodyC: '. Copy the key into the ',
+    helpStep9BodyD: ' field, then tap ',
+    helpStep9BodyE: '. The key is stored in this browser; do not share it. Ask about your spending and saved months, or attach an image for analysis. The assistant can also propose actions on your data and Google Calendar; review the summary and confirm before applying any change.',
+    helpStep10Title: '10. Set your preferences',
+    helpStep10Body: 'Open Settings with the gear icon to choose language, currency, and theme, connect Google Calendar, or sign out. On the Dashboard, use the eye icon to hide values and Edit layout to rearrange sections.',
+  },
+};
+
 const extraCopy: Record<AppLocale, Record<string, string>> = {
   'pt-BR': { monthlyIncome: 'Entrada mensal', billsToPay: 'Contas a pagar', totalPaid: 'Total pago', expectedLeft: 'Sobra prevista', expectedDeficit: 'Déficit previsto', paidBills: 'Contas pagas', monthlyFixedBills: 'Contas mensais e fixas', variableExpenses: 'Gastos variáveis', spendingViews: 'Visualizações dos gastos', lastFourMonthsHint: 'Últimos 4 meses · selecione até 3 categorias', selectCategoryToCompare: 'Selecione uma categoria para visualizar a evolução', noCardPurchasesYet: 'Ainda não há lançamentos de cartão para comparar', remind: 'Lembrar', reminderAdded: 'Já adicionado', reminderAdding: 'Adicionando...', reminderAddedTitle: 'Lembrete já adicionado ao Google Agenda', reminderAddTitle: 'Adicionar lembrete ao Google Agenda', dataBackup: 'Backup dos dados', add: 'Adicionar', details: 'Ver detalhes', monthlyInvoice: 'Fatura do mês', myMonthlyInvoice: 'Minha fatura do mês', noInstallments: 'Nenhuma parcela', addPurchase: 'Lançar compra', fixedBillEmpty: 'Nenhuma conta fixa ainda.', copyPrevious: 'Copiar do mês anterior', incomeLessBills: 'Entrada menos contas', noItemsPdf: 'Nenhuma compra encontrada no PDF. Se ele for escaneado, envie uma imagem ou um PDF com texto selecionável.', noItemsImage: 'Nenhuma compra encontrada na imagem. Verifique se a fatura está legível e tente novamente.', invoicePreviewAlt: 'Pré-visualização da fatura', installmentSummary: 'Parcela {cur}/{total} · {amount}/mês', cardSpendingByCategory: 'Gastos no cartão por categoria', removeFromInvoice: 'Remover {merchant} da fatura?', invoiceDueEveryDay: 'Vence todo dia {day}', launchSingleMonth: 'Lançar no mês', launchMultiMonth: 'Lançar nos {count} meses', suggestion1: 'Como estou indo financeiramente este mês?', suggestion2: 'Onde posso economizar?', suggestion3: 'Quais contas ainda estão pendentes?', suggestion4: 'Como melhorar meu saldo no fim do mês?', suggestion5: 'Me dê 3 dicas para organizar meus gastos', suggestion6: 'Meus gastos estão altos? O que cortar?', setupAccess: 'Acesse', setupCreateAccount: 'Crie conta com Google', setupClick: 'Clique em', setupPaste: 'Cole a chave aqui (começa com', setupPasteEnd: ')', installmentSingular: 'parcela', installmentPlural: 'parcelas', fixedSingular: 'fixa', fixedPlural: 'fixas' },
   en: { monthlyIncome: 'Monthly income', billsToPay: 'Bills to pay', totalPaid: 'Total paid', expectedLeft: 'Expected remaining', expectedDeficit: 'Expected deficit', paidBills: 'Bills paid', monthlyFixedBills: 'Monthly and fixed bills', variableExpenses: 'Variable expenses', spendingViews: 'Spending views', lastFourMonthsHint: 'Last 4 months · select up to 3 categories', selectCategoryToCompare: 'Select a category to see its trend', noCardPurchasesYet: 'No card purchases to compare yet', remind: 'Remind', reminderAdded: 'Already added', reminderAdding: 'Adding...', reminderAddedTitle: 'Reminder already added to Google Calendar', reminderAddTitle: 'Add reminder to Google Calendar', dataBackup: 'Data backup', add: 'Add', details: 'View details', monthlyInvoice: 'Monthly invoice', myMonthlyInvoice: 'My invoice this month', noInstallments: 'No installments', addPurchase: 'Add purchase', fixedBillEmpty: 'No fixed bill yet.', copyPrevious: 'Copy previous month', incomeLessBills: 'Income minus bills', noItemsPdf: 'No purchases found in the PDF. If it is scanned, send an image or a PDF with selectable text.', noItemsImage: 'No purchases found in the image. Make sure the statement is legible and try again.', invoicePreviewAlt: 'Invoice preview', installmentSummary: 'Installment {cur}/{total} · {amount}/mo', cardSpendingByCategory: 'Card spending by category', removeFromInvoice: 'Remove {merchant} from the invoice?', invoiceDueEveryDay: 'Due every day {day}', launchSingleMonth: 'Post to month', launchMultiMonth: 'Post to {count} months', suggestion1: 'How am I doing financially this month?', suggestion2: 'Where can I save money?', suggestion3: 'Which bills are still pending?', suggestion4: 'How can I improve my balance at the end of the month?', suggestion5: 'Give me 3 tips to organize my spending', suggestion6: 'Is my spending too high? What should I cut?', setupAccess: 'Go to', setupCreateAccount: 'Create an account with Google', setupClick: 'Click', setupPaste: 'Paste the key here (it starts with', setupPasteEnd: ')', installmentSingular: 'installment', installmentPlural: 'installments', fixedSingular: 'fixed', fixedPlural: 'fixed' },
@@ -211,7 +274,7 @@ export const PreferencesProvider: React.FC<{ userId: string | null; children: Re
     const setLocale = (locale: AppLocale) => setPreferences((current) => ({ ...current, locale }));
     const setCurrency = (currency: DisplayCurrency) => setPreferences((current) => ({ ...current, currency }));
     const t = (key: string, params?: Record<string, string | number>) => {
-      const template = copy[preferences.locale][key] ?? extraCopy[preferences.locale][key] ?? key;
+      const template = helpGuideCopy[preferences.locale][key] ?? copy[preferences.locale][key] ?? extraCopy[preferences.locale][key] ?? key;
       if (!params) return template;
       return template.replace(/\{(\w+)\}/g, (match, token: string) => (token in params ? String(params[token]) : match));
     };
