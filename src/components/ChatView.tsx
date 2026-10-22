@@ -7,7 +7,6 @@ import { usePreferences } from '../i18n';
 import { MarkdownLite } from './MarkdownLite';
 import {
   type AssistantUniverse,
-  answerAssistantQuestion,
   buildAssistantDataSection,
   buildProtocolSection,
   classifyAssistantIntents,
@@ -269,8 +268,7 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
     const msg = typed || (image ? t('chatDescribePhoto') : '');
     if (!msg || showKeySetup || inFlightRef.current || imageLoading || dictating || !isActive) return;
     const intents = classifyAssistantIntents(msg, universe, Boolean(image));
-    const localAnswer = image ? null : answerAssistantQuestion(msg, universe, t);
-    if (!localAnswer && Date.now() < retryUntilRef.current) return;
+    if (Date.now() < retryUntilRef.current) return;
     const requestId = ++requestRef.current;
     inFlightRef.current = true;
     setInput('');
@@ -281,11 +279,6 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
     const userMsg: Message = { role: 'user', content: msg, ...(image ? { photoName: image.name } : {}) };
     const history = [...messages, userMsg].slice(-MAX_STORED_MESSAGES);
     setMessages(history);
-    if (localAnswer) {
-      setMessages((previous) => [...previous, { role: 'assistant', content: localAnswer }]);
-      inFlightRef.current = false;
-      return;
-    }
     setLoading(true);
     const tokenMetrics = { calls: 0, measuredCalls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, cachedInputTokens: 0, latencyMs: 0 };
     let requestFailed = false;
@@ -316,39 +309,72 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
       // por minuto da Groq gratuita estourava e a resposta chegava cortada.
       const includeDetails = intents.includes('action') || /\b(detalh\w*|list\w*|estabelec\w*|datas?|quando|qual dia|quem|quais compras|which purchases|merchant)\b/i.test(msg);
       const systemFor = (month: BudgetMonth, withCalendar: boolean, detailed = false) => `${buildAssistantDataSection(universe, month, detailed, intents, msg)}\n\n${buildProtocolSection(universe, intents)}\nFotos de mensagens anteriores não estão disponíveis: use apenas os dados já descritos na conversa ou peça para anexar novamente.${withCalendar && calendarActions && !image ? calendarInstructions : ''}`;
-      const sendWithJsonRetry = async (request: Record<string, unknown>) => {
+      const sendWithJsonRetry = async (request: Record<string, unknown>): Promise<{ content: string; usedFormatFallback: boolean }> => {
         try {
-          return await sendMeasured(request);
+          return { content: await sendMeasured(request), usedFormatFallback: false };
         } catch (error) {
           const format = request.response_format as { type?: unknown } | undefined;
-          if (!(error instanceof GroqRequestError) || !/failed to generate json/i.test(error.message) || format?.type !== 'json_object') throw error;
+          if (!(error instanceof GroqRequestError) || error.kind !== 'format' || format?.type !== 'json_object') throw error;
           const requestMessages = request.messages as Array<{ role?: string; content?: unknown }>;
           const [systemMessage, ...otherMessages] = requestMessages;
           const fallbackSystem = {
             ...systemMessage,
             content: `${String(systemMessage?.content ?? '')}\nA formatação JSON do provedor falhou. Gere um único objeto JSON válido, sem markdown nem texto fora dele.`,
           };
-          return sendMeasured({ ...request, response_format: { type: 'text' }, messages: [fallbackSystem, ...otherMessages] });
+          return {
+            content: await sendMeasured({ ...request, response_format: { type: 'text' }, messages: [fallbackSystem, ...otherMessages] }),
+            usedFormatFallback: true,
+          };
         }
       };
-      let rawContent = await sendWithJsonRetry(buildAssistantChatRequest(systemFor(universe.selectedMonth, intents.includes('calendar'), includeDetails), historyMessages, image?.dataUrl));
+      const parseWithRepair = async (request: Record<string, unknown>, content: string, allowRepair: boolean): Promise<{ content: string; command: ChatCommand }> => {
+        try {
+          const command = parseAssistantCommand(content);
+          if (command) return { content, command };
+          throw new GroqRequestError('Resposta inválida da IA.', 'format');
+        } catch (error) {
+          if (!(error instanceof GroqRequestError) || error.kind !== 'format') throw error;
+        }
+        if (!allowRepair) throw new GroqRequestError('Resposta inválida da IA após uma tentativa de correção.', 'format');
+        const requestMessages = request.messages as Array<{ role?: string; content?: unknown }>;
+        const [systemMessage, ...otherMessages] = requestMessages;
+        const fallbackSystem = {
+          ...systemMessage,
+          content: `${String(systemMessage?.content ?? '')}\nSua resposta anterior não seguiu o protocolo. Gere somente um objeto JSON válido com action e response; para consulta, use {"action":"none","response":"..."}. Não inclua texto fora do JSON.`,
+        };
+        const repairedContent = await sendMeasured({
+          ...request,
+          response_format: { type: 'text' },
+          messages: [fallbackSystem, ...otherMessages],
+        });
+        const command = parseAssistantCommand(repairedContent);
+        if (!command) throw new GroqRequestError('Resposta inválida da IA após uma tentativa de correção.', 'format');
+        return { content: repairedContent, command };
+      };
+      const initialRequest = buildAssistantChatRequest(systemFor(universe.selectedMonth, intents.includes('calendar'), includeDetails), historyMessages, image?.dataUrl);
+      let sentResponse = await sendWithJsonRetry(initialRequest);
+      let rawContent = sentResponse.content;
       if (requestId !== requestRef.current) return;
-      let command = parseAssistantCommand(rawContent);
-      if (!command) throw new GroqRequestError('Resposta inválida da IA.', 'format');
+      let parsedResponse = await parseWithRepair(initialRequest, rawContent, !sentResponse.usedFormatFallback);
+      rawContent = parsedResponse.content;
+      let command = parsedResponse.command;
       if (command?.action === 'get_month_detail') {
         const target = resolveMonthRef(universe, command.month);
         if (!target) {
           setMessages((prev) => [...prev, { role: 'assistant', content: `Não há mês cadastrado com o nome "${(command?.month ?? '').trim()}". Os meses disponíveis são ${universe.months.map((month) => monthLabel(month)).join(', ')}.` }]);
           return;
         }
-        rawContent = await sendWithJsonRetry(buildAssistantChatRequest(systemFor(target, false, true), [
+        const detailRequest = buildAssistantChatRequest(systemFor(target, false, true), [
           ...historyMessages,
           { role: 'assistant', content: rawContent },
           { role: 'user', content: `Extrato completo de ${monthLabel(target)} carregado acima. Responda a pergunta agora, com action none.` },
-        ], image?.dataUrl));
+        ], image?.dataUrl);
+        sentResponse = await sendWithJsonRetry(detailRequest);
+        rawContent = sentResponse.content;
         if (requestId !== requestRef.current) return;
-        command = parseAssistantCommand(rawContent);
-        if (!command) throw new GroqRequestError('Resposta inválida da IA.', 'format');
+        parsedResponse = await parseWithRepair(detailRequest, rawContent, !sentResponse.usedFormatFallback);
+        rawContent = parsedResponse.content;
+        command = parsedResponse.command;
       }
       // A IA pode mandar buscar o extrato de outro mês antes de responder.
       const CALENDAR_ACTIONS = ['create_bill_reminder', 'create_invoice_reminder', 'create_event', 'list_events', 'update_event', 'delete_event'];
@@ -396,7 +422,18 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
         setRetryUntil(until);
         setRetrySeconds(seconds);
       }
-      const content = error.kind === 'rate_limit' ? t('chatRateLimited')
+      const rateLimit = error.rateLimit;
+      const rateLimitDetails = [
+        rateLimit && (rateLimit.requestsRemaining != null || rateLimit.requestsLimit != null)
+          ? `requisições ${rateLimit.requestsRemaining ?? '?'}${rateLimit.requestsLimit ? `/${rateLimit.requestsLimit}` : ''}${rateLimit.requestsReset ? `, reset ${rateLimit.requestsReset}` : ''}`
+          : '',
+        rateLimit && (rateLimit.tokensRemaining != null || rateLimit.tokensLimit != null)
+          ? `tokens ${rateLimit.tokensRemaining ?? '?'}${rateLimit.tokensLimit ? `/${rateLimit.tokensLimit}` : ''}${rateLimit.tokensReset ? `, reset ${rateLimit.tokensReset}` : ''}`
+          : '',
+      ].filter(Boolean).join('; ');
+      const content = error.kind === 'rate_limit'
+        ? error.rateLimitSource === 'app' ? t('chatAppRateLimited')
+          : t('chatGroqRateLimited', { details: rateLimitDetails ? ` (${rateLimitDetails})` : '' })
         : error.kind === 'session' ? t('sessionExpiredAssistant')
         : error.kind === 'format' ? t('chatFormatError')
         : error.kind === 'network' ? t('chatNetworkError') : t('chatRequestError');
@@ -433,7 +470,7 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
     setMessages((prev) => [...prev, { role: 'assistant', content: t('assistantCancelled') }]);
   };
 
-  const waitingForAI = retrySeconds > 0 && (Boolean(attachment) || !answerAssistantQuestion(input.trim(), universe, t));
+  const waitingForAI = retrySeconds > 0;
 
   if (keyLoading) {
     return (
@@ -501,7 +538,7 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 16 }}>
             <div style={{ textAlign: 'center', color: '#8b8b8b', fontSize: 12 }}>{t('askAboutSpending')}</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center' }}>
-              {SUGGESTION_KEYS.map((key) => (<button type="button" className="theme-ai-suggestion" key={key} disabled={Boolean(attachment) || imageLoading || dictating || (retrySeconds > 0 && !answerAssistantQuestion(t(key), universe, t))} onClick={() => sendMessage(t(key))} title={t(key)} style={{ background: '#111', border: '1px solid #1e1e1e', borderRadius: 6, color: '#9a9a9a', cursor: 'pointer', padding: '7px 12px', fontSize: 12, minHeight: 40, transition: 'all 0.15s', textAlign: 'left' }}>{t(`${key}Short`)}</button>))}
+              {SUGGESTION_KEYS.map((key) => (<button type="button" className="theme-ai-suggestion" key={key} disabled={Boolean(attachment) || imageLoading || dictating || retrySeconds > 0} onClick={() => sendMessage(t(key))} title={t(key)} style={{ background: '#111', border: '1px solid #1e1e1e', borderRadius: 6, color: '#9a9a9a', cursor: 'pointer', padding: '7px 12px', fontSize: 12, minHeight: 40, transition: 'all 0.15s', textAlign: 'left' }}>{t(`${key}Short`)}</button>))}
             </div>
           </div>
         )}

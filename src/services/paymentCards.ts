@@ -45,22 +45,23 @@ export function readPaymentCards(userId: string | null): PaymentCard[] {
   }
 }
 
-let cachedUserId: string | null | undefined;
-let cachedList: PaymentCard[] = [];
+const cachedLists = new Map<string, PaymentCard[]>();
 const listeners = new Set<() => void>();
 const EMPTY: PaymentCard[] = [];
+const userKey = (userId: string | null) => userId ?? 'anonymous';
 
 function load(userId: string | null): PaymentCard[] {
-  if (cachedUserId !== userId) {
-    cachedUserId = userId;
-    cachedList = readPaymentCards(userId);
+  const key = userKey(userId);
+  let list = cachedLists.get(key);
+  if (!list) {
+    list = readPaymentCards(userId);
+    cachedLists.set(key, list);
   }
-  return cachedList;
+  return list;
 }
 
 function commit(userId: string | null, next: PaymentCard[]): void {
-  cachedUserId = userId;
-  cachedList = next;
+  cachedLists.set(userKey(userId), next);
   writeUserStorage(userId, STORAGE_KEY, JSON.stringify(next));
   listeners.forEach((listener) => listener());
 }
@@ -102,9 +103,13 @@ export function usePaymentCards(userId: string | null): PaymentCard[] {
       listeners.add(onStoreChange);
       return () => { listeners.delete(onStoreChange); };
     },
-    () => load(userId),
+    () => getPaymentCardsSnapshot(userId),
     () => EMPTY,
   );
+}
+
+export function getPaymentCardsSnapshot(userId: string | null): PaymentCard[] {
+  return load(userId);
 }
 
 export function findPaymentCard(id: string | undefined, cards: PaymentCard[]): PaymentCard | undefined {

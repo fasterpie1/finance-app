@@ -4,6 +4,7 @@ import {
   createCustomCategory,
   getCategoryColor,
   getCategoryLabel,
+  getCustomCategoriesSnapshot,
   readCustomCategories,
   removeCustomCategory,
   renameCustomCategory,
@@ -28,6 +29,15 @@ function account(name: string): string {
 const identity = (category: CategoryId) => BILL_CATEGORY_LABELS[category as keyof typeof BILL_CATEGORY_LABELS] ?? 'Categoria do app';
 
 describe('categorias da conta', () => {
+  it('mantém snapshots estáveis quando provedores de contas diferentes coexistem', () => {
+    const first = getCustomCategoriesSnapshot(account('snapshot-a'));
+    getCustomCategoriesSnapshot(account('snapshot-b'));
+    expect(getCustomCategoriesSnapshot(account('snapshot-a'))).toBe(first);
+    createCustomCategory(account('snapshot-b'), 'Categoria B');
+    expect(getCustomCategoriesSnapshot(account('snapshot-a'))).toBe(first);
+    expect(getCustomCategoriesSnapshot(account('snapshot-b'))).not.toBe(first);
+  });
+
   it('guarda a categoria nova no espaço da conta que a criou', () => {
     const created = createCustomCategory(account('criadora'), 'Academia');
     expect(created.ok).toBe(true);

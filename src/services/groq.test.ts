@@ -214,6 +214,28 @@ describe('classifyGroqError', () => {
     expect(error.retryAfterSeconds).toBe(60);
   });
 
+  it('distingue o limitador do app da cota da Groq e preserva dados de quota', () => {
+    const appError = classifyGroqError('Limite do app', 429, '30', 'app');
+    const groqError = classifyGroqError('Rate limit reached', 429, '12', 'groq', {
+      requestsLimit: '30',
+      requestsRemaining: '0',
+      requestsReset: '8s',
+      tokensLimit: '6000',
+      tokensRemaining: '0',
+      tokensReset: '1m',
+    });
+    expect(appError.rateLimitSource).toBe('app');
+    expect(groqError.rateLimitSource).toBe('groq');
+    expect(groqError.rateLimit).toEqual({
+      requestsLimit: '30',
+      requestsRemaining: '0',
+      requestsReset: '8s',
+      tokensLimit: '6000',
+      tokensRemaining: '0',
+      tokensReset: '1m',
+    });
+  });
+
   it.each([
     'Parsing failed', 'failed_generation', 'Failed to generate JSON. Please adjust your prompt.', 'The response could not be parsed', 'json_validate_failed',
     'A Groq encerrou a resposta antes de gerar o texto.', 'Resposta inválida',

@@ -3,6 +3,10 @@ import { supabase } from './supabase';
 interface GroqResponse {
   choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
   error?: string;
+  code?: string;
+  status?: number;
+  retryAfter?: string | null;
+  rateLimit?: GroqRateLimitDiagnostics;
   usage?: {
     prompt_tokens?: number;
     completion_tokens?: number;
@@ -20,6 +24,15 @@ export interface GroqCallMetrics {
   latencyMs: number;
 }
 
+export interface GroqRateLimitDiagnostics {
+  requestsLimit?: string | null;
+  requestsRemaining?: string | null;
+  requestsReset?: string | null;
+  tokensLimit?: string | null;
+  tokensRemaining?: string | null;
+  tokensReset?: string | null;
+}
+
 export interface ExtractionResult {
   content: string;
   /** true quando o modelo parou por esgotar o orçamento de saída, ou seja, a fatura veio incompleta. */
@@ -29,22 +42,44 @@ export interface ExtractionResult {
 export class GroqRequestError extends Error {
   kind: 'rate_limit' | 'format' | 'session' | 'network' | 'request';
   retryAfterSeconds?: number;
+  rateLimitSource?: 'app' | 'groq';
+  rateLimit?: GroqRateLimitDiagnostics;
 
-  constructor(message: string, kind: GroqRequestError['kind'], retryAfterSeconds?: number) {
+  constructor(
+    message: string,
+    kind: GroqRequestError['kind'],
+    retryAfterSeconds?: number,
+    rateLimitSource?: 'app' | 'groq',
+    rateLimit?: GroqRateLimitDiagnostics,
+  ) {
     super(message);
     this.name = 'GroqRequestError';
     this.kind = kind;
     this.retryAfterSeconds = retryAfterSeconds;
+    this.rateLimitSource = rateLimitSource;
+    this.rateLimit = rateLimit;
   }
 }
 
-export function classifyGroqError(message: string, status?: number, retryAfter?: string | null): GroqRequestError {
+export function classifyGroqError(
+  message: string,
+  status?: number,
+  retryAfter?: string | null,
+  rateLimitSource?: 'app' | 'groq',
+  rateLimit?: GroqRateLimitDiagnostics,
+): GroqRequestError {
   if (status === 429 || /rate limit|tokens per minute|requests per minute|try again in/i.test(message)) {
     const duration = message.match(/try again in\s+(?:(\d+(?:\.\d+)?)m\s*)?(?:(\d+(?:\.\d+)?)s)/i);
     const headerSeconds = retryAfter ? Number(retryAfter) : NaN;
     const seconds = Number.isFinite(headerSeconds) && headerSeconds > 0
       ? headerSeconds : duration ? Number(duration[1] ?? 0) * 60 + Number(duration[2]) : 60;
-    return new GroqRequestError(message, 'rate_limit', Math.max(1, Math.min(86400, Math.ceil(seconds))));
+    return new GroqRequestError(
+      message,
+      'rate_limit',
+      Math.max(1, Math.min(86400, Math.ceil(seconds))),
+      rateLimitSource ?? 'groq',
+      rateLimit,
+    );
   }
   if (/parsing failed|failed_generation|failed to generate json|could not be parsed|json_validate_failed|encerrou a resposta|resposta inválida/i.test(message)) return new GroqRequestError(message, 'format');
   if (status === 401 || /não autenticado|invalid login|jwt expired/i.test(message)) return new GroqRequestError(message, 'session');
@@ -58,9 +93,18 @@ async function functionError(error: unknown): Promise<GroqRequestError> {
   if (context instanceof Response) {
     let message = fallback;
     try {
-      const body = await context.clone().json() as { error?: unknown; message?: unknown };
+      const body = await context.clone().json() as {
+        error?: unknown;
+        message?: unknown;
+        code?: unknown;
+        retryAfter?: unknown;
+        rateLimit?: GroqRateLimitDiagnostics;
+      };
       if (typeof body.error === 'string') message = body.error;
       else if (typeof body.message === 'string') message = body.message;
+      const source = body.code === 'APP_RATE_LIMIT' ? 'app' : body.code === 'GROQ_RATE_LIMIT' ? 'groq' : undefined;
+      const retryAfter = typeof body.retryAfter === 'string' ? body.retryAfter : context.headers.get('Retry-After');
+      return classifyGroqError(message, context.status, retryAfter, source, body.rateLimit);
     } catch { /* The status still identifies an HTTP error without a JSON body. */ }
     return classifyGroqError(message, context.status, context.headers.get('Retry-After'));
   }
@@ -100,7 +144,10 @@ async function invokeGroq(action: 'chat' | 'extract', request: Record<string, un
       timeout,
     ]);
     if (error) throw await functionError(error);
-    if (data?.error) throw classifyGroqError(String(data.error), data.status);
+    if (data?.error) {
+      const source = data.code === 'APP_RATE_LIMIT' ? 'app' : data.code === 'GROQ_RATE_LIMIT' ? 'groq' : undefined;
+      throw classifyGroqError(String(data.error), data.status, data.retryAfter, source, data.rateLimit);
+    }
     return data as GroqResponse;
   } finally {
     if (timer) clearTimeout(timer);

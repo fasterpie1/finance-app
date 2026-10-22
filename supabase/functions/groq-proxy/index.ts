@@ -114,6 +114,17 @@ async function callGroq(apiKey: string, body: Record<string, unknown>): Promise<
     error: data?.error?.message ?? `Erro Groq ${response.status}`,
     status: response.status,
     retryAfter: response.headers.get('retry-after'),
+    ...(response.status === 429 ? {
+      code: 'GROQ_RATE_LIMIT',
+      rateLimit: {
+        requestsLimit: response.headers.get('x-ratelimit-limit-requests'),
+        requestsRemaining: response.headers.get('x-ratelimit-remaining-requests'),
+        requestsReset: response.headers.get('x-ratelimit-reset-requests'),
+        tokensLimit: response.headers.get('x-ratelimit-limit-tokens'),
+        tokensRemaining: response.headers.get('x-ratelimit-remaining-tokens'),
+        tokensReset: response.headers.get('x-ratelimit-reset-tokens'),
+      },
+    } : {}),
   };
   return data;
 }
@@ -156,7 +167,7 @@ Deno.serve(async (request) => {
     return json({ error: 'Ação inválida.' }, request, 400);
   } catch (error) {
     if (error instanceof RateLimitedError) {
-      return json({ error: error.message }, request, 429, { 'Retry-After': String(error.retryAfterSeconds) });
+      return json({ error: error.message, code: 'APP_RATE_LIMIT' }, request, 429, { 'Retry-After': String(error.retryAfterSeconds) });
     }
     if (error instanceof PayloadTooLargeError) return json({ error: error.message }, request, 413);
     if (error instanceof InvalidJsonError) return json({ error: error.message }, request, 400);

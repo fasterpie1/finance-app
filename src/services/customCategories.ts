@@ -46,21 +46,22 @@ function persist(userId: string | null, list: CustomCategory[]): void {
   writeUserStorage(userId, STORAGE_KEY, JSON.stringify(list));
 }
 
-let cachedUserId: string | null | undefined;
-let cachedList: CustomCategory[] = [];
+const cachedLists = new Map<string, CustomCategory[]>();
 const listeners = new Set<() => void>();
+const userKey = (userId: string | null) => userId ?? 'anonymous';
 
 function load(userId: string | null): CustomCategory[] {
-  if (cachedUserId !== userId) {
-    cachedUserId = userId;
-    cachedList = readCustomCategories(userId);
+  const key = userKey(userId);
+  let list = cachedLists.get(key);
+  if (!list) {
+    list = readCustomCategories(userId);
+    cachedLists.set(key, list);
   }
-  return cachedList;
+  return list;
 }
 
 function commit(userId: string | null, next: CustomCategory[]): void {
-  cachedUserId = userId;
-  cachedList = next;
+  cachedLists.set(userKey(userId), next);
   persist(userId, next);
   listeners.forEach((listener) => listener());
 }
@@ -124,9 +125,13 @@ export function useCustomCategories(userId: string | null): CustomCategory[] {
       listeners.add(onStoreChange);
       return () => { listeners.delete(onStoreChange); };
     },
-    () => load(userId),
+    () => getCustomCategoriesSnapshot(userId),
     () => EMPTY,
   );
+}
+
+export function getCustomCategoriesSnapshot(userId: string | null): CustomCategory[] {
+  return load(userId);
 }
 
 const EMPTY: CustomCategory[] = [];

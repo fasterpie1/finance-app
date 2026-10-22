@@ -159,6 +159,40 @@ describe('contexto da assistente', () => {
     expect(categoryProtocol).not.toContain('Agenda:');
   });
 
+  it('compacta comparação de categorias no crédito e omite contas fora do cartão', () => {
+    const previousMonth = {
+      ...september,
+      creditCardInvoices: [invoiceOf(cardC6.id, [transaction({ amountCents: 20000, category: 'compras' })])],
+    };
+    const universe = universeOf(october, [previousMonth, october]);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-22T12:00:00'));
+    try {
+      const text = plain(buildAssistantDataSection(
+        universe,
+        october,
+        false,
+        ['category', 'comparison', 'bills'],
+        'Compare o crédito por categoria em Setembro e Outubro 2026. Não inclua Débito/Pix nem contas fora do cartão.',
+      ));
+      expect(text).toContain('COMPARAÇÃO DE CATEGORIAS NO CRÉDITO (Setembro 2026 vs Outubro 2026)');
+      expect(text).toContain('- Compras: Setembro 2026: crédito bruto R$ 200,00, minha parte R$ 200,00');
+      expect(text).toContain('Outubro 2026: crédito bruto R$ 300,00, minha parte R$ 150,00');
+      expect(text).toContain('variação: bruto +R$ 100,00 (50%), minha parte -R$ 50,00 (-25%)');
+      expect(text).toContain('O mês aberto Outubro 2026 está parcial até 22/10/2026.');
+      expect(text).toContain('- Lazer:');
+      expect(text).toContain('- Sem categoria:');
+      expect(text).not.toContain('GRÁFICO DE');
+      expect(text).not.toContain('MESES CADASTRADOS');
+      expect(text).not.toContain('Categorias do mês aberto');
+      expect(text).not.toContain('Fatura Outubro');
+      expect(text).not.toContain('Wellhub');
+      expect(text).not.toContain('fora do cartão — pendente');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('envia fontes de renda e metas apenas quando a intenção pede esses campos', () => {
     const month = {
       ...october,
@@ -281,6 +315,10 @@ describe('getAssistantCategoryTotals', () => {
       label: universe.categoryLabel('compras'),
       personalCents: getPersonalImpactCents(item),
       chargeCents: getChargeImpactCents(item),
+      creditCents: getChargeImpactCents(item),
+      creditPersonalCents: getPersonalImpactCents(item),
+      debitPixCents: 0,
+      outsideCardCents: 0,
       count: 1,
     }]);
   });
@@ -299,9 +337,9 @@ describe('getAssistantCategoryTotals', () => {
     const universe = universeOf(month, [month]);
     universe.categoryLabel = (category) => category === 'categoria_teste' ? 'Categoria Teste' : BILL_CATEGORY_LABELS[category as keyof typeof BILL_CATEGORY_LABELS];
     expect(getAssistantCategoryTotals(month, universe)).toEqual([
-      { label: 'Lazer', personalCents: getPersonalImpactCents(items[3]), chargeCents: getChargeImpactCents(items[3]), count: 1 },
-      { label: 'Categoria Teste', personalCents: getPersonalImpactCents(items[0]) + getPersonalImpactCents(items[1]), chargeCents: getChargeImpactCents(items[0]) + getChargeImpactCents(items[1]), count: 2 },
-      { label: 'Sem categoria', personalCents: getPersonalImpactCents(items[4]) + getPersonalImpactCents(items[5]), chargeCents: getChargeImpactCents(items[4]) + getChargeImpactCents(items[5]), count: 2 },
+      { label: 'Lazer', personalCents: getPersonalImpactCents(items[3]), chargeCents: getChargeImpactCents(items[3]), creditCents: getChargeImpactCents(items[3]), creditPersonalCents: getPersonalImpactCents(items[3]), debitPixCents: 0, outsideCardCents: 0, count: 1 },
+      { label: 'Categoria Teste', personalCents: getPersonalImpactCents(items[0]) + getPersonalImpactCents(items[1]), chargeCents: getChargeImpactCents(items[0]) + getChargeImpactCents(items[1]), creditCents: getChargeImpactCents(items[0]) + getChargeImpactCents(items[1]), creditPersonalCents: getPersonalImpactCents(items[0]) + getPersonalImpactCents(items[1]), debitPixCents: 0, outsideCardCents: 0, count: 2 },
+      { label: 'Sem categoria', personalCents: getPersonalImpactCents(items[4]) + getPersonalImpactCents(items[5]), chargeCents: getChargeImpactCents(items[4]) + getChargeImpactCents(items[5]), creditCents: getChargeImpactCents(items[4]) + getChargeImpactCents(items[5]), creditPersonalCents: getPersonalImpactCents(items[4]) + getPersonalImpactCents(items[5]), debitPixCents: 0, outsideCardCents: 0, count: 2 },
     ]);
   });
 
@@ -309,7 +347,7 @@ describe('getAssistantCategoryTotals', () => {
     const items = [transaction({ category: 'compras' }), transaction({ category: 'compras', type: 'REFUND' }), transaction({ category: 'compras', type: 'PAYMENT' })];
     const month = monthWith({ creditCardInvoices: [invoiceOf(cardC6.id, items)] });
     const universe = universeOf(month, [month]);
-    expect(getAssistantCategoryTotals(month, universe)).toEqual([{ label: 'Compras', personalCents: 0, chargeCents: 0, count: 2 }]);
+    expect(getAssistantCategoryTotals(month, universe)).toEqual([{ label: 'Compras', personalCents: 0, chargeCents: 0, creditCents: 0, creditPersonalCents: 0, debitPixCents: 0, outsideCardCents: 0, count: 2 }]);
     expect(buildAssistantDataSection(universe, month, false)).toContain(`- Compras: bruto ${universe.money(0)} | minha parte ${universe.money(0)} | 2 lançamento(s)`);
   });
 
@@ -321,14 +359,20 @@ describe('getAssistantCategoryTotals', () => {
     const imported = month.creditCardInvoices![0].transactions[0];
     const purchasesCents = month.bills.slice(2).reduce((sum, item) => sum + amountToCents(item.amount), 0);
     expect(getAssistantCategoryTotals(month, universe)).toEqual([
-      { label: 'Compras', personalCents: purchasesCents, chargeCents: purchasesCents, count: 3 },
+      { label: 'Compras', personalCents: purchasesCents, chargeCents: purchasesCents, creditCents: amountToCents(month.bills[2].amount), creditPersonalCents: amountToCents(month.bills[2].amount), debitPixCents: amountToCents(month.bills[4].amount), outsideCardCents: amountToCents(month.bills[3].amount), count: 3 },
       {
         label: 'Assinatura',
         personalCents: getPersonalImpactCents(imported) + amountToCents(month.bills[1].amount),
         chargeCents: getChargeImpactCents(imported) + amountToCents(month.bills[1].amount),
+        creditCents: getChargeImpactCents(imported) + amountToCents(month.bills[1].amount),
+        creditPersonalCents: getPersonalImpactCents(imported) + amountToCents(month.bills[1].amount),
+        debitPixCents: 0,
+        outsideCardCents: 0,
         count: 2,
       },
     ]);
+    expect(buildAssistantDataSection(universe, month, false, ['category'], 'Quanto gastei em compras no crédito e Débito/Pix?'))
+      .toContain(`- Compras: bruto ${universe.money(centsToAmount(purchasesCents))} | minha parte ${universe.money(centsToAmount(purchasesCents))} | crédito bruto ${universe.money(centsToAmount(amountToCents(month.bills[2].amount)))} (minha parte ${universe.money(centsToAmount(amountToCents(month.bills[2].amount)))}) | Débito/Pix ${universe.money(centsToAmount(amountToCents(month.bills[4].amount)))} | fora do cartão ${universe.money(centsToAmount(amountToCents(month.bills[3].amount)))} | 3 lançamento(s)`);
   });
 });
 
@@ -340,6 +384,9 @@ describe('answerAssistantQuestion', () => {
     expect(classifyAssistantIntents('Analise o gráfico de evolução', universe)).toContain('chart');
     expect(classifyAssistantIntents('Quais contas vencem esta semana?', universe)).toContain('bills');
     expect(classifyAssistantIntents('O que você consegue fazer no app?', universe)).toContain('app_help');
+    expect(classifyAssistantIntents('Quais foram meus gastos de Compras no crédito?', universe)).toEqual(expect.arrayContaining(['category']));
+    expect(classifyAssistantIntents('How much did I spend on Shopping by credit card?', universe)).toEqual(expect.arrayContaining(['category']));
+    expect(classifyAssistantIntents('Olá tudo bem?', universe)).toEqual(['greeting']);
   });
 
   it('classifica comparação de categoria e calcula no app sem inferir melhora no mês parcial', () => {
@@ -512,6 +559,17 @@ describe('answerAssistantQuestion', () => {
 });
 
 describe('buildAssistantDataSection sem detalhes', () => {
+  it('usa contexto financeiro mínimo em saudações para poupar tokens', () => {
+    const month = adjustedMonth();
+    const universe = universeOf(month, [september, month]);
+    const context = buildAssistantDataSection(universe, month, false, ['greeting'], 'Olá tudo bem?');
+    expect(context).toContain('Mês aberto na tela: Outubro 2026');
+    expect(context).not.toContain('Entrada ');
+    expect(context).not.toContain('Categorias de');
+    expect(context).not.toContain('Lançamentos da fatura');
+    expect(buildProtocolSection(universe, ['greeting'])).toContain('responda naturalmente e de forma breve');
+  });
+
   it('preserva dashboard, fatura oficial e categorias completas, sem nomes de contas, pessoas ou estabelecimentos', () => {
     const month = adjustedMonth();
     const universe = universeOf(month, [september, month]);

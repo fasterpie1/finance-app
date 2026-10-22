@@ -6,6 +6,7 @@ import {
   getCardDueDay,
   getInvoiceCardLabel,
   getPaymentCardLabel,
+  getPaymentCardsSnapshot,
   groupInvoicesByCard,
   readPaymentCards,
   resolveBillCardId,
@@ -36,6 +37,15 @@ const card = (id: string, bank: string, last4: string, dueDay?: number): Payment
 const failure = (result: CardResult) => (result.ok ? 'ok' : result.reason);
 
 describe('cartão declarado na hora de lançar ou importar', () => {
+  it('mantém snapshots estáveis quando provedores de contas diferentes coexistem', () => {
+    const first = getPaymentCardsSnapshot(account('snapshot-a'));
+    getPaymentCardsSnapshot(account('snapshot-b'));
+    expect(getPaymentCardsSnapshot(account('snapshot-a'))).toBe(first);
+    findOrCreatePaymentCard(account('snapshot-b'), 'Banco Teste', '8649');
+    expect(getPaymentCardsSnapshot(account('snapshot-a'))).toBe(first);
+    expect(getPaymentCardsSnapshot(account('snapshot-b'))).not.toBe(first);
+  });
+
   it('guarda o cartão no espaço da conta que o criou', () => {
     const created = findOrCreatePaymentCard(account('dono'), 'Nubank', '8649');
     expect(created.ok).toBe(true);

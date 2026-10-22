@@ -67,7 +67,6 @@ vi.mock('../i18n', () => ({
 vi.mock('../services/assistantContext', () => ({
   buildAssistantDataSection: () => 'CONTEXTO FICTÍCIO', buildProtocolSection: () => 'PROTOCOLO FICTÍCIO',
   classifyAssistantIntents: () => ['general'],
-  answerAssistantQuestion: (question: string) => question === 'Olá tudo bem?' ? 'assistantGreeting' : question === 'Como estou indo financeiramente este mês?' ? 'assistantMonthSummary' : null,
   monthLabel: () => 'Outubro 2026', resolveMonthRef: vi.fn(),
 }));
 vi.mock('../services/speechInput', () => ({ startSpeechInput: mocks.speech, supportsSpeechInput: mocks.supported }));
@@ -461,7 +460,7 @@ describe('envio e parser no ChatView', () => {
   });
 
   it('tenta uma vez em texto estrito se Groq rejeitar o modo JSON', async () => {
-    mocks.send.mockRejectedValueOnce(classifyGroqError('Failed to generate JSON. Please adjust your prompt.', 400));
+    mocks.send.mockRejectedValueOnce(classifyGroqError('json_validate_failed: conteúdo sintético', 400));
     type('Explique meus gastos'); await send();
     expect(mocks.send).toHaveBeenCalledTimes(2);
     expect(mocks.send.mock.calls[0][0].response_format).toEqual({ type: 'json_object' });
@@ -569,11 +568,15 @@ describe('envio e parser no ChatView', () => {
     expect(responding()).toHaveLength(0);
   });
 
-  it('não mostra texto livre do modelo quando o protocolo exige JSON', async () => {
+  it('corrige uma vez uma resposta sem JSON e nunca mostra o texto livre', async () => {
     mocks.send.mockResolvedValueOnce('Posso ajudar. All actions via the defined JSON interface.');
+    mocks.send.mockResolvedValueOnce('Ainda fora do formato');
     type('O que você consegue fazer?'); await send();
     expect(errorTexts()).toEqual(['chatFormatError']);
     expect(assistantTexts()).toEqual([]);
+    expect(mocks.send).toHaveBeenCalledTimes(2);
+    expect(mocks.send.mock.calls[1][0].response_format).toEqual({ type: 'text' });
+    expect((mocks.send.mock.calls[1][0].messages as Array<{ content: string }>)[0].content).toContain('Sua resposta anterior não seguiu o protocolo');
     expect(props.onCommand).not.toHaveBeenCalled();
   });
 
@@ -581,7 +584,7 @@ describe('envio e parser no ChatView', () => {
     vi.setSystemTime(new Date('2026-10-01T12:00:00Z'));
     mocks.send.mockRejectedValueOnce(classifyGroqError('HTTP 429 técnico fictício', 429, '3'));
     type('Consulta fictícia à IA'); await send();
-    expect(errorTexts()).toEqual(['chatRateLimited']);
+    expect(errorTexts()).toEqual(['chatGroqRateLimited']);
     expect(textarea().props.value).toBe('Consulta fictícia à IA');
     expect(countdown().map((node) => node.props.children)).toEqual(['chatRetryCountdown: 3']);
     expect(button('chatSendMessage').props.disabled).toBe(true);
@@ -610,7 +613,7 @@ describe('envio e parser no ChatView', () => {
     expect(mocks.send).toHaveBeenCalledTimes(2);
   });
 
-  it('saudação e resumo locais continuam disponíveis durante limite, sem consultar IA', async () => {
+  it('nenhuma pergunta contorna o limite da IA com resposta local', async () => {
     mocks.send.mockRejectedValueOnce(classifyGroqError('HTTP 429 fictício', 429, '60'));
     type('Consulta remota fictícia'); await send();
     for (const [question, answer] of [
@@ -618,10 +621,10 @@ describe('envio e parser no ChatView', () => {
       ['Como estou indo financeiramente este mês?', 'assistantMonthSummary'],
     ]) {
       type(question);
-      expect(button('chatSendMessage').props.disabled).toBe(false);
+      expect(button('chatSendMessage').props.disabled).toBe(true);
       await send();
-      expect(assistantTexts()).toContain(answer);
-      expect(textarea().props.value).toBe('');
+      expect(assistantTexts()).not.toContain(answer);
+      expect(textarea().props.value).toBe(question);
       expect(responding()).toHaveLength(0);
       expect(mocks.send).toHaveBeenCalledTimes(1);
       expect(countdown().map((node) => node.props.children)).toEqual(['chatRetryCountdown: 60']);
@@ -633,13 +636,28 @@ describe('envio e parser no ChatView', () => {
     expect(props.onCommand).not.toHaveBeenCalled();
   });
 
-  it('saudação em conversa vazia responde localmente e não usa IA nem onCommand', async () => {
-    type('Olá tudo bem?'); await send();
-    expect(assistantTexts()).toEqual(['assistantGreeting']);
+  it('informa quando o bloqueio vem do limite interno do app', async () => {
+    mocks.send.mockRejectedValueOnce(classifyGroqError('Limite interno fictício', 429, '4', 'app'));
+    type('Consulta limitada pelo app'); await send();
+    expect(errorTexts()).toEqual(['chatAppRateLimited']);
+    expect(countdown().map((node) => node.props.children)).toEqual(['chatRetryCountdown: 4']);
+  });
+
+  it.each([
+    ['Olá tudo bem?', 'Oi! Como posso ajudar?'],
+    ['Como estou indo financeiramente este mês?', 'Você vai bem com os dados disponíveis.'],
+  ])('envia saudação e resumo financeiro para a IA: %s', async (question, response) => {
+    mocks.send.mockResolvedValueOnce(JSON.stringify({ action: 'none', response }));
+    type(question); await send();
+    expect(mocks.send).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      messages: [
+        { role: 'system', content: expect.stringContaining('CONTEXTO FICTÍCIO') },
+        { role: 'user', content: question },
+      ],
+    }), expect.any(Function));
+    expect(assistantTexts()).toEqual([response]);
     expect(textarea().props.value).toBe('');
-    expect(suggestions()).toHaveLength(0);
     expect(responding()).toHaveLength(0);
-    expect(mocks.send).not.toHaveBeenCalled();
     expect(props.onCommand).not.toHaveBeenCalled();
   });
 
@@ -666,20 +684,21 @@ describe('envio e parser no ChatView', () => {
       { category: 1 }, { card: {} }, { owner: [] }, { merchant: false },
       { withoutCard: 'true' }, { unclassifiedCategory: 0 }, { day: '1' }, { day: null },
     ].map((scope) => JSON.stringify({ action: 'categorize_transactions', scope, response: 'Não executar' }))],
-  ] as const)('%s nunca chega a onCommand e produz erro de formato', async (_label, payloads) => {
+  ] as const)('%s nunca chega a onCommand; o app tenta reparar sem aplicar o comando inválido', async (_label, payloads) => {
     for (const payload of payloads) {
       mocks.send.mockResolvedValueOnce(payload);
       type('Pedido fictício de alteração'); await send();
       expect(props.onCommand).not.toHaveBeenCalled();
       for (const handler of Object.values(props.calendarActions!)) expect(handler).not.toHaveBeenCalled();
-      expect(errorTexts()).toEqual(['chatFormatError']);
-      expect(assistantTexts()).toEqual([]);
+      expect(errorTexts()).toEqual([]);
+      expect(assistantTexts()).toEqual(['Análise fictícia']);
       expect(elements().some((node) => node.props.className === 'chat-pending-change')).toBe(false);
-      expect(textarea().props.value).toBe('Pedido fictício de alteração');
+      expect(textarea().props.value).toBe('');
       expect(responding()).toHaveLength(0);
+      expect(mocks.send).toHaveBeenCalledTimes((payloads.indexOf(payload) + 1) * 2);
       clear();
     }
-    expect(mocks.send).toHaveBeenCalledTimes(payloads.length);
+    expect(mocks.send).toHaveBeenCalledTimes(payloads.length * 2);
   });
 
   it('aceita JSON válido em Markdown fenced e entrega apenas o comando validado', async () => {
@@ -720,6 +739,10 @@ describe('envio e parser no ChatView', () => {
     type('Olá tudo bem?'); await send();
     expect(suggestions()).toHaveLength(0);
     expect(headerMonth().props.children).toBe('Outubro 2026');
-    expect(mocks.send).toHaveBeenCalledTimes(1);
+    expect(mocks.send).toHaveBeenCalledTimes(2);
+    expect(mocks.send.mock.calls[1][0].messages).toEqual([
+      { role: 'system', content: expect.stringContaining('CONTEXTO FICTÍCIO') },
+      { role: 'user', content: 'Olá tudo bem?' },
+    ]);
   });
 });
