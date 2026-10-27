@@ -360,13 +360,13 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onImportExpens
                       </div>
                     )}
                     {item.duplicateConfirmed && (
-                      <div style={{ background: '#0a1a0a', border: '1px solid #153a1c', borderRadius: 6, padding: '7px 9px', marginBottom: 8, color: '#4ade80', fontSize: 11 }}>
+                      <div className="import-ok-box" style={{ background: '#0a1a0a', border: '1px solid #153a1c', borderRadius: 6, padding: '7px 9px', marginBottom: 8, color: '#4ade80', fontSize: 11 }}>
                         {t('duplicateConfirmedAsOther')}
                       </div>
                     )}
                     <div style={{ display: 'grid', gridTemplateColumns: isExpenseMode ? '1fr 1fr 1fr' : '1fr 1fr 1fr 1fr', gap: 6 }}>
                       <div>
-                        <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('amount')}</div>
+                        <div className="import-field-label" style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('amount')}</div>
                         <input
                           style={fieldStyle}
                           type="text"
@@ -386,7 +386,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onImportExpens
                       </div>
                       {isExpenseMode ? (
                         <div>
-                          <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('expenseMethod')}</div>
+                          <div className="import-field-label" style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('expenseMethod')}</div>
                           <select style={fieldStyle} value={item.method ?? 'pix'} onChange={(e) => updateItem(item.id, { method: e.target.value as ExpenseMethod })}>
                             <option value="pix">{t('methodPix')}</option>
                             <option value="debito">{t('methodDebito')}</option>
@@ -397,17 +397,17 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onImportExpens
                       ) : (
                         <>
                           <div>
-                            <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('installmentShort')}</div>
+                            <div className="import-field-label" style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('installmentShort')}</div>
                             <input style={fieldStyle} inputMode="numeric" value={String(item.installmentCurrent)} onChange={(e) => updateItem(item.id, { installmentCurrent: parseInt(e.target.value) || 1 })} />
                           </div>
                           <div>
-                            <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('installmentTotal')}</div>
+                            <div className="import-field-label" style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('installmentTotal')}</div>
                             <input style={fieldStyle} inputMode="numeric" value={String(item.installmentTotal)} onChange={(e) => updateItem(item.id, { installmentTotal: parseInt(e.target.value) || 1 })} />
                           </div>
                         </>
                       )}
                       <div>
-                        <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('category')}</div>
+                        <div className="import-field-label" style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('category')}</div>
                         <CategorySelect style={fieldStyle} value={item.category} ariaLabel={t('category')} onChange={(category) => updateItem(item.id, { category })} />
                       </div>
                     </div>
@@ -420,7 +420,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onImportExpens
                     <>
                     <div style={{ display: 'grid', gridTemplateColumns: item.owner === 'SHARED' || item.owner === 'THIRD_PARTY' ? '1fr 1fr' : '1fr', gap: 6, marginTop: 8 }}>
                       <div>
-                        <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('responsibility')}</div>
+                        <div className="import-field-label" style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('responsibility')}</div>
                         <select style={fieldStyle} value={item.owner} onChange={(e) => updateItem(item.id, { owner: e.target.value as ExpenseOwner })}>
                           <option value="ME">{t('me')}</option>
                           <option value="THIRD_PARTY">{t('thirdParty')}</option>
@@ -429,13 +429,13 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onImportExpens
                       </div>
                       {item.owner === 'THIRD_PARTY' && (
                         <div>
-                          <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('thirdParty')}</div>
+                          <div className="import-field-label" style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('thirdParty')}</div>
                           <input style={fieldStyle} value={item.thirdPartyName ?? ''} onChange={(e) => updateItem(item.id, { thirdPartyName: e.target.value })} placeholder={t('optionalName')} />
                         </div>
                       )}
                       {item.owner === 'SHARED' && (
                         <div>
-                          <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('myShare')}</div>
+                          <div className="import-field-label" style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('myShare')}</div>
                           <input
                             style={fieldStyle}
                             type="text"
@@ -458,7 +458,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onImportExpens
                     </div>
                     {item.owner === 'SHARED' && (
                       <div style={{ marginTop: 6 }}>
-                        <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('whoPaysRest')}</div>
+                        <div className="import-field-label" style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('whoPaysRest')}</div>
                         <input style={fieldStyle} value={item.thirdPartyName ?? ''} onChange={(e) => updateItem(item.id, { thirdPartyName: e.target.value })} placeholder={t('personNamePlaceholder')} />
                       </div>
                     )}

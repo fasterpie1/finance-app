@@ -390,8 +390,9 @@ body[data-theme='light'] .theme-chart-toggle {
 }
 
 body[data-theme='light'] .theme-chart-toggle.is-selected {
-  color: #334155 !important;
-  background: #ffffff !important;
+  background: #eff6ff !important;
+  border-color: #93c5fd !important;
+  color: #1d4ed8 !important;
 }
 
 body[data-theme='light'] .theme-month-overview {
@@ -1781,6 +1782,10 @@ body[data-theme='light'] .chart-empty {
 body[data-theme='light'] .chart-axis-label { fill: #64748b !important; }
 body[data-theme='light'] .chart-month-label { fill: #475569 !important; }
 
+/* O rótulo de valor é pequeno e usa a cor da categoria, que é clara demais sobre o branco.
+   Escurecer a matiz mantém a identificação da série e recupera a leitura. */
+body[data-theme='light'] .chart-value-label { filter: brightness(0.62) saturate(1.3); }
+
 /* Ritmo do mês: os textos usam cinzas de tema escuro, então precisam de equivalente legível no claro. */
 body[data-theme='light'] .theme-pace-muted { color: #64748b !important; }
 body[data-theme='light'] .theme-pace-headline.is-positive { color: #059669 !important; }
@@ -2000,6 +2005,12 @@ body[data-theme='light'] .import-item-card {
 body[data-theme='light'] .import-item-card.is-duplicate {
   border-color: #fcd34d !important;
 }
+body[data-theme='light'] .import-ok-box {
+  background: #ecfdf5 !important;
+  border-color: #a7f3d0 !important;
+  color: #047857 !important;
+}
+body[data-theme='light'] .import-field-label { color: #64748b !important; }
 body[data-theme='light'] .import-total-strong { color: #1e293b !important; }
 body[data-theme='light'] .import-confirm {
   background: #16a34a !important;

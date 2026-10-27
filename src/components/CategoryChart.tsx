@@ -32,7 +32,7 @@ export const CategoryChart: React.FC<Props> = ({ bills, invoices = [], hideValue
   const sourceToggle = (
     <div className="chart-source-toggle" style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
       {SOURCE_ORDER.map((option) => (
-        <button key={option} type="button" onClick={() => setSource(option)} aria-pressed={source === option} style={{ background: source === option ? '#111520' : '#151515', border: `1px solid ${source === option ? '#1e2a3e' : '#1e1e1e'}`, borderRadius: 6, color: source === option ? '#60a5fa' : '#8b8b8b', cursor: 'pointer', padding: '6px 12px', fontSize: 11, fontWeight: 600, fontFamily: 'inherit', minHeight: 32 }}>
+        <button key={option} className={`theme-chart-toggle ${source === option ? 'is-selected' : ''}`} type="button" onClick={() => setSource(option)} aria-pressed={source === option} style={{ background: source === option ? '#111520' : '#151515', border: `1px solid ${source === option ? '#1e2a3e' : '#1e1e1e'}`, borderRadius: 6, color: source === option ? '#60a5fa' : '#8b8b8b', cursor: 'pointer', padding: '6px 12px', fontSize: 11, fontWeight: 600, fontFamily: 'inherit', minHeight: 32 }}>
           {option === 'all' ? t('chartSourceAll') : option === 'card' ? t('creditCard') : t('debitPix')}
         </button>
       ))}
@@ -41,7 +41,7 @@ export const CategoryChart: React.FC<Props> = ({ bills, invoices = [], hideValue
   if (totalCents === 0) return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       {sourceToggle}
-      <div style={{ textAlign: 'center', color: '#8b8b8b', fontSize: 12, padding: 20 }}>{t('noExpenses')}</div>
+      <div className="theme-muted-text" style={{ textAlign: 'center', color: '#8b8b8b', fontSize: 12, padding: 20 }}>{t('noExpenses')}</div>
     </div>
   );
   const total = centsToAmount(totalCents);
@@ -81,7 +81,7 @@ export const CategoryChart: React.FC<Props> = ({ bills, invoices = [], hideValue
             ))}
           </svg>
           <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center' }}>
-            <div style={{ fontSize: 9, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('total')}</div>
+            <div className="theme-muted-text" style={{ fontSize: 9, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('total')}</div>
             <div className="privacy-mask" style={{ fontSize: 13, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#d4d4d4', marginTop: 1, transition: 'color 0.2s' }}>{hideValues ? '••••' : formatMoney(total)}</div>
           </div>
         </div>
@@ -93,7 +93,7 @@ export const CategoryChart: React.FC<Props> = ({ bills, invoices = [], hideValue
             <div style={{ width: 3, height: 24, borderRadius: 2, background: d.color, flexShrink: 0 }} />
             <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
               <div className="category-label" style={{ fontSize: 13, color: '#c4c4c4', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.label}</div>
-              <div style={{ fontSize: 11, color: '#8f8f8f', marginTop: 2 }}>{d.pct.toFixed(1)}% do total</div>
+              <div className="theme-muted-text" style={{ fontSize: 11, color: '#8f8f8f', marginTop: 2 }}>{d.pct.toFixed(1)}% do total</div>
             </div>
             <div className="privacy-mask" style={{ fontSize: 14, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#e3e3e3', flexShrink: 0, transition: 'color 0.2s', fontVariantNumeric: 'tabular-nums' }}>
               {hideValues ? '••••' : formatMoney(d.amount)}
