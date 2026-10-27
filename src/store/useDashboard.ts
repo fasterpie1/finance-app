@@ -508,6 +508,19 @@ export function useDashboard(userId: string | null = null) {
     [selectedMonthId]
   );
 
+  /** Reclassificar uma cobrança que se repete precisa alcançar todos os meses em que ela existe;
+   *  `saveBill` só enxerga o mês aberto. */
+  const reclassifyBills = useCallback(
+    (targets: { monthId: string; billId: string }[], category: CategoryId) => {
+      setMonths((prev) => prev.map((m) => {
+        const ids = new Set(targets.filter((target) => target.monthId === m.id).map((target) => target.billId));
+        if (ids.size === 0) return m;
+        return { ...m, bills: m.bills.map((b) => (ids.has(b.id) ? { ...b, category } : b)) };
+      }));
+    },
+    []
+  );
+
   const addBill = useCallback(
     (bill: Bill) => {
       setMonths((prev) =>
@@ -1077,6 +1090,7 @@ export function useDashboard(userId: string | null = null) {
     totalPaid,
     remaining,
     saveBill,
+    reclassifyBills,
     addBill,
     deleteBill,
     togglePaid,

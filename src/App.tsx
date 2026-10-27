@@ -8,6 +8,7 @@ import { ChatView } from './components/ChatView';
 import { CategoryChart } from './components/CategoryChart';
 import { CardSpendingChart } from './components/CardSpendingChart';
 import { SpendingPace } from './components/SpendingPace';
+import { RecurringChargesNotice } from './components/RecurringChargesNotice';
 import { IncomeSourcesModal } from './components/IncomeSourcesModal';
 import { AuthPanel } from './components/AuthPanel';
 import { DailyBillNotification } from './components/DailyBillNotification';
@@ -914,6 +915,13 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
               {addSection === 'variable' ? t('cancel') : t('add')}
             </button>
           }>
+            <RecurringChargesNotice
+              months={db.months}
+              selectedMonthId={db.selectedMonthId}
+              userId={userId}
+              hideValues={hideValues}
+              onReclassify={(charge) => db.reclassifyBills(charge.occurrences.map(({ monthId, billId }) => ({ monthId, billId })), 'assinatura')}
+            />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {db.variableBills.map((bill) => (<BillRow key={bill.id} bill={bill} onTogglePaid={() => togglePaidWithCalendar(bill)} onSave={saveBillWithCalendar} onDelete={() => deleteBillWithCalendar(bill)} onCalendarReminder={() => void addBillReminder(bill)} calendarReminderLoading={calendarWorkingId === bill.id} hideValues={hideValues} />))}
               {addSection === 'variable' && <InlineAddRow monthName={db.selectedMonth.name} onSave={handleAddBill} onCancel={() => setAddSection(null)} defaultType="variavel" />}
