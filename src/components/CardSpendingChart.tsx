@@ -29,6 +29,19 @@ const DEFAULT_CHART_WIDTH = 760;
 const CHART_HEIGHT = 300;
 const PADDING = { top: 62, right: 54, bottom: 62, left: 92 };
 const NARROW_PADDING = { top: 52, right: 16, bottom: 52, left: 48 };
+const WINDOW_STORAGE_KEY = 'financa_card_chart_window_v1';
+const CHART_WINDOWS = [4, 6, 12] as const;
+type ChartWindow = (typeof CHART_WINDOWS)[number];
+/** A partir desta janela o gráfico fica apertado demais para um rótulo de valor por mês. */
+const DENSE_WINDOW = 6;
+
+function loadWindow(): ChartWindow {
+  try {
+    const saved = Number(localStorage.getItem(WINDOW_STORAGE_KEY));
+    if (CHART_WINDOWS.includes(saved as ChartWindow)) return saved as ChartWindow;
+  } catch { /* ignore */ }
+  return 4;
+}
 
 function loadCategories(available: CategoryId[]): CategoryId[] {
   try {
@@ -58,6 +71,7 @@ function layoutValueLabels(desiredYs: number[], top: number, gap: number): numbe
 export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, selectedMonthYear, hideValues }) => {
   const { formatMoney, formatMonthShort, categoryLabel, categoryColor, locale, t } = usePreferences();
   const [source, setSource] = useState<LineChartSource>('card');
+  const [windowSize, setWindowSize] = useState<ChartWindow>(loadWindow);
   const categoriesFor = useCallback((next: LineChartSource) => {
     return getCardChartCategories(months, next).sort((a, b) => categoryLabel(a).localeCompare(categoryLabel(b), locale === 'en' ? 'en-US' : 'pt-BR'));
   }, [months, categoryLabel, locale]);
@@ -93,7 +107,16 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
     setSelectedCategories(loadCategories(categoriesFor(next)));
   };
 
-  const chartMonths = getCardChartMonths(months, selectedMonthName, selectedMonthYear);
+  const switchWindow = (next: ChartWindow) => {
+    if (next === windowSize) return;
+    setWindowSize(next);
+    safeSetItem(WINDOW_STORAGE_KEY, String(next));
+  };
+
+  const chartMonths = getCardChartMonths(months, selectedMonthName, selectedMonthYear, windowSize);
+  const showEveryValue = chartMonths.length <= DENSE_WINDOW;
+  /** Com muitos meses os rótulos do eixo se atropelam: mostra um sim, um não, sempre com o último. */
+  const monthLabelStep = chartMonths.length > 8 ? 2 : 1;
   const values = selectedCategories.flatMap((category) => chartMonths.map((month) =>
     centsToAmount(getCardCategoryAmountCents(month, category, source))
   ));
@@ -134,18 +157,30 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
         <div>
           <h3 style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{title}</h3>
-          <div style={{ marginTop: 5, fontSize: 12, color: '#8b8b8b' }}>{t('lastFourMonthsHint')}</div>
+          <div className="theme-muted-text" style={{ marginTop: 5, fontSize: 12, color: '#8b8b8b' }}>{t('lastMonthsHint', { count: windowSize })}</div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end' }}>
-          <div role="group" aria-label={t('chartSourceToggleLabel')} style={{ display: 'flex', gap: 6 }}>
-            {sourceOptions.map((option) => {
-              const selected = source === option.id;
-              return (
-                <button key={option.id} type="button" aria-pressed={selected} onClick={() => switchSource(option.id)} style={{ minHeight: 32, border: `1px solid ${selected ? '#60a5fa' : '#242424'}`, background: selected ? '#111520' : '#151515', borderRadius: 5, color: selected ? '#60a5fa' : '#8b8b8b', cursor: 'pointer', fontSize: 11, fontWeight: selected ? 700 : 500, padding: '6px 10px', transition: 'all 0.15s' }}>
-                  {option.label}
-                </button>
-              );
-            })}
+          <div className="chart-controls" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <div className="chart-source-toggle" role="group" aria-label={t('chartSourceToggleLabel')} style={{ display: 'flex', gap: 6 }}>
+              {sourceOptions.map((option) => {
+                const selected = source === option.id;
+                return (
+                  <button key={option.id} className={`theme-chart-toggle ${selected ? 'is-selected' : ''}`} type="button" aria-pressed={selected} onClick={() => switchSource(option.id)} style={{ minHeight: 32, border: `1px solid ${selected ? '#60a5fa' : '#242424'}`, background: selected ? '#111520' : '#151515', borderRadius: 5, color: selected ? '#60a5fa' : '#8b8b8b', cursor: 'pointer', fontSize: 11, fontWeight: selected ? 700 : 500, padding: '6px 10px', transition: 'all 0.15s' }}>
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="chart-window-toggle" role="group" aria-label={t('chartWindowLabel')} style={{ display: 'flex', gap: 4 }}>
+              {CHART_WINDOWS.map((size) => {
+                const selected = windowSize === size;
+                return (
+                  <button key={size} className={`theme-chart-toggle ${selected ? 'is-selected' : ''}`} type="button" aria-pressed={selected} onClick={() => switchWindow(size)} style={{ minHeight: 32, minWidth: 38, border: `1px solid ${selected ? '#60a5fa' : '#242424'}`, background: selected ? '#111520' : '#151515', borderRadius: 5, color: selected ? '#60a5fa' : '#8b8b8b', cursor: 'pointer', fontSize: 11, fontWeight: selected ? 700 : 500, padding: '6px 8px', transition: 'all 0.15s' }}>
+                    {t('chartWindowMonths', { count: size })}
+                  </button>
+                );
+              })}
+            </div>
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             {availableCategories.map((category) => {
@@ -180,18 +215,22 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
             })}
             <line className="chart-axis" x1={padding.left} x2={chartWidth - padding.right} y1={padding.top + plotHeight} y2={padding.top + plotHeight} stroke="#292929" />
             {chartMonths.map((month, index) => (
-              <g key={month.id}>
-                <text className="chart-month-label" x={xFor(index)} y={CHART_HEIGHT - (narrow ? 22 : 29)} textAnchor={index === 0 ? 'start' : index === chartMonths.length - 1 ? 'end' : 'middle'} fill="#777" fontSize={monthFontSize} fontWeight="600">{formatMonthShort(month.name, month.year)}</text>
-              </g>
+              index % monthLabelStep === 0 || index === chartMonths.length - 1 ? (
+                <g key={month.id}>
+                  <text className="chart-month-label" x={xFor(index)} y={CHART_HEIGHT - (narrow ? 22 : 29)} textAnchor={index === 0 ? 'start' : index === chartMonths.length - 1 ? 'end' : 'middle'} fill="#777" fontSize={monthFontSize} fontWeight="600">{formatMonthShort(month.name, month.year)}</text>
+                </g>
+              ) : null
             ))}
             {series.map(({ category, points }, seriesIndex) => (
               <g key={category}>
                 <polyline points={points.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" stroke={categoryColor(category)} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
                 {points.map((point, index) => (
                   <g key={`${category}-${index}`}>
-                    <text x={point.x} y={labelYs[index][seriesIndex]} textAnchor={index === 0 ? 'start' : index === points.length - 1 ? 'end' : 'middle'} fill={categoryColor(category)} fontSize={valueFontSize} fontWeight="700">
-                      {hideValues ? '•••' : narrow ? stripCurrency(formatMoney(point.value)) : formatMoney(point.value)}
-                    </text>
+                    {(showEveryValue || index === points.length - 1) && (
+                      <text className="chart-value-label" x={point.x} y={labelYs[index][seriesIndex]} textAnchor={index === 0 ? 'start' : index === points.length - 1 ? 'end' : 'middle'} fill={categoryColor(category)} fontSize={valueFontSize} fontWeight="700">
+                        {hideValues ? '•••' : narrow ? stripCurrency(formatMoney(point.value)) : formatMoney(point.value)}
+                      </text>
+                    )}
                     <circle className="chart-point" cx={point.x} cy={point.y} r="4.5" fill="#111" stroke={categoryColor(category)} strokeWidth="2" />
                   </g>
                 ))}

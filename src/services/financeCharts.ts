@@ -78,7 +78,7 @@ export function getCardCategoryAmountCents(month: Pick<CardChartMonth, 'bills' |
   return pendingBillCents + invoiceCents;
 }
 
-export function getCardChartMonths<T extends CardChartMonth>(months: T[], selectedMonthName: string, selectedMonthYear: number): T[] {
+export function getCardChartMonths<T extends CardChartMonth>(months: T[], selectedMonthName: string, selectedMonthYear: number, count = 4): T[] {
   const selectedIndex = months.findIndex((month) => month.name.toLowerCase() === selectedMonthName.toLowerCase() && month.year === selectedMonthYear);
-  return months.slice(0, selectedIndex >= 0 ? selectedIndex + 1 : months.length).slice(-4);
+  return months.slice(0, selectedIndex >= 0 ? selectedIndex + 1 : months.length).slice(-count);
 }

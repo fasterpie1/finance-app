@@ -83,6 +83,16 @@ describe('finance chart data', () => {
     expect(getCardChartMonths(longHistory, 'Outubro', 2026).map((item) => item.name)).toEqual(['Julho', 'Agosto', 'Outubro']);
   });
 
+  it('mostra a janela escolhida pelo usuário e termina sempre no mês aberto', () => {
+    const history = Array.from({ length: 14 }, (_, index) => month(`M${index + 1}`, index + 1));
+    const selected = history[9];
+
+    expect(getCardChartMonths(history, selected.name, selected.year).map((item) => item.name))
+      .toEqual(['M7', 'M8', 'M9', 'M10']);
+    expect(getCardChartMonths(history, selected.name, selected.year, 6)).toHaveLength(6);
+    expect(getCardChartMonths(history, selected.name, selected.year, 12)).toHaveLength(10);
+  });
+
   it('lê a série do gráfico pela origem escolhida: só o que sai da conta', () => {
     const current = {
       ...month('Outubro', 10),
