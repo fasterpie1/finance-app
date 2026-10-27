@@ -1,13 +1,13 @@
 import { extractWithGroq, type ExtractionResult } from './groq';
-import { parseCsvStatement, parsePdfTransactionFallback, parseExtractedPurchases, VALID_CATEGORIES, type ExtractedPurchase } from './statementParser';
+import { parseCsvStatement, parsePdfTransactionFallback, parseExtractedPurchases, parseExtractionKind, VALID_CATEGORIES, type ExtractedPurchase } from './statementParser';
 export { extractStatementTotalCents } from './statementTotals';
 export { parseExtractedPurchases } from './statementParser';
-export type { ExtractedPurchase } from './statementParser';
+export type { ExtractedPurchase, ExpenseMethod } from './statementParser';
 
 const SYSTEM_PROMPT = `Você extrai compras de faturas de cartão de crédito brasileiras.
 Retorne APENAS JSON válido no formato: { "p": [ ...linhas... ] }
 Cada linha é um VETOR posicional, nesta ordem exata e sem chaves:
-[ nome, valor, parcelaAtual, totalParcelas, categoria, tipo, data, cartaoFinal ]
+[ nome, valor, parcelaAtual, totalParcelas, categoria, tipo, data, cartaoFinal, metodo ]
 - nome: string — descrição/estabelecimento da compra
 - valor: number em reais (ex: 252.09). Se parcelado, use o valor DA PARCELA (não o total)
 - parcelaAtual e totalParcelas: inteiros (1 e 1 se a compra é à vista)
@@ -15,9 +15,11 @@ Cada linha é um VETOR posicional, nesta ordem exata e sem chaves:
 - tipo: uma letra — c=compra, p=parcelamento, e=estorno/crédito, g=pagamento/inclusão de pagamento, t=tarifa/anuidade/encargo, o=outro
 - data: string "DD/MM" (ex: "25/01") ou "" — sempre que a fatura mostrar a data preencha; se aparecer só o dia, complete com o mês da fatura
 - cartaoFinal: string dos últimos quatro dígitos ou ""
+- metodo: 9ª posição, só em extrato de conta — como a saída foi paga: "pix", "debito", "boleto" ou "outro"; em fatura de cartão use ""
 Exemplo: {"p":[["GRUPO CASAS BAHIA S.A.",252.09,10,10,"outros","p","03/01","3397"]]}
 
 Regras:
+- Se o documento for EXTRATO DE CONTA (lançamentos Pix, débito, tarifa bancária e boletos, com saldo/CPF, sem "vencimento/limite/lances da fatura"), retorne {"k":"extrato","p":[...]} com 1 e 1 nas parcelas e o metodo na nona posição. Ignore saldo anterior, saldo atual, limite, rendimentos/aplicações e transferências entre contas do mesmo titular; pagamento da fatura do cartão no extrato use tipo g
 - Ignore totais da fatura, juros, IOF, multas, saldo anterior e encargos
 - Extraia todos os lançamentos individuais, inclusive pagamentos, estornos, créditos, tarifas e anuidades
 - Não trate pagamentos como compras ou despesa: use tipo g e preserve apenas como lançamento informativo da fatura
@@ -89,9 +91,10 @@ async function runRound(request: Record<string, unknown>, canDegrade: boolean): 
 async function extractInRounds(
   buildRequest: (missingPrompt: string) => Record<string, unknown>,
   monthIndex: number,
-): Promise<{ purchases: LoosePurchase[]; complete: boolean }> {
+): Promise<{ purchases: LoosePurchase[]; complete: boolean; kind: 'fatura' | 'extrato' }> {
   let purchases: LoosePurchase[] = [];
   let complete = true;
+  let kind: 'fatura' | 'extrato' = 'fatura';
 
   for (let round = 0; round <= MAX_CONTINUATION_ROUNDS; round += 1) {
     const missingPrompt = round === 0 ? '' : purchases
@@ -100,6 +103,7 @@ async function extractInRounds(
       .join('; ');
     const result = await runRound(buildRequest(missingPrompt), purchases.length > 0);
     if (!result) { complete = false; break; }
+    if (parseExtractionKind(result.content) === 'extrato') kind = 'extrato';
     const before = purchases.length;
     purchases = mergePurchases(purchases, parseExtractedPurchases(result.content, monthIndex));
     // finish_reason "length" é o único sinal de que a fatura parou no meio.
@@ -109,7 +113,7 @@ async function extractInRounds(
     await sleep(CONTINUATION_DELAY_MS);
   }
 
-  return { purchases, complete };
+  return { purchases, complete, kind };
 }
 
 function continuationText(missingPrompt: string): string {
@@ -121,6 +125,8 @@ export interface ExtractionOutcome {
   purchases: LoosePurchase[];
   /** false quando a fatura é maior que o orçamento de saída e a leitura parou antes do fim. */
   complete: boolean;
+  /** 'extrato' quando o documento é extrato de conta (Pix/débito), não fatura de cartão. */
+  kind: 'fatura' | 'extrato';
 }
 
 export async function extractPurchasesFromImage(
@@ -163,6 +169,7 @@ export async function extractPurchasesFromText(
   const fallback = csvFallback.length > pdfFallback.length ? csvFallback : pdfFallback;
   let extracted: LoosePurchase[] = [];
   let complete = true;
+  let kind: 'fatura' | 'extrato' = 'fatura';
   try {
     const outcome = await extractInRounds((missing) => ({
       model: TEXT_MODEL,
@@ -172,6 +179,7 @@ export async function extractPurchasesFromText(
     }), monthIndex);
     extracted = outcome.purchases;
     complete = outcome.complete;
+    kind = outcome.kind;
   } catch (error) {
     // Se a IA falhou e o parser local também não encontrou nada, propaga o erro real
     // em vez de um "nenhuma compra encontrada" enganoso. Havendo fallback, degrada.
@@ -182,5 +190,5 @@ export async function extractPurchasesFromText(
     extracted = [];
   }
 
-  return { purchases: mergePurchases([...extracted], fallback), complete };
+  return { purchases: mergePurchases([...extracted], fallback), complete, kind };
 }

@@ -68,4 +68,24 @@ describe('orçamento de tokens de saída na importação', () => {
     expect(outcome.purchases).toHaveLength(2);
     expect(outcome.complete).toBe(true);
   });
+
+  it('trata print de fatura como fatura quando o modelo não marca extrato', async () => {
+    groqCall.mockResolvedValue(rows(['SUBWAY', 45.9, 1, 1, 'alimentacao', 'c', '18/09', '']));
+    const outcome = await extractPurchasesFromImage('base64', 'image/jpeg', SETEMBRO);
+    expect(outcome.kind).toBe('fatura');
+  });
+
+  it('detecta extrato de conta e preserva o método de cada linha', async () => {
+    groqCall.mockResolvedValue({
+      content: JSON.stringify({ k: 'extrato', p: [
+        ['UBER TRIP', 24.9, 1, 1, 'transporte', 'c', '08/09', '', 'pix'],
+        ['FARMACIA RADAR', 40, 1, 1, 'saude', 'c', '10/09', '', 'DEBITO'],
+        ['CONDOMINIO', 350, 1, 1, 'moradia', 'c', '05/09', '', 'boleto'],
+      ] }),
+      truncated: false,
+    });
+    const outcome = await extractPurchasesFromImage('base64', 'image/jpeg', SETEMBRO);
+    expect(outcome.kind).toBe('extrato');
+    expect(outcome.purchases.map((p) => p.method)).toEqual(['pix', 'debito', 'boleto']);
+  });
 });

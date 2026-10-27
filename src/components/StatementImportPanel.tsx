@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { getMonthIndex } from '../types';
+import { getMonthIndex, type CategoryId } from '../types';
 import { type CreditCardInvoice, type CreditCardTransaction, type ExpenseOwner } from '../types';
 import { describeDuplicateMatch, getTransactionDay, setTransactionDay } from '../services/cardTransactions';
 import {
+  type ExpenseMethod,
   type ExtractedPurchase,
   extractPurchasesFromImage,
   extractPurchasesFromText,
@@ -17,10 +18,21 @@ import { CardSelect } from './CardSelect';
 import { CategorySelect } from './CategorySelect';
 import { usePreferences } from '../i18n';
 
+/** Gasto de extrato de conta (Pix/débito) confirmado na revisão; vira conta, não fatura. */
+export interface ImportedExpense {
+  name: string;
+  amount: number;
+  day?: number;
+  category: CategoryId;
+  method: ExpenseMethod;
+}
+
 interface Props {
   /** `forceDuplicateIds` são as linhas marcadas como "é outra compra": entram mesmo batendo com
    *  um lançamento já existente do mês. */
   onImport: (invoice: CreditCardInvoice, forceDuplicateIds?: string[]) => void;
+  /** Chamado quando o print era extrato de conta: as linhas entram como Débito/Pix. */
+  onImportExpenses: (expenses: ImportedExpense[]) => void;
   /** Chamado quando o usuário lança o que revisou; a tela do cartão volta para a fatura. */
   onLaunched?: () => void;
   userId: string | null;
@@ -45,12 +57,13 @@ const MAX_FILE_SIZE_MB = 20;
  *  cobrança). Esse texto não serve para o usuário final, então vira a mensagem traduzida. */
 const AI_LIMIT_ERROR = /request too large|output tokens per minute|otpm|rate limit|tokens per minute|try again in|upgrade to dev tier|service tier/i;
 
-export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, userId, month, year, existingTransactions, paymentCards }) => {
+export const StatementImportPanel: React.FC<Props> = ({ onImport, onImportExpenses, onLaunched, userId, month, year, existingTransactions, paymentCards }) => {
   const { formatMoney, parseAmount, t } = usePreferences();
   const fileRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [incomplete, setIncomplete] = useState(false);
+  const [kind, setKind] = useState<'fatura' | 'extrato'>('fatura');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewKind, setPreviewKind] = useState<StatementFileKind | null>(null);
   const [cardId, setCardId] = useState(() => paymentCards[0]?.id ?? '');
@@ -64,9 +77,10 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
   const hasCachedKeyStatus = readUserStorage(userId, STORAGE_KEY_GROQ_STATUS) === 'true';
   const [apiKeyConfigured, setApiKeyConfigured] = useState(hasCachedKeyStatus);
   const [checkingKey, setCheckingKey] = useState(!hasCachedKeyStatus);
+  const isExpenseMode = kind === 'extrato';
   const selectedCount = items.filter((i) => i.selected).length;
   const selectedTotal = items.filter((i) => i.selected).reduce((s, i) => s + i.amount, 0);
-  const displayedTotal = statementTotalCents != null ? statementTotalCents / 100 : selectedTotal;
+  const displayedTotal = !isExpenseMode && statementTotalCents != null ? statementTotalCents / 100 : selectedTotal;
   /** Linhas que batem com algo já lançado e ainda não foram reconhecidas como outra compra. */
   const pendingDuplicates = items.filter((i) => i.duplicateMatch && !i.duplicateConfirmed).length;
 
@@ -81,6 +95,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
     setAmountDrafts({});
     setPersonalAmountDrafts({});
     setIncomplete(false);
+    setKind('fatura');
     setStatementTotalCents(undefined);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(URL.createObjectURL(file));
@@ -105,10 +120,12 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
         throw new Error(detected.kind === 'image' ? t('noItemsImage') : detected.kind === 'csv' ? t('noItemsCsv') : t('noItemsPdf'));
       }
       setIncomplete(!outcome.complete);
+      setKind(outcome.kind);
       // A linha que bate com algo já lançado chega desmarcada e explicada: nada some sozinho.
+      // No extrato, "pagamento de fatura" também chega desmarcado: a fatura já entra pelo print do cartão.
       setItems(extracted.map((p) => {
         const duplicateMatch = findDuplicateTransaction({ ...p, amountCents: Math.round(p.amount * 100) }, existingTransactions);
-        return { ...p, id: makeId(), selected: !duplicateMatch, duplicateMatch };
+        return { ...p, id: makeId(), selected: !duplicateMatch && !(outcome.kind === 'extrato' && p.type === 'PAYMENT'), duplicateMatch };
       }));
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Erro ao processar arquivo';
@@ -122,11 +139,35 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
     setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
   };
 
+  const clearReview = () => {
+    setItems([]);
+    setAmountDrafts({});
+    setPersonalAmountDrafts({});
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(null);
+    setPreviewKind(null);
+    setStatementTotalCents(undefined);
+    setKind('fatura');
+  };
+
   const handleConfirm = () => {
     const chosen = items.filter((i) => i.selected && i.name.trim() && i.amount > 0);
     if (chosen.length === 0) {
       // Antes isso era um return mudo: nada era lançado e nenhuma explicação aparecia na tela.
       setError(t('importNothingSelected'));
+      return;
+    }
+    if (isExpenseMode) {
+      // Extrato de conta entra como gasto Débito/Pix do mês — nunca como fatura do cartão.
+      onImportExpenses(chosen.map((i) => ({
+        name: i.name.trim(),
+        amount: i.amount,
+        day: getTransactionDay(i.date),
+        category: i.category,
+        method: i.method ?? 'pix',
+      })));
+      clearReview();
+      onLaunched?.();
       return;
     }
     const invoiceId = makeId();
@@ -156,13 +197,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
       },
       chosen.filter((item) => item.duplicateConfirmed).map((item) => item.id),
     );
-    setItems([]);
-    setAmountDrafts({});
-    setPersonalAmountDrafts({});
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setPreviewUrl(null);
-    setPreviewKind(null);
-    setStatementTotalCents(undefined);
+    clearReview();
     onLaunched?.();
   };
 
@@ -212,11 +247,13 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
             {t('importInvoiceDescription')}
           </p>
 
+          {!isExpenseMode && (
           <div>
             <label style={{ fontSize: 10, color: '#8f8f8f', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4, display: 'block' }}>{t('card')}</label>
             <CardSelect userId={userId} cards={paymentCards} value={selectedCard?.id ?? ''} onChange={setCardId} ariaLabel={t('selectCardAria')} style={fieldStyle} />
             <div style={{ fontSize: 11, color: '#8b8b8b', marginTop: 5 }}>{t('importCardHint')}</div>
           </div>
+          )}
 
           <input
             ref={fileRef}
@@ -283,6 +320,10 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
             <div className="import-warn-box" style={{ background: '#1a150a', border: '1px solid #2a2010', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#f59e0b' }}>{t('importTruncated')}</div>
           )}
 
+          {isExpenseMode && items.length > 0 && (
+            <div className="import-info-box" style={{ background: '#111520', border: '1px solid #1e2a3e', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#60a5fa' }}>{t('expenseModeHint')}</div>
+          )}
+
           {items.length > 0 && (
             <>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
@@ -323,7 +364,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
                         {t('duplicateConfirmedAsOther')}
                       </div>
                     )}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 6 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: isExpenseMode ? '1fr 1fr 1fr' : '1fr 1fr 1fr 1fr', gap: 6 }}>
                       <div>
                         <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('amount')}</div>
                         <input
@@ -343,24 +384,40 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
                           })}
                         />
                       </div>
-                      <div>
-                        <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('installmentShort')}</div>
-                        <input style={fieldStyle} inputMode="numeric" value={String(item.installmentCurrent)} onChange={(e) => updateItem(item.id, { installmentCurrent: parseInt(e.target.value) || 1 })} />
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('installmentTotal')}</div>
-                        <input style={fieldStyle} inputMode="numeric" value={String(item.installmentTotal)} onChange={(e) => updateItem(item.id, { installmentTotal: parseInt(e.target.value) || 1 })} />
-                      </div>
+                      {isExpenseMode ? (
+                        <div>
+                          <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('expenseMethod')}</div>
+                          <select style={fieldStyle} value={item.method ?? 'pix'} onChange={(e) => updateItem(item.id, { method: e.target.value as ExpenseMethod })}>
+                            <option value="pix">{t('methodPix')}</option>
+                            <option value="debito">{t('methodDebito')}</option>
+                            <option value="boleto">{t('methodBoleto')}</option>
+                            <option value="outro">{t('methodOutro')}</option>
+                          </select>
+                        </div>
+                      ) : (
+                        <>
+                          <div>
+                            <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('installmentShort')}</div>
+                            <input style={fieldStyle} inputMode="numeric" value={String(item.installmentCurrent)} onChange={(e) => updateItem(item.id, { installmentCurrent: parseInt(e.target.value) || 1 })} />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('installmentTotal')}</div>
+                            <input style={fieldStyle} inputMode="numeric" value={String(item.installmentTotal)} onChange={(e) => updateItem(item.id, { installmentTotal: parseInt(e.target.value) || 1 })} />
+                          </div>
+                        </>
+                      )}
                       <div>
                         <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('category')}</div>
                         <CategorySelect style={fieldStyle} value={item.category} ariaLabel={t('category')} onChange={(category) => updateItem(item.id, { category })} />
                       </div>
                     </div>
-                    {item.installmentTotal > 1 && (
+                    {!isExpenseMode && item.installmentTotal > 1 && (
                       <div style={{ fontSize: 10, color: '#8f8f8f', marginTop: 6 }}>
                         {t('installmentSummary', { cur: item.installmentCurrent, total: item.installmentTotal, amount: formatMoney(item.amount) })}
                       </div>
                     )}
+                    {!isExpenseMode && (
+                    <>
                     <div style={{ display: 'grid', gridTemplateColumns: item.owner === 'SHARED' || item.owner === 'THIRD_PARTY' ? '1fr 1fr' : '1fr', gap: 6, marginTop: 8 }}>
                       <div>
                         <div style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('responsibility')}</div>
@@ -405,6 +462,8 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
                         <input style={fieldStyle} value={item.thirdPartyName ?? ''} onChange={(e) => updateItem(item.id, { thirdPartyName: e.target.value })} placeholder={t('personNamePlaceholder')} />
                       </div>
                     )}
+                    </>
+                    )}
                   </div>
                 );
                 })}
@@ -412,7 +471,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                 <span style={{ fontSize: 12, color: '#9a9a9a' }}>
-                  {selectedCount} · {t('invoiceTotal')}: <strong className="import-total-strong" style={{ color: '#c0c0c0' }}>{formatMoney(displayedTotal)}</strong>
+                  {selectedCount} · {isExpenseMode ? t('total') : t('invoiceTotal')}: <strong className="import-total-strong" style={{ color: '#c0c0c0' }}>{formatMoney(displayedTotal)}</strong>
                 </span>
                 <button type="button"
                   onClick={handleConfirm}
@@ -428,7 +487,7 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onLaunched, us
                     fontWeight: 600,
                   }}
                 >
-                  {t('launchPurchases')} ({selectedCount})
+                  {isExpenseMode ? t('launchExpenses') : t('launchPurchases')} ({selectedCount})
                 </button>
               </div>
 

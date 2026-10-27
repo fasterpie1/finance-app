@@ -32,6 +32,7 @@ interface Props {
   onSaveBill: (bill: Bill) => void;
   onDeleteBill: (id: string) => void;
   onAddPurchase: (p: CreditCardPurchase) => void;
+  onAddPurchasesBatch: (purchases: CreditCardPurchase[]) => void;
   onImportInvoice: (invoice: CreditCardInvoice, forceDuplicateIds?: string[]) => void;
   onUpdateInvoice: (invoice: CreditCardInvoice) => void;
   getAffectedMonths: (cur: number, total: number) => MonthInfo[];
@@ -490,7 +491,7 @@ function InvoiceTransactions({ invoices, monthBills, bars, paymentCards, userId,
 
 export const CreditCardView: React.FC<Props> = ({
   userId, selectedMonthName, selectedMonthYear, creditCardInvoices, debitPixBills, linkedFixedBills, monthBills, allMonths,
-  onTogglePaid, onSaveBill, onDeleteBill, onAddPurchase, onImportInvoice, onUpdateInvoice, getAffectedMonths, onPayCreditCard, onUnpayCreditCard, creditCardDueDay, onUpdateCreditCardDueDay, hideValues,
+  onTogglePaid, onSaveBill, onDeleteBill, onAddPurchase, onAddPurchasesBatch, onImportInvoice, onUpdateInvoice, getAffectedMonths, onPayCreditCard, onUnpayCreditCard, creditCardDueDay, onUpdateCreditCardDueDay, hideValues,
   invoiceCalendarEventId, invoiceCalendarEventIds, onInvoiceCalendarReminder, invoiceCalendarReminderLoading, paymentCards,
 }) => {
   const { formatMoney, formatMonthShort, parseAmount, t } = usePreferences();
@@ -807,7 +808,7 @@ export const CreditCardView: React.FC<Props> = ({
       )}
 
       {section === 'importar' && (
-        <StatementImportPanel userId={userId} month={selectedMonthName} year={selectedMonthYear} paymentCards={paymentCards} existingTransactions={creditCardInvoices.flatMap((invoice) => invoice.transactions)} onImport={onImportInvoice} onLaunched={() => selectSection('fatura')} />
+        <StatementImportPanel userId={userId} month={selectedMonthName} year={selectedMonthYear} paymentCards={paymentCards} existingTransactions={creditCardInvoices.flatMap((invoice) => invoice.transactions)} onImport={onImportInvoice} onImportExpenses={(expenses) => onAddPurchasesBatch(expenses.map((expense) => ({ name: expense.name, amount: expense.amount, dueDay: expense.day, category: expense.category, installmentCurrent: 1, installmentTotal: 1, paymentMethod: 'debito_pix' })))} onLaunched={() => selectSection('fatura')} />
       )}
 
       {section === 'fatura' && (

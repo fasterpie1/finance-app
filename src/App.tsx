@@ -1317,7 +1317,7 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
             creditCardInvoices={db.selectedMonth.creditCardInvoices ?? []} linkedFixedBills={linkedFixedBills} monthBills={db.selectedMonth.bills} allMonths={db.months}
             debitPixBills={db.debitPixBills}
             onTogglePaid={db.togglePaid} onSaveBill={db.saveBill} onDeleteBill={db.deleteBill}
-            onAddPurchase={db.addCreditCardPurchase} getAffectedMonths={db.getAffectedMonths}
+            onAddPurchase={db.addCreditCardPurchase} onAddPurchasesBatch={db.addCreditCardPurchasesBatch} getAffectedMonths={db.getAffectedMonths}
             onImportInvoice={db.addCreditCardInvoice} onUpdateInvoice={db.updateCreditCardInvoice}
             onPayCreditCard={payCreditCardWithCalendar} onUnpayCreditCard={db.unpayCreditCard}
             creditCardDueDay={db.selectedMonth.creditCardDueDay} onUpdateCreditCardDueDay={updateInvoiceDueDayWithCalendar}

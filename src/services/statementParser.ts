@@ -2,6 +2,8 @@ import { BILL_CATEGORY_LABELS, type BillCategory, type CardTransactionType, type
 import type { DuplicateMatch } from './transactionDuplicates';
 import { formatTransactionDay } from './cardTransactions';
 
+export type ExpenseMethod = 'pix' | 'debito' | 'boleto' | 'outro';
+
 export interface ExtractedPurchase {
   id: string;
   name: string;
@@ -19,6 +21,8 @@ export interface ExtractedPurchase {
   duplicateConfirmed?: boolean;
   cardLast4?: string;
   date?: string;
+  /** Nona posição do vetor: como a saída foi paga, quando o print é extrato de conta. */
+  method?: ExpenseMethod;
 }
 
 export function parsePdfTransactionFallback(statementText: string, monthIndex = -1): Omit<ExtractedPurchase, 'id' | 'selected'>[] {
@@ -117,7 +121,7 @@ export function normalizeCategory(raw: unknown): BillCategory {
 
 /** O plano gratuito da Groq limita tokens de SAÍDA por minuto, então o modelo devolve vetores
  *  posicionais: mesma informação com ~1/3 do tamanho do JSON rotulado.
- *  Ordem: nome, valor, parcela atual, total de parcelas, categoria, tipo, data, cartão final. */
+ *  Ordem: nome, valor, parcela atual, total de parcelas, categoria, tipo, data, cartão final, método. */
 const PURCHASE_TYPE_CODES: Record<string, CardTransactionType> = {
   c: 'PURCHASE', p: 'INSTALLMENT', e: 'REFUND', g: 'PAYMENT', t: 'FEE', o: 'OTHER',
 };
@@ -126,6 +130,15 @@ const PURCHASE_TYPE_CODES: Record<string, CardTransactionType> = {
 function last4(raw: unknown): string | undefined {
   const digits = String(raw ?? '').replace(/\D/g, '').slice(-4);
   return digits || undefined;
+}
+
+function normalizeMethod(raw: unknown): ExpenseMethod | undefined {
+  const text = String(raw ?? '').trim().toLowerCase();
+  if (!text) return undefined;
+  if (text.startsWith('pix')) return 'pix';
+  if (/debit/.test(text)) return 'debito';
+  if (/boleto|boletox/.test(text)) return 'boleto';
+  return 'outro';
 }
 
 function normalizePurchaseRow(row: unknown[], monthIndex: number): Omit<ExtractedPurchase, 'id' | 'selected'> | null {
@@ -139,6 +152,7 @@ function normalizePurchaseRow(row: unknown[], monthIndex: number): Omit<Extracte
     type: typeof type === 'string' ? PURCHASE_TYPE_CODES[type.trim().toLowerCase()] ?? type : type,
     date: row[6],
     cardLast4: row[7],
+    method: row[8],
   }, monthIndex);
 }
 
@@ -183,6 +197,7 @@ export function normalizePurchase(raw: Record<string, unknown>, monthIndex = -1)
     owner: 'ME',
     cardLast4: last4(raw.cardLast4),
     date: normalizeStatementDate(raw.date, monthIndex) ?? leadingDate.date,
+    method: normalizeMethod(raw.method),
   };
 }
 
@@ -212,6 +227,20 @@ export function parseExtractedPurchases(content: string, monthIndex = -1): Omit<
         ? normalizePurchase(item as Record<string, unknown>, monthIndex)
         : null)
     .filter((p): p is Omit<ExtractedPurchase, 'id' | 'selected'> => p !== null);
+}
+
+/** O modelo marca um extrato de conta (Pix/débito) com {"k":"extrato"}; fatura de cartão não tem k. */
+export function parseExtractionKind(content: string): 'extrato' | 'fatura' {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    const match = content.match(/\{[\s\S]*\}/);
+    if (!match) return 'fatura';
+    try { parsed = JSON.parse(match[0]); } catch { return 'fatura'; }
+  }
+  const kind = (parsed as { k?: unknown } | null)?.k;
+  return typeof kind === 'string' && kind.toLowerCase().startsWith('extrat') ? 'extrato' : 'fatura';
 }
 
 const CSV_NAME_KEYS = /descriç|estabelec|benefici|favorecid|pagador|nom(es)?\b|title|título|hist(orico|óric)/i;
