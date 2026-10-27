@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   type Bill,
   type CategoryId,
@@ -7,7 +7,7 @@ import {
 import { usePreferences } from '../i18n';
 import { safeSetItem } from '../services/safeStorage';
 import { centsToAmount } from '../services/cardTransactions';
-import { getCardCategoryAmountCents, getCardChartCategories, getCardChartMonths } from '../services/financeCharts';
+import { type LineChartSource, getCardCategoryAmountCents, getCardChartCategories, getCardChartMonths } from '../services/financeCharts';
 
 interface MonthData {
   id: string;
@@ -41,11 +41,27 @@ function loadCategories(available: CategoryId[]): CategoryId[] {
   return available.slice(0, 3);
 }
 
+/** Duas categorias com valores parecidos no mesmo mês colocavam um rótulo sobre o outro.
+ *  Cada rótulo sobe o mínimo necessário para manter o espaçamento, sem nunca passar do topo. */
+function layoutValueLabels(desiredYs: number[], top: number, gap: number): number[] {
+  const ordered = desiredYs
+    .map((y, seriesIndex) => ({ seriesIndex, y: Math.max(top, y) }))
+    .sort((a, b) => a.y - b.y);
+  for (let index = ordered.length - 2; index >= 0; index -= 1) {
+    ordered[index].y = Math.max(top, Math.min(ordered[index].y, ordered[index + 1].y - gap));
+  }
+  const positions = new Array<number>(desiredYs.length);
+  ordered.forEach((row) => { positions[row.seriesIndex] = row.y; });
+  return positions;
+}
+
 export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, selectedMonthYear, hideValues }) => {
   const { formatMoney, formatMonthShort, categoryLabel, categoryColor, locale, t } = usePreferences();
-  const availableCategories = useMemo(() => {
-    return getCardChartCategories(months).sort((a, b) => categoryLabel(a).localeCompare(categoryLabel(b), locale === 'en' ? 'en-US' : 'pt-BR'));
+  const [source, setSource] = useState<LineChartSource>('card');
+  const categoriesFor = useCallback((next: LineChartSource) => {
+    return getCardChartCategories(months, next).sort((a, b) => categoryLabel(a).localeCompare(categoryLabel(b), locale === 'en' ? 'en-US' : 'pt-BR'));
   }, [months, categoryLabel, locale]);
+  const availableCategories = useMemo(() => categoriesFor(source), [categoriesFor, source]);
   const [selectedCategories, setSelectedCategories] = useState<CategoryId[]>(() => loadCategories(availableCategories));
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -71,9 +87,15 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
     });
   };
 
+  const switchSource = (next: LineChartSource) => {
+    if (next === source) return;
+    setSource(next);
+    setSelectedCategories(loadCategories(categoriesFor(next)));
+  };
+
   const chartMonths = getCardChartMonths(months, selectedMonthName, selectedMonthYear);
   const values = selectedCategories.flatMap((category) => chartMonths.map((month) =>
-    centsToAmount(getCardCategoryAmountCents(month, category))
+    centsToAmount(getCardCategoryAmountCents(month, category, source))
   ));
   const maxValue = Math.max(...values, 0);
   const chartWidth = measuredWidth > 0 ? Math.round(measuredWidth) : DEFAULT_CHART_WIDTH;
@@ -82,7 +104,6 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
   const axisFontSize = narrow ? 10 : 14;
   const monthFontSize = narrow ? 11 : 15;
   const valueFontSize = narrow ? 10 : 14;
-  const valueStagger = narrow ? 15 : 20;
   const stripCurrency = (text: string) => text.replace(/^(R\$|US\$|€)\s?/, '').trim();
   const plotWidth = chartWidth - padding.left - padding.right;
   const plotHeight = CHART_HEIGHT - padding.top - padding.bottom;
@@ -91,40 +112,63 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
   const series = selectedCategories.map((category) => ({
     category,
     points: chartMonths.map((month, index) => {
-      const value = centsToAmount(getCardCategoryAmountCents(month, category));
+      const value = centsToAmount(getCardCategoryAmountCents(month, category, source));
       return { x: xFor(index), y: yFor(value), value };
     }),
   }));
   const gridValues = [0, 0.5, 1].map((ratio) => maxValue * ratio);
+  const labelTop = narrow ? 12 : 18;
+  const labelYs = chartMonths.map((_, monthIndex) => layoutValueLabels(
+    series.map((item) => item.points[monthIndex].y - (narrow ? 12 : 16)),
+    labelTop,
+    valueFontSize + 2,
+  ));
+  const title = source === 'card' ? t('cardSpendingByCategory') : t('accountSpendingByCategory');
+  const sourceOptions: { id: LineChartSource; label: string }[] = [
+    { id: 'card', label: t('creditCard') },
+    { id: 'account', label: t('debitPix') },
+  ];
 
   return (
     <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
         <div>
-          <h3 style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('cardSpendingByCategory')}</h3>
+          <h3 style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{title}</h3>
           <div style={{ marginTop: 5, fontSize: 12, color: '#8b8b8b' }}>{t('lastFourMonthsHint')}</div>
         </div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          {availableCategories.map((category) => {
-            const selected = selectedCategories.includes(category);
-            const limitReached = selectedCategories.length === 3 && !selected;
-            return (
-              <button className={`theme-chart-toggle ${selected ? 'is-selected' : ''}`} key={category} type="button" onClick={() => toggleCategory(category)} disabled={limitReached} style={{ display: 'flex', alignItems: 'center', gap: 7, border: `1px solid ${selected ? categoryColor(category) : '#242424'}`, background: selected ? `${categoryColor(category)}18` : '#151515', borderRadius: 5, color: selected ? '#e0e0e0' : '#9a9a9a', cursor: limitReached ? 'not-allowed' : 'pointer', opacity: limitReached ? 0.45 : 1, padding: '7px 9px', fontSize: 11, transition: 'all 0.15s' }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: categoryColor(category), flexShrink: 0 }} />
-                {categoryLabel(category)}
-              </button>
-            );
-          })}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end' }}>
+          <div role="group" aria-label={t('chartSourceToggleLabel')} style={{ display: 'flex', gap: 6 }}>
+            {sourceOptions.map((option) => {
+              const selected = source === option.id;
+              return (
+                <button key={option.id} type="button" aria-pressed={selected} onClick={() => switchSource(option.id)} style={{ minHeight: 32, border: `1px solid ${selected ? '#60a5fa' : '#242424'}`, background: selected ? '#111520' : '#151515', borderRadius: 5, color: selected ? '#60a5fa' : '#8b8b8b', cursor: 'pointer', fontSize: 11, fontWeight: selected ? 700 : 500, padding: '6px 10px', transition: 'all 0.15s' }}>
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            {availableCategories.map((category) => {
+              const selected = selectedCategories.includes(category);
+              const limitReached = selectedCategories.length === 3 && !selected;
+              return (
+                <button className={`theme-chart-toggle ${selected ? 'is-selected' : ''}`} key={category} type="button" onClick={() => toggleCategory(category)} disabled={limitReached} style={{ display: 'flex', alignItems: 'center', gap: 7, border: `1px solid ${selected ? categoryColor(category) : '#242424'}`, background: selected ? `${categoryColor(category)}18` : '#151515', borderRadius: 5, color: selected ? '#e0e0e0' : '#9a9a9a', cursor: limitReached ? 'not-allowed' : 'pointer', opacity: limitReached ? 0.45 : 1, padding: '7px 9px', fontSize: 11, transition: 'all 0.15s' }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: categoryColor(category), flexShrink: 0 }} />
+                  {categoryLabel(category)}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
       {selectedCategories.length === 0 ? (
-        <div className="chart-empty" style={{ border: '1px dashed #242424', borderRadius: 8, padding: 28, textAlign: 'center', color: '#8b8b8b', fontSize: 12 }}>{t('selectCategoryToCompare')}</div>
+        <div className="chart-empty" style={{ border: '1px dashed #242424', borderRadius: 8, padding: 28, textAlign: 'center', color: '#8b8b8b', fontSize: 12 }}>{availableCategories.length === 0 ? t('noExpenses') : t('selectCategoryToCompare')}</div>
       ) : chartMonths.length === 0 ? (
-        <div className="chart-empty" style={{ border: '1px dashed #242424', borderRadius: 8, padding: 28, textAlign: 'center', color: '#8b8b8b', fontSize: 12 }}>{t('noCardPurchasesYet')}</div>
+        <div className="chart-empty" style={{ border: '1px dashed #242424', borderRadius: 8, padding: 28, textAlign: 'center', color: '#8b8b8b', fontSize: 12 }}>{source === 'card' ? t('noCardPurchasesYet') : t('noExpenses')}</div>
       ) : (
         <div>
-          <svg viewBox={`0 0 ${chartWidth} ${CHART_HEIGHT}`} width="100%" role="img" aria-label="Evolução mensal dos gastos no cartão por categoria" style={{ display: 'block' }}>
+          <svg viewBox={`0 0 ${chartWidth} ${CHART_HEIGHT}`} width="100%" role="img" aria-label={title} style={{ display: 'block' }}>
             {gridValues.map((value) => {
               const y = yFor(value);
               return (
@@ -145,7 +189,7 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
                 <polyline points={points.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" stroke={categoryColor(category)} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
                 {points.map((point, index) => (
                   <g key={`${category}-${index}`}>
-                    <text x={point.x} y={Math.max(narrow ? 12 : 18, point.y - (narrow ? 12 : 16) - seriesIndex * valueStagger)} textAnchor={index === 0 ? 'start' : index === points.length - 1 ? 'end' : 'middle'} fill={categoryColor(category)} fontSize={valueFontSize} fontWeight="700">
+                    <text x={point.x} y={labelYs[index][seriesIndex]} textAnchor={index === 0 ? 'start' : index === points.length - 1 ? 'end' : 'middle'} fill={categoryColor(category)} fontSize={valueFontSize} fontWeight="700">
                       {hideValues ? '•••' : narrow ? stripCurrency(formatMoney(point.value)) : formatMoney(point.value)}
                     </text>
                     <circle className="chart-point" cx={point.x} cy={point.y} r="4.5" fill="#111" stroke={categoryColor(category)} strokeWidth="2" />

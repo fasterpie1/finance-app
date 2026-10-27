@@ -51,6 +51,19 @@ describe('finance chart data', () => {
     });
   });
 
+  it('separa o que sai da conta (Pix/débito/boleto) do que o cartão cobra', () => {
+    const bills = [
+      bill({ id: 'plain', amount: 25, isOnCreditCard: false }),
+      bill({ id: 'debit', amount: 90, cardPaymentMethod: 'debito_pix' }),
+      bill({ id: 'card-fixed', amount: 10, isOnCreditCard: true }),
+    ];
+    const invoices = [invoice([transaction({ amountCents: 5000 })])];
+
+    expect(getCategoryChartData(bills, invoices, 'account').totalCents).toBe(11500);
+    expect(getCategoryChartData(bills, invoices, 'card').totalCents).toBe(6000);
+    expect(getCategoryChartData(bills, invoices, 'all').totalCents).toBe(17500);
+  });
+
   it('calcula séries do cartão pela minha parte e escolhe os quatro meses visíveis', () => {
     const months = [month('Julho', 7), month('Agosto', 8), month('Setembro', 9), month('Outubro', 10)];
     const current = {
@@ -68,5 +81,21 @@ describe('finance chart data', () => {
     expect(getCardCategoryAmountCents(current, 'compras')).toBe(3500);
     expect(getCardChartCategories(longHistory)).toEqual(['compras']);
     expect(getCardChartMonths(longHistory, 'Outubro', 2026).map((item) => item.name)).toEqual(['Julho', 'Agosto', 'Outubro']);
+  });
+
+  it('lê a série do gráfico pela origem escolhida: só o que sai da conta', () => {
+    const current = {
+      ...month('Outubro', 10),
+      bills: [
+        bill({ id: 'plain', category: 'lazer', amount: 40 }),
+        bill({ id: 'debit', category: 'compras', amount: 90, cardPaymentMethod: 'debito_pix' }),
+        bill({ id: 'card-bill', category: 'moradia', amount: 10, isOnCreditCard: true }),
+      ],
+      creditCardInvoices: [invoice([transaction({ amountCents: 5000 })])],
+    };
+
+    expect(getCardChartCategories([current], 'account')).toEqual(['lazer', 'compras']);
+    expect(getCardCategoryAmountCents(current, 'compras', 'account')).toBe(9000);
+    expect(getCardCategoryAmountCents(current, 'moradia', 'account')).toBe(0);
   });
 });

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   type Bill,
   type CategoryId,
@@ -6,7 +6,7 @@ import {
 } from '../types';
 import { usePreferences } from '../i18n';
 import { centsToAmount } from '../services/cardTransactions';
-import { getCategoryChartData } from '../services/financeCharts';
+import { type ChartSource, getCategoryChartData } from '../services/financeCharts';
 
 interface Props {
   bills: Bill[];
@@ -22,11 +22,28 @@ interface CategoryData {
   pct: number;
 }
 
+const SOURCE_ORDER: ChartSource[] = ['all', 'card', 'account'];
+
 export const CategoryChart: React.FC<Props> = ({ bills, invoices = [], hideValues }) => {
   const { formatMoney, categoryLabel, categoryColor, t } = usePreferences();
-  const chartData = getCategoryChartData(bills, invoices);
+  const [source, setSource] = useState<ChartSource>('all');
+  const chartData = getCategoryChartData(bills, invoices, source);
   const { totalCents } = chartData;
-  if (totalCents === 0) return <div style={{ textAlign: 'center', color: '#8b8b8b', fontSize: 12, padding: 20 }}>{t('noExpenses')}</div>;
+  const sourceToggle = (
+    <div className="chart-source-toggle" style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+      {SOURCE_ORDER.map((option) => (
+        <button key={option} type="button" onClick={() => setSource(option)} aria-pressed={source === option} style={{ background: source === option ? '#111520' : '#151515', border: `1px solid ${source === option ? '#1e2a3e' : '#1e1e1e'}`, borderRadius: 6, color: source === option ? '#60a5fa' : '#8b8b8b', cursor: 'pointer', padding: '6px 12px', fontSize: 11, fontWeight: 600, fontFamily: 'inherit', minHeight: 32 }}>
+          {option === 'all' ? t('chartSourceAll') : option === 'card' ? t('creditCard') : t('debitPix')}
+        </button>
+      ))}
+    </div>
+  );
+  if (totalCents === 0) return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {sourceToggle}
+      <div style={{ textAlign: 'center', color: '#8b8b8b', fontSize: 12, padding: 20 }}>{t('noExpenses')}</div>
+    </div>
+  );
   const total = centsToAmount(totalCents);
 
   const data: CategoryData[] = chartData.items.map(({ category, cents, percentage }) => ({
@@ -54,6 +71,7 @@ export const CategoryChart: React.FC<Props> = ({ bills, invoices = [], hideValue
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {sourceToggle}
       <div style={{ display: 'flex', justifyContent: 'center' }}>
         <div style={{ position: 'relative', width: size, height: size }}>
           <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
