@@ -10,7 +10,6 @@ import { CardSpendingChart } from './components/CardSpendingChart';
 import { SpendingPace } from './components/SpendingPace';
 import { RecurringChargesNotice } from './components/RecurringChargesNotice';
 import { PriceChangeNotice } from './components/PriceChangeNotice';
-import { InstallmentOutlook } from './components/InstallmentOutlook';
 import { IncomeSourcesModal } from './components/IncomeSourcesModal';
 import { AuthPanel } from './components/AuthPanel';
 import { DailyBillNotification } from './components/DailyBillNotification';
@@ -945,8 +944,6 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
         return (
           <CollapsibleSection key="chart" title={t('spendingViews')} isOpen={isSectionOpen('chart_v2', true)} onToggle={() => toggleSection('chart_v2')} hideValues={hideValues} editMode={editMode}>
             <SpendingPace month={db.selectedMonth} months={db.months} hideValues={hideValues} />
-            <div style={{ height: 1, background: '#1a1a1a', margin: '18px 0' }} />
-            <InstallmentOutlook months={db.months} selectedMonthId={db.selectedMonthId} hideValues={hideValues} />
             <div style={{ height: 1, background: '#1a1a1a', margin: '18px 0' }} />
             <CardSpendingChart months={db.months} selectedMonthName={db.selectedMonth.name} selectedMonthYear={db.selectedMonth.year} hideValues={hideValues} />
             <div style={{ height: 1, background: '#1a1a1a', margin: '18px 0' }} />
