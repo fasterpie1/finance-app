@@ -148,52 +148,52 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
   ));
   const title = source === 'card' ? t('cardSpendingByCategory') : t('accountSpendingByCategory');
   const sourceOptions: { id: LineChartSource; label: string }[] = [
-    { id: 'card', label: t('creditCard') },
+    { id: 'card', label: t('chartSourceCardShort') },
     { id: 'account', label: t('debitPix') },
   ];
 
   return (
     <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div>
           <h3 style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{title}</h3>
           <div className="theme-muted-text" style={{ marginTop: 5, fontSize: 12, color: '#8b8b8b' }}>{t('lastMonthsHint', { count: windowSize })}</div>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end' }}>
-          <div className="chart-controls" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            <div className="chart-source-toggle" role="group" aria-label={t('chartSourceToggleLabel')} style={{ display: 'flex', gap: 6 }}>
-              {sourceOptions.map((option) => {
-                const selected = source === option.id;
-                return (
-                  <button key={option.id} className={`theme-chart-toggle ${selected ? 'is-selected' : ''}`} type="button" aria-pressed={selected} onClick={() => switchSource(option.id)} style={{ minHeight: 32, border: `1px solid ${selected ? '#60a5fa' : '#242424'}`, background: selected ? '#111520' : '#151515', borderRadius: 5, color: selected ? '#60a5fa' : '#8b8b8b', cursor: 'pointer', fontSize: 11, fontWeight: selected ? 700 : 500, padding: '6px 10px', transition: 'all 0.15s' }}>
-                    {option.label}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="chart-window-toggle" role="group" aria-label={t('chartWindowLabel')} style={{ display: 'flex', gap: 4 }}>
-              {CHART_WINDOWS.map((size) => {
-                const selected = windowSize === size;
-                return (
-                  <button key={size} className={`theme-chart-toggle ${selected ? 'is-selected' : ''}`} type="button" aria-pressed={selected} onClick={() => switchWindow(size)} style={{ minHeight: 32, minWidth: 38, border: `1px solid ${selected ? '#60a5fa' : '#242424'}`, background: selected ? '#111520' : '#151515', borderRadius: 5, color: selected ? '#60a5fa' : '#8b8b8b', cursor: 'pointer', fontSize: 11, fontWeight: selected ? 700 : 500, padding: '6px 8px', transition: 'all 0.15s' }}>
-                    {t('chartWindowMonths', { count: size })}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            {availableCategories.map((category) => {
-              const selected = selectedCategories.includes(category);
-              const limitReached = selectedCategories.length === 3 && !selected;
+        {/* Os controles precisam da linha inteira: dividindo-a com o título, a dica os empurra
+            e as duas famílias de botão quebram no meio no celular. */}
+        <div className="chart-controls" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <div className="chart-source-toggle" role="group" aria-label={t('chartSourceToggleLabel')} style={{ display: 'flex', gap: 6 }}>
+            {sourceOptions.map((option) => {
+              const selected = source === option.id;
               return (
-                <button className={`theme-chart-toggle ${selected ? 'is-selected' : ''}`} key={category} type="button" onClick={() => toggleCategory(category)} disabled={limitReached} style={{ display: 'flex', alignItems: 'center', gap: 7, border: `1px solid ${selected ? categoryColor(category) : '#242424'}`, background: selected ? `${categoryColor(category)}18` : '#151515', borderRadius: 5, color: selected ? '#e0e0e0' : '#9a9a9a', cursor: limitReached ? 'not-allowed' : 'pointer', opacity: limitReached ? 0.45 : 1, padding: '7px 9px', fontSize: 11, transition: 'all 0.15s' }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: categoryColor(category), flexShrink: 0 }} />
-                  {categoryLabel(category)}
+                <button key={option.id} className={`theme-chart-toggle ${selected ? 'is-selected' : ''}`} type="button" aria-pressed={selected} onClick={() => switchSource(option.id)} style={{ minHeight: 32, whiteSpace: 'nowrap', border: `1px solid ${selected ? '#60a5fa' : '#242424'}`, background: selected ? '#111520' : '#151515', borderRadius: 5, color: selected ? '#60a5fa' : '#8b8b8b', cursor: 'pointer', fontSize: 11, fontWeight: selected ? 700 : 500, padding: '6px 8px', transition: 'all 0.15s' }}>
+                  {option.label}
                 </button>
               );
             })}
           </div>
+          <div className="chart-window-toggle" role="group" aria-label={t('chartWindowLabel')} style={{ display: 'flex', gap: 4 }}>
+            {CHART_WINDOWS.map((size) => {
+              const selected = windowSize === size;
+              return (
+                <button key={size} className={`theme-chart-toggle ${selected ? 'is-selected' : ''}`} type="button" aria-pressed={selected} onClick={() => switchWindow(size)} style={{ minHeight: 32, minWidth: 34, border: `1px solid ${selected ? '#60a5fa' : '#242424'}`, background: selected ? '#111520' : '#151515', borderRadius: 5, color: selected ? '#60a5fa' : '#8b8b8b', cursor: 'pointer', fontSize: 11, fontWeight: selected ? 700 : 500, padding: '6px 8px', transition: 'all 0.15s' }}>
+                  {t('chartWindowMonths', { count: size })}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {availableCategories.map((category) => {
+            const selected = selectedCategories.includes(category);
+            const limitReached = selectedCategories.length === 3 && !selected;
+            return (
+              <button className={`theme-chart-toggle ${selected ? 'is-selected' : ''}`} key={category} type="button" onClick={() => toggleCategory(category)} disabled={limitReached} style={{ display: 'flex', alignItems: 'center', gap: 7, border: `1px solid ${selected ? categoryColor(category) : '#242424'}`, background: selected ? `${categoryColor(category)}18` : '#151515', borderRadius: 5, color: selected ? '#e0e0e0' : '#9a9a9a', cursor: limitReached ? 'not-allowed' : 'pointer', opacity: limitReached ? 0.45 : 1, padding: '7px 9px', fontSize: 11, transition: 'all 0.15s' }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: categoryColor(category), flexShrink: 0 }} />
+                {categoryLabel(category)}
+              </button>
+            );
+          })}
         </div>
       </div>
 
