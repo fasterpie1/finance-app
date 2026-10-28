@@ -15,6 +15,7 @@ import { CardSelect } from './CardSelect';
 import { CategorySelect } from './CategorySelect';
 import { ConfirmDialog } from './ConfirmDialog';
 import { StatementImportPanel } from './StatementImportPanel';
+import { MerchantCategoryNotice } from './MerchantCategoryNotice';
 import { type Bill } from '../types';
 import { CalendarReminderButton } from './CalendarReminderButton';
 import { type AppLocale, usePreferences } from '../i18n';
@@ -35,6 +36,8 @@ interface Props {
   onAddPurchasesBatch: (purchases: CreditCardPurchase[]) => void;
   onImportInvoice: (invoice: CreditCardInvoice, forceDuplicateIds?: string[]) => void;
   onUpdateInvoice: (invoice: CreditCardInvoice) => void;
+  /** Classificação em lote do que veio do extrato sem categoria. */
+  onClassifyTransactions: (transactionIds: string[], category: CategoryId) => void;
   getAffectedMonths: (cur: number, total: number) => MonthInfo[];
   /** Sem argumentos é "pagar tudo do cartão"; com ids, marca somente aquele cartão. */
   onPayCreditCard: (invoiceIds?: string[], billIds?: string[], cardId?: string) => void;
@@ -491,7 +494,7 @@ function InvoiceTransactions({ invoices, monthBills, bars, paymentCards, userId,
 
 export const CreditCardView: React.FC<Props> = ({
   userId, selectedMonthName, selectedMonthYear, creditCardInvoices, debitPixBills, linkedFixedBills, monthBills, allMonths,
-  onTogglePaid, onSaveBill, onDeleteBill, onAddPurchase, onAddPurchasesBatch, onImportInvoice, onUpdateInvoice, getAffectedMonths, onPayCreditCard, onUnpayCreditCard, creditCardDueDay, onUpdateCreditCardDueDay, hideValues,
+  onTogglePaid, onSaveBill, onDeleteBill, onAddPurchase, onAddPurchasesBatch, onImportInvoice, onUpdateInvoice, onClassifyTransactions, getAffectedMonths, onPayCreditCard, onUnpayCreditCard, creditCardDueDay, onUpdateCreditCardDueDay, hideValues,
   invoiceCalendarEventId, invoiceCalendarEventIds, onInvoiceCalendarReminder, invoiceCalendarReminderLoading, paymentCards,
 }) => {
   const { formatMoney, formatMonthShort, parseAmount, t } = usePreferences();
@@ -535,8 +538,13 @@ export const CreditCardView: React.FC<Props> = ({
     : undefined;
 
   const charges = getCardCharges(creditCardInvoices, monthBills);
+  const selectedMonthIndex = allMonths.findIndex((month) => month.name === selectedMonthName && month.year === selectedMonthYear);
+  const invoiceTransactions = creditCardInvoices.flatMap((invoice) => invoice.transactions);
+  const previousInvoiceTransactions = allMonths
+    .slice(0, selectedMonthIndex < 0 ? allMonths.length : selectedMonthIndex)
+    .flatMap((month) => (month.creditCardInvoices ?? []).flatMap((invoice) => invoice.transactions ?? []));
   const monthlyLaunchmentCount = charges.pendingBills.length
-    + creditCardInvoices.reduce((sum, invoice) => sum + invoice.transactions.filter((transaction) => transaction.type !== 'PAYMENT').length, 0);
+    + invoiceTransactions.filter((transaction) => transaction.type !== 'PAYMENT').length;
   const totalDebt = centsToAmount(allMonths.reduce((sum, m) => {
     const monthCharges = getCardCharges(m.creditCardInvoices ?? [], m.bills);
     return sum
@@ -813,6 +821,16 @@ export const CreditCardView: React.FC<Props> = ({
 
       {section === 'fatura' && (
         <>
+      {/* O extrato chega sem categoria; um toque classifica tudo o que o nome do estabelecimento permite saber. */}
+      {creditCardInvoices.length > 0 && (
+        <MerchantCategoryNotice
+          transactions={invoiceTransactions}
+          history={previousInvoiceTransactions}
+          userId={userId}
+          onApply={onClassifyTransactions}
+          hideValues={hideValues}
+        />
+      )}
       {(creditCardInvoices.length > 0 || charges.pendingBills.length > 0) && <InvoiceTransactions invoices={creditCardInvoices} monthBills={monthBills} bars={groupedBars ? invoiceBars : undefined} paymentCards={paymentCards} userId={userId} onUpdate={onUpdateInvoice} onTogglePaid={onTogglePaid} onSaveBill={onSaveBill} onDeleteBill={onDeleteBill} hideValues={hideValues} />}
 
       {/* Contas fixas vinculadas ao cartão que já estão pagas na fatura do banco. */}

@@ -1689,6 +1689,10 @@ body[data-theme='light'] .theme-goal-divider { background: #e2e8f0 !important; }
 .theme-muted-text { color: #8f8f8f; }
 body[data-theme='light'] .theme-muted-text { color: #475569 !important; }
 
+/* Variação de preço: o vermelho e o verde do tema escuro somem sobre o branco. */
+body[data-theme='light'] .theme-delta-up { color: #b91c1c !important; }
+body[data-theme='light'] .theme-delta-down { color: #047857 !important; }
+
 /* Botões de alternância (adicionar / pago) */
 body[data-theme='light'] .theme-add-toggle.is-active,
 body[data-theme='light'] .theme-paid-toggle.is-active {
