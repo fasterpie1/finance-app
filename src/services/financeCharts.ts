@@ -46,6 +46,49 @@ export function getCategoryChartData(bills: Bill[], invoices: CreditCardInvoice[
   return { totalCents, items };
 }
 
+export interface CategoryAnomaly {
+  ratio: number;
+  averageCents: number;
+}
+
+/** Meses de histórico necessários para "média" significar alguma coisa. */
+const MIN_PREVIOUS_MONTHS = 2;
+/** Dobro da média já é um mês fora do costume. */
+const ANOMALY_RATIO = 2;
+/** R$ 50 de diferença: abaixo disso a categoria é pequena demais para o aviso valer o ruído. */
+const ANOMALY_MIN_DIFF_CENTS = 5000;
+
+/**
+ * Compara cada categoria do mês aberto com a média dela nos meses anteriores. Categoria que
+ * nunca apareceu fica fora: não há costume a comparar, e marcá-la seria chamar novidade de anomalia.
+ */
+export function getCategoryAnomalies(
+  current: CategoryChartData,
+  previousMonths: Array<Pick<BudgetMonth, 'bills' | 'creditCardInvoices'>>,
+  source: ChartSource,
+): Map<CategoryId, CategoryAnomaly> {
+  const anomalies = new Map<CategoryId, CategoryAnomaly>();
+  if (previousMonths.length < MIN_PREVIOUS_MONTHS) return anomalies;
+
+  const sumByCategory = new Map<CategoryId, number>();
+  previousMonths.forEach((month) => {
+    getCategoryChartData(month.bills, month.creditCardInvoices ?? [], source).items.forEach((item) => {
+      sumByCategory.set(item.category, (sumByCategory.get(item.category) ?? 0) + item.cents);
+    });
+  });
+
+  current.items.forEach((item) => {
+    const previousSum = sumByCategory.get(item.category);
+    if (!previousSum) return;
+    const averageCents = previousSum / previousMonths.length;
+    const ratio = item.cents / averageCents;
+    if (ratio >= ANOMALY_RATIO && item.cents - averageCents >= ANOMALY_MIN_DIFF_CENTS) {
+      anomalies.set(item.category, { ratio, averageCents });
+    }
+  });
+  return anomalies;
+}
+
 export function getCardChartCategories(months: Array<Pick<CardChartMonth, 'bills' | 'creditCardInvoices'>>, source: LineChartSource = 'card'): CategoryId[] {
   const categories = new Set<CategoryId>();
   months.forEach((month) => {
