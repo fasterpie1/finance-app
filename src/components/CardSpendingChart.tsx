@@ -72,6 +72,7 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
   const { formatMoney, formatMonthShort, categoryLabel, categoryColor, locale, t } = usePreferences();
   const [source, setSource] = useState<LineChartSource>('card');
   const [windowSize, setWindowSize] = useState<ChartWindow>(loadWindow);
+  const [picking, setPicking] = useState(false);
   const categoriesFor = useCallback((next: LineChartSource) => {
     return getCardChartCategories(months, next).sort((a, b) => categoryLabel(a).localeCompare(categoryLabel(b), locale === 'en' ? 'en-US' : 'pt-BR'));
   }, [months, categoryLabel, locale]);
@@ -182,19 +183,39 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
               );
             })}
           </div>
+          {/* Uma categoria só não merece um filtro: o nome dela já está na linha de baixo. */}
+          {availableCategories.length > 1 && (
+            <button className={`theme-chart-toggle ${picking ? 'is-selected' : ''}`} type="button" aria-pressed={picking} onClick={() => setPicking((open) => !open)} style={{ minHeight: 32, whiteSpace: 'nowrap', border: `1px solid ${picking ? '#60a5fa' : '#242424'}`, background: picking ? '#111520' : '#151515', borderRadius: 5, color: picking ? '#60a5fa' : '#8b8b8b', cursor: 'pointer', fontSize: 11, fontWeight: picking ? 700 : 500, padding: '6px 8px', transition: 'all 0.15s' }}>
+              {t('chartCategoriesFilter')} ({selectedCategories.length})
+            </button>
+          )}
         </div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          {availableCategories.map((category) => {
-            const selected = selectedCategories.includes(category);
-            const limitReached = selectedCategories.length === 3 && !selected;
-            return (
-              <button className={`theme-chart-toggle ${selected ? 'is-selected' : ''}`} key={category} type="button" onClick={() => toggleCategory(category)} disabled={limitReached} style={{ display: 'flex', alignItems: 'center', gap: 7, border: `1px solid ${selected ? categoryColor(category) : '#242424'}`, background: selected ? `${categoryColor(category)}18` : '#151515', borderRadius: 5, color: selected ? '#e0e0e0' : '#9a9a9a', cursor: limitReached ? 'not-allowed' : 'pointer', opacity: limitReached ? 0.45 : 1, padding: '7px 9px', fontSize: 11, transition: 'all 0.15s' }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: categoryColor(category), flexShrink: 0 }} />
+        {/* Fechado, o gráfico fica só com a legenda das linhas — é o que diz o que está desenhado,
+            sem a parede de botões que era a lista inteira de categorias. */}
+        {!picking && selectedCategories.length > 0 && (
+          <div className="theme-muted-text" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'flex-end', fontSize: 11, color: '#8b8b8b' }}>
+            {selectedCategories.map((category) => (
+              <span key={category} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: categoryColor(category), flexShrink: 0 }} />
                 {categoryLabel(category)}
-              </button>
-            );
-          })}
-        </div>
+              </span>
+            ))}
+          </div>
+        )}
+        {picking && (
+          <div className="theme-inset-panel" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignContent: 'flex-start', maxHeight: 168, overflowY: 'auto', padding: 8, borderRadius: 6, background: '#131313', border: '1px solid #1f1f1f' }}>
+            {availableCategories.map((category) => {
+              const selected = selectedCategories.includes(category);
+              const limitReached = selectedCategories.length === 3 && !selected;
+              return (
+                <button className={`theme-chart-toggle ${selected ? 'is-selected' : ''}`} key={category} type="button" onClick={() => toggleCategory(category)} disabled={limitReached} style={{ display: 'flex', alignItems: 'center', gap: 7, border: `1px solid ${selected ? categoryColor(category) : '#242424'}`, background: selected ? `${categoryColor(category)}18` : '#151515', borderRadius: 5, color: selected ? '#e0e0e0' : '#9a9a9a', cursor: limitReached ? 'not-allowed' : 'pointer', opacity: limitReached ? 0.45 : 1, padding: '7px 9px', fontSize: 11, transition: 'all 0.15s' }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: categoryColor(category), flexShrink: 0 }} />
+                  {categoryLabel(category)}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {selectedCategories.length === 0 ? (
