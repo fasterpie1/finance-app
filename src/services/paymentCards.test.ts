@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  adoptPaymentCardsFromInvoices,
   cardInvoiceId,
+  deriveCardsFromInvoiceLabels,
   findOrCreatePaymentCard,
   findPaymentCard,
   getCardDueDay,
@@ -139,9 +141,69 @@ describe('dono da fatura', () => {
     expect(groups.map((group) => group.invoices.map((invoice) => invoice.id))).toEqual([['nubank'], ['wow'], ['legada']]);
   });
 
+  it('cartão que não existe neste aparelho não some da tela', () => {
+    // A fatura sincronizada traz o id de um cartão cadastrado em outro aparelho: ela vai para o
+    // grupo "sem cartão", legível pelo nome gravado nela, em vez de parar num grupo que
+    // nenhuma barra percorre.
+    const groups = groupInvoicesByCard([
+      { id: 'outro-aparelho', cardId: 'card_de_outro' },
+      { id: 'nubank', cardId: 'card_nubank' },
+    ], [nubank, wow]);
+    expect(groups.map((group) => group.cardId)).toEqual(['card_nubank', undefined]);
+    expect(groups[1]?.invoices.map((invoice) => invoice.id)).toEqual(['outro-aparelho']);
+  });
+
   it('acha o cartão pelo id e ignora id vazio', () => {
     expect(findPaymentCard('card_wow', [nubank, wow])?.bank).toBe('Wow');
     expect(findPaymentCard(undefined, [nubank, wow])).toBeUndefined();
+  });
+});
+
+describe('cartão que chega junto com a fatura sincronizada', () => {
+  const nubankInvoice = { id: 'i1', cardId: 'card_marcus', cardLabel: 'Nubank Marcus 2439' };
+  const itauInvoice = { id: 'i2', cardId: 'card_itau', cardLabel: 'Itaú Patrícia 8270' };
+  const legacyInvoice = { id: 'i3', cardId: undefined, cardLabel: undefined };
+
+  it('refaz o cadastro com o mesmo id gravado na fatura', () => {
+    const derived = deriveCardsFromInvoiceLabels([nubankInvoice, itauInvoice, legacyInvoice], []);
+    expect(derived).toEqual([
+      { id: 'card_marcus', bank: 'Nubank Marcus', last4: '2439' },
+      { id: 'card_itau', bank: 'Itaú Patrícia', last4: '8270' },
+    ]);
+    // Id igual é o que devolve cada fatura para o cartão dela sem reimportar nada.
+    expect(groupInvoicesByCard([nubankInvoice, itauInvoice, legacyInvoice], derived).map((group) => group.cardId))
+      .toEqual(['card_marcus', 'card_itau', undefined]);
+  });
+
+  it('não duplica o plástico que este aparelho já cadastrou', () => {
+    // Banco e final iguais são o mesmo cartão, mesmo chegando com outro id.
+    const existing = [card('card_marcus', 'Nubank Marcus', '2439'), card('card_outro', 'Itaú Patrícia', '8270')];
+    expect(deriveCardsFromInvoiceLabels([nubankInvoice, itauInvoice], existing)).toEqual([]);
+  });
+
+  it('ignora rótulo que não é um cartão', () => {
+    expect(deriveCardsFromInvoiceLabels([
+      { id: 'a', cardId: 'card_a', cardLabel: 'Nubank 243' },
+      { id: 'b', cardId: 'card_b', cardLabel: 'Só o banco, sem final' },
+      { id: 'c', cardId: 'card_c', cardLabel: '' },
+      { id: 'd', cardId: 'card_d', cardLabel: 'Nubank 2439-x' },
+      { id: 'e', cardId: '', cardLabel: 'Nubank 2439' },
+    ], [])).toEqual([]);
+  });
+
+  it('para no oitavo cartão também na recuperação', () => {
+    const eight = Array.from({ length: 8 }, (_, index) => card(`card_${index}`, `Banco ${index + 1}`, `100${index}`));
+    expect(deriveCardsFromInvoiceLabels([nubankInvoice], eight)).toEqual([]);
+  });
+
+  it('guarda no espaço da conta os cartões recuperados, uma vez só', () => {
+    const owner = account('recuperado');
+    expect(adoptPaymentCardsFromInvoices(owner, [nubankInvoice, itauInvoice, legacyInvoice])).toBe(2);
+    expect(readPaymentCards(owner).map(getPaymentCardLabel)).toEqual(['Nubank Marcus 2439', 'Itaú Patrícia 8270']);
+    // O efeito roda a cada mudança de mês: repetir não pode criar cartão nem regravar nada.
+    expect(adoptPaymentCardsFromInvoices(owner, [nubankInvoice, itauInvoice])).toBe(0);
+    expect(readPaymentCards(owner)).toHaveLength(2);
+    expect(readPaymentCards(account('vizinho-da-recuperacao'))).toEqual([]);
   });
 });
 

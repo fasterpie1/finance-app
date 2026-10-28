@@ -97,6 +97,52 @@ export function setPaymentCardDueDay(userId: string | null, id: string, dueDay: 
   commit(userId, list.map((card) => (card.id === id ? { ...card, dueDay } : card)));
 }
 
+/** "Nubank Patricia 5190" em "Nubank Patricia" + 5190; sem o final de quatro dígitos não é cartão. */
+function parseCardLabel(label: string): { bank: string; last4: string } | null {
+  const tokens = label.trim().split(/\s+/);
+  const last4 = tokens[tokens.length - 1] ?? '';
+  if (tokens.length < 2 || !/^\d{4}$/.test(last4)) return null;
+  const bank = normalizeBank(tokens.slice(0, -1).join(' '));
+  return bank ? { bank, last4 } : null;
+}
+
+/**
+ * Cadastro é deste aparelho, fatura vem da nuvem: num celular novo os cartões nunca foram
+ * digitados e cada fatura sincronizada cai no grupo "sem cartão", deixando a tela só com o
+ * total. O rótulo gravado na própria fatura basta para refazer o cadastro aqui, com o MESMO id,
+ * assim as faturas daquele cartão voltam a ser dele sem reimportar nada.
+ */
+export function deriveCardsFromInvoiceLabels<T extends { cardId?: string; cardLabel?: string }>(
+  invoices: T[],
+  existing: PaymentCard[],
+): PaymentCard[] {
+  const ids = new Set(existing.map((card) => card.id));
+  const identities = new Set(existing.map((card) => `${card.bank.toLowerCase()}|${card.last4}`));
+  const derived: PaymentCard[] = [];
+  invoices.forEach((invoice) => {
+    if (ids.size >= MAX_CARDS) return;
+    const cardId = invoice.cardId;
+    if (!cardId || cardId.length > 40 || ids.has(cardId)) return;
+    const parsed = invoice.cardLabel ? parseCardLabel(invoice.cardLabel) : null;
+    if (!parsed) return;
+    const identity = `${parsed.bank.toLowerCase()}|${parsed.last4}`;
+    if (identities.has(identity)) return;
+    ids.add(cardId);
+    identities.add(identity);
+    derived.push({ id: cardId, bank: parsed.bank, last4: parsed.last4 });
+  });
+  return derived;
+}
+
+/** Quantos cartões este aparelho recuperou; 0 quando já estava tudo certo. */
+export function adoptPaymentCardsFromInvoices(userId: string | null, invoices: Array<{ cardId?: string; cardLabel?: string }>): number {
+  const list = load(userId);
+  const derived = deriveCardsFromInvoiceLabels(invoices, list);
+  if (derived.length === 0) return 0;
+  commit(userId, [...list, ...derived]);
+  return derived.length;
+}
+
 export function usePaymentCards(userId: string | null): PaymentCard[] {
   return useSyncExternalStore(
     (onStoreChange) => {
@@ -122,11 +168,14 @@ export function getPaymentCardLabel(card: PaymentCard): string {
 }
 
 /**
- * Dono de uma fatura. Fatura sem cartão (todo o histórico anterior a este recurso) pertence ao
- * único cartão cadastrado; com dois ou mais, ela fica no grupo "sem cartão" em vez de inventar dono.
+ * Dono de uma fatura. Um id que não está cadastrado neste aparelho vale como fatura antiga: sem
+ * essa checagem a fatura ficaria num grupo que nenhuma barra percorre e sumiria da tela. Fatura
+ * sem cartão (todo o histórico anterior a este recurso) pertence ao único cartão cadastrado;
+ * com dois ou mais, ela fica no grupo "sem cartão" em vez de inventar dono.
  */
 export function resolveInvoiceCardId(invoiceCardId: string | undefined, cards: PaymentCard[]): string | undefined {
-  if (invoiceCardId) return invoiceCardId;
+  const found = findPaymentCard(invoiceCardId, cards);
+  if (found) return found.id;
   return cards.length === 1 ? cards[0].id : undefined;
 }
 
@@ -135,7 +184,7 @@ export function resolveInvoiceCardId(invoiceCardId: string | undefined, cards: P
  * pode sumir com a conta do mês: volta a herdar igual à fatura antiga.
  */
 export function resolveBillCardId(bill: { cardId?: string }, cards: PaymentCard[]): string | undefined {
-  return resolveInvoiceCardId(findPaymentCard(bill.cardId, cards)?.id, cards);
+  return resolveInvoiceCardId(bill.cardId, cards);
 }
 
 /** Rótulo da fatura: o cartão cadastrado, ou o nome gravado na importação quando ele já foi excluído. */

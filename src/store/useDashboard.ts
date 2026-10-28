@@ -4,7 +4,7 @@ import { sampleMonths } from '../data/sampleData';
 import { supabase } from '../services/supabase';
 import { readUserStorage, removeUserStorage, writeUserStorage } from '../services/userStorage';
 import { amountToCents, centsToAmount, formatTransactionDay, getCardCharges, getInvoicePersonalTotalCents, getMonthPlannedCents, isOnCreditCardBill } from '../services/cardTransactions';
-import { cardInvoiceId, findPaymentCard, getCardDueDay, getPaymentCardLabel, groupInvoicesByCard, resolveBillCardId, type PaymentCard } from '../services/paymentCards';
+import { cardInvoiceId, findPaymentCard, getCardDueDay, getPaymentCardLabel, groupInvoicesByCard, resolveBillCardId, adoptPaymentCardsFromInvoices, type PaymentCard } from '../services/paymentCards';
 
 const STORAGE_KEY = 'financa_months_v1';
 const SELECTED_KEY = 'financa_selected_v1';
@@ -359,6 +359,17 @@ export function useDashboard(userId: string | null = null) {
     };
     void loadRemote();
   }, [userId]);
+
+  // O cadastro de cartões mora neste aparelho, a fatura vem da nuvem: num celular novo nenhum
+  // cartão foi digitado e todas as faturas cairiam em "sem cartão", deixando a tela só com o
+  // total. A própria fatura traz o id e o nome do dono, então o cadastro volta a existir aqui.
+  // Começa pelo mês aberto: o teto de oito cartões não pode ser gasto com histórico velho.
+  useEffect(() => {
+    const openMonth = months.find((month) => month.id === selectedMonthId);
+    const invoices = [...(openMonth ? [openMonth] : []), ...months.filter((month) => month.id !== selectedMonthId).reverse()]
+      .flatMap((month) => month.creditCardInvoices ?? []);
+    adoptPaymentCardsFromInvoices(userId, invoices);
+  }, [months, selectedMonthId, userId]);
 
   const refreshData = useCallback(async () => {
     if (!supabase || !userId || isRefreshing) return;
