@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BILL_CATEGORY_LABELS, type CategoryId } from '../types';
 import {
+  buildCategoryOptions,
   createCustomCategory,
   getCategoryColor,
   getCategoryLabel,
@@ -27,6 +28,23 @@ function account(name: string): string {
 }
 
 const identity = (category: CategoryId) => BILL_CATEGORY_LABELS[category as keyof typeof BILL_CATEGORY_LABELS] ?? 'Categoria do app';
+
+describe('lista de categorias do seletor', () => {
+  it('ordena pelo nome que a pessoa lê, com acento e com a categoria criada no meio', () => {
+    const created = createCustomCategory(account('ordem'), 'Academia');
+    if (!created.ok) throw new Error('criação falhou');
+    const labels = buildCategoryOptions(
+      (category) => BILL_CATEGORY_LABELS[category as keyof typeof BILL_CATEGORY_LABELS],
+      readCustomCategories(account('ordem')),
+      'pt-BR',
+    ).map((option) => option.label);
+
+    // Ordenar por código de caractere jogaria 'Água' para o fim e deixaria a categoria da conta
+    // sempre depois das fixas; o collator do idioma é o que faz a lista ser a que se procura.
+    expect(labels.slice(0, 4)).toEqual(['Academia', 'Água', 'Alimentação', 'Aluguel']);
+    expect(labels).toHaveLength(20);
+  });
+});
 
 describe('categorias da conta', () => {
   it('mantém snapshots estáveis quando provedores de contas diferentes coexistem', () => {

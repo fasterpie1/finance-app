@@ -136,13 +136,17 @@ export function getCustomCategoriesSnapshot(userId: string | null): CustomCatego
 
 const EMPTY: CustomCategory[] = [];
 
-/** Opções do seletor: as fixas do app primeiro, depois as desta conta. */
+/** Opções do seletor: ordem alfabética do nome que a pessoa lê, não da chave interna. */
 export function buildCategoryOptions(
   builtInLabel: (category: BillCategory) => string,
   customCategories: CustomCategory[],
+  locale = 'pt-BR',
 ): Array<{ value: string; label: string }> {
+  // O collator do idioma é o que põe 'Água' antes de 'Aluguel': ordenar por código jogaria o
+  // acento para o fim e as categorias criadas pela conta viriam todas depois das fixas.
+  const collator = new Intl.Collator(locale, { sensitivity: 'base' });
   return [
     ...(Object.keys(BILL_CATEGORY_LABELS) as BillCategory[]).map((category) => ({ value: category, label: builtInLabel(category) })),
     ...customCategories.map((category) => ({ value: category.id, label: category.label })),
-  ];
+  ].sort((a, b) => collator.compare(a.label, b.label));
 }
