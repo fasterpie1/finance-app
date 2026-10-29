@@ -7,7 +7,7 @@ const AUTH_REDIRECT_URL = typeof window !== 'undefined' ? window.location.origin
 type AuthMode = 'signin' | 'signup' | 'checkEmail';
 
 interface Props {
-  children: (userId: string | null, signOut: () => void) => React.ReactNode;
+  children: (userId: string | null, email: string | null, signOut: () => void) => React.ReactNode;
 }
 
 const fieldStyle: React.CSSProperties = {
@@ -20,6 +20,7 @@ const hintStyle: React.CSSProperties = { color: '#8f8f8f', fontSize: 12, marginT
 export const AuthPanel: React.FC<Props> = ({ children }) => {
   const { t } = usePreferences();
   const [userId, setUserId] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
   const [mode, setMode] = useState<AuthMode>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -39,6 +40,7 @@ export const AuthPanel: React.FC<Props> = ({ children }) => {
         setMessage(t('restoreSessionError'));
       }
       let session = data.session;
+      let authenticatedEmail = session?.user.email ?? null;
       // A sessão em cache pode sobreviver a um refresh token já rotacionado: o
       // servidor recusa tudo, então validamos e pedimos novo login.
       if (session) {
@@ -49,19 +51,25 @@ export const AuthPanel: React.FC<Props> = ({ children }) => {
           await client.auth.signOut({ scope: 'local' });
           session = null;
           setMessage(t('restoreSessionError'));
+        } else {
+          authenticatedEmail = checked.user.email ?? null;
         }
       }
       setUserId(session?.user.id ?? null);
+      setUserEmail(session ? authenticatedEmail : null);
       setInitializing(false);
     }).catch((error: unknown) => {
       if (!active) return;
       console.error('Falha ao restaurar a sessão do Supabase:', error);
       setMessage(t('restoreSessionError'));
+      setUserId(null);
+      setUserEmail(null);
       setInitializing(false);
     });
     const { data: listener } = client.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') console.warn('Sessão encerrada pelo Supabase. Verifique expiração, armazenamento local e configuração do domínio.');
       setUserId(session?.user.id ?? null);
+      setUserEmail(session?.user.email ?? null);
     });
     return () => { active = false; listener.subscription.unsubscribe(); };
   }, [t]);
@@ -116,9 +124,9 @@ export const AuthPanel: React.FC<Props> = ({ children }) => {
     void supabase?.auth.signOut();
   };
 
-  if (!isSupabaseConfigured) return <>{children(null, signOut)}</>;
+  if (!isSupabaseConfigured) return <>{children(null, null, signOut)}</>;
   if (initializing) return <div className="auth-shell" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', color: '#777', background: '#0a0a0a' }}>{t('loading')}</div>;
-  if (userId) return <>{children(userId, signOut)}</>;
+  if (userId) return <>{children(userId, userEmail, signOut)}</>;
 
   return (
     <main className="auth-shell" style={{ minHeight: '100vh', background: '#0a0a0a', color: '#e0e0e0', display: 'grid', placeItems: 'center', padding: 20, fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif" }}>

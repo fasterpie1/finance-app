@@ -45,7 +45,8 @@ export interface CreditCardTransaction {
   installmentTotal?: number;
   installmentGroupId?: string;
   linkedTransactionId?: string;
-  source?: 'MANUAL' | 'IMPORT';
+  source?: 'MANUAL' | 'IMPORT' | 'OPEN_FINANCE';
+  providerTransactionId?: string;
 }
 
 export interface CreditCardInvoice {
@@ -60,6 +61,7 @@ export interface CreditCardInvoice {
   dueDate?: string;
   closingDate?: string;
   statementTotalCents?: number;
+  providerBillId?: string;
   isPaid?: boolean;
   transactions: CreditCardTransaction[];
 }

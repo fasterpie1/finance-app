@@ -54,6 +54,30 @@ Para permitir que qualquer usuário conecte a própria agenda, altere a publica�
 
 O callback reconhece `access_denied` e informa que a conta não está autorizada no modo de teste, em vez de exibir que a pessoa cancelou a conexão. O app renova automaticamente o access token do Google usando o refresh token e a tela de configurações reaproveita o último status conhecido.
 
+## Open Finance (Pluggy)
+
+A integração conecta instituições pelo widget oficial da Pluggy e está restrita à conta de teste `pajp@hotmail.com` na interface, na Edge Function e pelas políticas RLS das tabelas. O navegador recebe somente o token temporário do widget; `PLUGGY_CLIENT_ID` e `PLUGGY_CLIENT_SECRET` ficam exclusivamente nos secrets das Edge Functions. A conexão é associada ao usuário autenticado, e cada compra importada precisa ser revisada para confirmar cartão, categoria e responsável. Compras marcadas como duplicadas ou ignoradas não entram na fatura.
+
+Antes de habilitar a integração:
+
+1. Confirme com a Pluggy as condições do teste de produção e se o C6 disponibiliza transações de cartão, identificação do cartão e dados da fatura para a sua conexão.
+2. Aplique as migrations `supabase/migrations/20261028180000_pluggy_open_finance.sql` e `supabase/migrations/20261028230000_restrict_pluggy_to_test_account.sql` no projeto Supabase (por exemplo, com `supabase db push`). A segunda limita a leitura das tabelas à conta de teste.
+3. Configure os secrets no projeto Supabase, sem usar variáveis `VITE_`:
+
+```text
+supabase secrets set PLUGGY_CLIENT_ID="..." PLUGGY_CLIENT_SECRET="..." APP_ORIGIN="https://seu-dominio.vercel.app"
+```
+
+4. Publique a Edge Function:
+
+```text
+supabase functions deploy pluggy-open-finance
+```
+
+A função exige JWT, valida que o e-mail autenticado é `pajp@hotmail.com` e valida no servidor se o item conectado pertence ao usuário. `APP_ORIGIN` deve conter o domínio real do app; endereços locais de desenvolvimento já são permitidos pela função. O widget está configurado sem Sandbox para usar a conexão de produção autorizada pela Pluggy.
+
+Na tela de configurações, conecte a instituição e use **Buscar compras disponíveis** para sincronizar. O provedor pode levar um tempo para disponibilizar compras novas. A sincronização importa apenas transações de cartão de crédito já confirmadas e mostra no máximo 100 pendências por vez; compras só entram na fatura existente após revisão. O total informado pelo banco é armazenado para reconciliação, não para decidir sozinho se uma compra é duplicada. A disponibilidade dos dados varia conforme instituição, produto e consentimento concedido.
+
 Currently, two official plugins are available:
 
 - [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)

@@ -14,6 +14,8 @@ import { IncomeSourcesModal } from './components/IncomeSourcesModal';
 import { AuthPanel } from './components/AuthPanel';
 import { DailyBillNotification } from './components/DailyBillNotification';
 import { GoogleCalendarSettings } from './components/GoogleCalendarSettings';
+import { PluggySettings } from './components/PluggySettings';
+import { type PluggyTransactionReview } from './components/PluggyReviewQueue';
 import { CalendarReminderButton } from './components/CalendarReminderButton';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { useModalA11y } from './hooks/useModalA11y';
@@ -23,10 +25,13 @@ import { billReminderInput, invoiceReminderInput } from './services/calendarRemi
 import { findOrCreatePaymentCard, findPaymentCard, getCardDueDay, getPaymentCardLabel, groupInvoicesByCard, resolveBillCardId, setPaymentCardDueDay, usePaymentCards } from './services/paymentCards';
 import { type AssistantUniverse } from './services/assistantContext';
 import { findCategoryId, planAssistantCommand, type AssistantCommand, type AssistantCommandHost } from './services/assistantCommands';
-import { type Bill, getMonthIndex } from './types';
+import { type Bill, MONTH_NAMES, getMonthIndex } from './types';
 import { centsToAmount, getCardCharges, getCardTotalWithPendingBillsCents } from './services/cardTransactions';
 import { safeSetItem } from './services/safeStorage';
 import { getAppUpdate, watchAppUpdate } from './services/appVersion';
+import { type PendingPluggyTransaction } from './services/pluggy';
+import { usePluggy } from './hooks/usePluggy';
+import { isPluggyAllowedEmail } from './services/pluggyAccess';
 import { PreferencesProvider, usePreferences, type AppLocale, type DisplayCurrency } from './i18n';
 
 type Tab = 'dashboard' | 'cartao' | 'chat';
@@ -230,12 +235,47 @@ function EmptyState({ label, action, onAction }: { label: string; action?: strin
 }
 
 /* ─── Main App ─── */
-function App({ userId, signOut }: { userId: string | null; signOut: () => void }) {
+function App({ userId, email, signOut }: { userId: string | null; email: string | null; signOut: () => void }) {
   const { t, formatMoney, formatMonthShort: formatLocalizedMonthShort, locale, currency, setLocale, setCurrency, parseAmount, categoryLabel, categoryOptions, addCategory } = usePreferences();
   const formatCurrency = formatMoney;
   const formatMonthShort = formatLocalizedMonthShort;
   const db = useDashboard(userId);
+  const pluggy = usePluggy(userId, email);
+  const { addOpenFinanceTransaction, selectMonth } = db;
+  const { markReviewed } = pluggy;
   const paymentCards = usePaymentCards(userId);
+  const handleReviewPluggyTransaction = useCallback(async (
+    transaction: PendingPluggyTransaction,
+    review: PluggyTransactionReview,
+  ) => {
+    if (!isPluggyAllowedEmail(email)) throw new Error('Open Finance disponível somente na conta de teste autorizada.');
+    if (review.outcome !== 'imported') {
+      await markReviewed(transaction.providerTransactionId, review.outcome);
+      return;
+    }
+
+    const [yearText, monthText] = transaction.billMonth.split('-');
+    const year = Number(yearText);
+    const monthIndex = Number(monthText) - 1;
+    const month = MONTH_NAMES[monthIndex];
+    if (!month || !Number.isInteger(year) || year < 2000) throw new Error('A competência da fatura informada pelo Pluggy é inválida.');
+    if (!review.cardId) throw new Error('Selecione o cartão correspondente antes de importar.');
+
+    const card = findPaymentCard(review.cardId, paymentCards);
+    const targetMonthId = addOpenFinanceTransaction({
+      transaction,
+      month,
+      year,
+      cardId: review.cardId,
+      cardLabel: card ? getPaymentCardLabel(card) : undefined,
+      category: review.category,
+      owner: review.owner,
+      personalAmountCents: review.personalAmountCents,
+      thirdPartyName: review.thirdPartyName,
+    });
+    await markReviewed(transaction.providerTransactionId, 'imported');
+    selectMonth(targetMonthId);
+  }, [addOpenFinanceTransaction, email, markReviewed, paymentCards, selectMonth]);
   const [tab, setTab] = useState<Tab>('dashboard');
   const [addSection, setAddSection] = useState<AddSection>(null);
   const [incomeModalOpen, setIncomeModalOpen] = useState(false);
@@ -1077,6 +1117,7 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
               </div>
             </div>
             <GoogleCalendarSettings userId={userId} onClearCalendarEventIds={db.clearCalendarEventIds} />
+            {isPluggyAllowedEmail(email) && <PluggySettings userId={userId} integration={pluggy} />}
             <div className="settings-group">
               <div className="settings-label">{t('help')}</div>
               <button type="button" className="settings-action" onClick={() => setHelpOpen(true)}><span>{t('useApp')}</span><span className="settings-action-arrow">→</span></button>
@@ -1343,6 +1384,8 @@ function App({ userId, signOut }: { userId: string | null; signOut: () => void }
             creditCardDueDay={db.selectedMonth.creditCardDueDay} onUpdateCreditCardDueDay={updateInvoiceDueDayWithCalendar}
             invoiceCalendarEventId={db.selectedMonth.creditCardCalendarEventId} invoiceCalendarEventIds={db.selectedMonth.creditCardCalendarEventIds} onInvoiceCalendarReminder={(cardId) => void addInvoiceReminder(cardId)} invoiceCalendarReminderLoading={calendarWorkingId?.startsWith(`invoice:${db.selectedMonth.id}`) ?? false}
             paymentCards={paymentCards}
+            pendingPluggyTransactions={pluggy.pendingTransactions}
+            onReviewPluggyTransaction={handleReviewPluggyTransaction}
             hideValues={hideValues}
           />
         )}
@@ -1355,5 +1398,5 @@ export default function AppWithAuth() {
   useEffect(() => {
     document.body.dataset.theme = loadTheme();
   }, []);
-  return <PreferencesProvider userId={null}><AuthPanel>{(userId, signOut) => <PreferencesProvider userId={userId}><App userId={userId} signOut={signOut} /></PreferencesProvider>}</AuthPanel></PreferencesProvider>;
+  return <PreferencesProvider userId={null}><AuthPanel>{(userId, email, signOut) => <PreferencesProvider userId={userId}><App userId={userId} email={email} signOut={signOut} /></PreferencesProvider>}</AuthPanel></PreferencesProvider>;
 }

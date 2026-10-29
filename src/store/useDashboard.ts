@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { type Bill, type BudgetMonth, type CategoryId, type CardPaymentMethod, type CreditCardInvoice, type CreditCardTransaction, type IncomeSource, MONTH_NAMES, getMonthIndex, formatCurrency } from '../types';
 import { sampleMonths } from '../data/sampleData';
+import type { OpenFinanceTransaction } from '../services/pluggyTransactions';
 import { supabase } from '../services/supabase';
 import { readUserStorage, removeUserStorage, writeUserStorage } from '../services/userStorage';
 import { amountToCents, centsToAmount, formatTransactionDay, getCardCharges, getInvoicePersonalTotalCents, getMonthPlannedCents, isOnCreditCardBill } from '../services/cardTransactions';
@@ -129,6 +130,18 @@ function sortMonths(months: BudgetMonth[]): BudgetMonth[] {
 export interface MonthInfo {
   name: string;
   year: number;
+}
+
+export interface OpenFinanceInvoiceInput {
+  transaction: OpenFinanceTransaction;
+  month: string;
+  year: number;
+  cardId: string;
+  cardLabel?: string;
+  category: CategoryId;
+  owner: CreditCardTransaction['owner'];
+  personalAmountCents?: number;
+  thirdPartyName?: string;
 }
 
 export interface BillNotification {
@@ -787,6 +800,98 @@ export function useDashboard(userId: string | null = null) {
     [selectedMonth.name, selectedMonth.year]
   );
 
+  const addOpenFinanceTransaction = useCallback((input: OpenFinanceInvoiceInput): string => {
+    const invoiceId = cardInvoiceId('imported-invoice', input.year, input.month, input.cardId);
+    const targetMonthId = months.find((month) => (
+      month.name.toLowerCase() === input.month.toLowerCase() && month.year === input.year
+    ))?.id ?? uuid();
+    const transaction: CreditCardTransaction = {
+      id: input.transaction.providerTransactionId,
+      providerTransactionId: input.transaction.providerTransactionId,
+      invoiceId,
+      merchant: input.transaction.merchant,
+      amountCents: input.transaction.amountCents,
+      type: input.transaction.type,
+      owner: input.owner,
+      cardLast4: input.transaction.cardLast4,
+      cardName: input.cardLabel,
+      date: input.transaction.date,
+      category: input.category,
+      personalAmountCents: input.personalAmountCents,
+      thirdPartyName: input.thirdPartyName,
+      installmentCurrent: input.transaction.installmentCurrent,
+      installmentTotal: input.transaction.installmentTotal,
+      source: 'OPEN_FINANCE',
+    };
+
+    setMonths((prev) => {
+      if (prev.some((month) => (month.creditCardInvoices ?? []).some((invoice) => (
+        invoice.transactions.some((existing) => (
+          existing.providerTransactionId === input.transaction.providerTransactionId
+        ))
+      )))) return prev;
+
+      const currentMonth = prev.find((month) => (
+        month.name.toLowerCase() === input.month.toLowerCase() && month.year === input.year
+      ));
+      const invoices = currentMonth?.creditCardInvoices ?? [];
+      const providerBillIndex = input.transaction.billId
+        ? invoices.findIndex((invoice) => invoice.providerBillId === input.transaction.billId)
+        : -1;
+      const invoiceIndex = providerBillIndex >= 0
+        ? providerBillIndex
+        : invoices.findIndex((invoice) => (
+          invoice.year === input.year && invoice.month.toLowerCase() === input.month.toLowerCase()
+          && invoice.cardId === input.cardId
+        ));
+      const existingInvoice = invoiceIndex >= 0 ? invoices[invoiceIndex] : undefined;
+      const mergedInvoice: CreditCardInvoice = existingInvoice
+        ? {
+          ...existingInvoice,
+          cardId: existingInvoice.cardId ?? input.cardId,
+          cardLabel: existingInvoice.cardLabel ?? input.cardLabel,
+          providerBillId: existingInvoice.providerBillId ?? input.transaction.billId,
+          statementTotalCents: input.transaction.statementTotalCents ?? existingInvoice.statementTotalCents,
+          transactions: [...existingInvoice.transactions, { ...transaction, invoiceId: existingInvoice.id }],
+        }
+        : {
+          id: invoiceId,
+          month: input.month,
+          year: input.year,
+          cardId: input.cardId,
+          cardLabel: input.cardLabel,
+          providerBillId: input.transaction.billId,
+          statementTotalCents: input.transaction.statementTotalCents,
+          transactions: [transaction],
+        };
+
+      if (!currentMonth) {
+        return sortMonths([
+          ...prev,
+          {
+            id: targetMonthId,
+            name: input.month,
+            year: input.year,
+            income: incomeOfPreviousMonth(prev, input.month, input.year),
+            bills: [],
+            savingsGoal: 0,
+            creditCardInvoices: [mergedInvoice],
+          },
+        ]);
+      }
+
+      const nextInvoices = invoiceIndex < 0
+        ? [...invoices, mergedInvoice]
+        : invoices.map((invoice, index) => index === invoiceIndex ? mergedInvoice : invoice);
+      return prev.map((month) => month.id === currentMonth.id
+        ? { ...month, creditCardInvoices: nextInvoices }
+        : month);
+    });
+
+    setSelectedMonthId(targetMonthId);
+    return targetMonthId;
+  }, [months]);
+
   const addCreditCardPurchasesBatch = useCallback(
     (purchases: CreditCardPurchase[]) => {
       if (purchases.length === 0) return;
@@ -1109,6 +1214,7 @@ export function useDashboard(userId: string | null = null) {
     updateIncomeSources,
     addCreditCardPurchase,
     addCreditCardPurchasesBatch,
+    addOpenFinanceTransaction,
     getAffectedMonths,
     copyFixedBillsFromPrevious,
     addNextMonth,

@@ -1,2 +1,5 @@
 [functions.google-calendar]
 verify_jwt = false
+
+[functions.pluggy-open-finance]
+verify_jwt = true

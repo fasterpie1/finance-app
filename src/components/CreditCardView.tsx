@@ -19,6 +19,8 @@ import { MerchantCategoryNotice } from './MerchantCategoryNotice';
 import { type Bill } from '../types';
 import { CalendarReminderButton } from './CalendarReminderButton';
 import { type AppLocale, usePreferences } from '../i18n';
+import { PluggyReviewQueue, type PluggyTransactionReview } from './PluggyReviewQueue';
+import { type PendingPluggyTransaction } from '../services/pluggy';
 
 interface Props {
   userId: string | null;
@@ -51,6 +53,8 @@ interface Props {
   invoiceCalendarReminderLoading?: boolean;
   /** Cartões cadastrados nesta conta; com um só cartão a tela continua com uma barra única. */
   paymentCards: PaymentCard[];
+  pendingPluggyTransactions: PendingPluggyTransaction[];
+  onReviewPluggyTransaction: (transaction: PendingPluggyTransaction, review: PluggyTransactionReview) => Promise<void>;
 }
 
 const fieldStyle: React.CSSProperties = {
@@ -496,6 +500,7 @@ export const CreditCardView: React.FC<Props> = ({
   userId, selectedMonthName, selectedMonthYear, creditCardInvoices, debitPixBills, linkedFixedBills, monthBills, allMonths,
   onTogglePaid, onSaveBill, onDeleteBill, onAddPurchase, onAddPurchasesBatch, onImportInvoice, onUpdateInvoice, onClassifyTransactions, getAffectedMonths, onPayCreditCard, onUnpayCreditCard, creditCardDueDay, onUpdateCreditCardDueDay, hideValues,
   invoiceCalendarEventId, invoiceCalendarEventIds, onInvoiceCalendarReminder, invoiceCalendarReminderLoading, paymentCards,
+  pendingPluggyTransactions, onReviewPluggyTransaction,
 }) => {
   const { formatMoney, formatMonthShort, parseAmount, t } = usePreferences();
   const [name, setName] = useState('');
@@ -701,6 +706,14 @@ export const CreditCardView: React.FC<Props> = ({
 
       {section === 'fatura' && (
         <>
+      <PluggyReviewQueue
+        userId={userId}
+        transactions={pendingPluggyTransactions}
+        existingTransactions={allMonths.flatMap((month) => (month.creditCardInvoices ?? []).flatMap((invoice) => invoice.transactions))}
+        paymentCards={paymentCards}
+        hideValues={hideValues}
+        onReview={onReviewPluggyTransaction}
+      />
       {/* Uma barra por cartão: pagar aquele cartão, ver o vencimento dele e criar o lembrete dele.
           Agrupado, cada barra desce para a lista de itens e vira o bloco retrátil do cartão. */}
       {!groupedBars && invoiceBars.map((bar) => (
