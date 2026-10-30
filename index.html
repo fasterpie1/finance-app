@@ -17,6 +17,14 @@
     <meta name="theme-color" content="#0a0a0a" />
     <meta name="mobile-web-app-capable" content="yes" />
 
+    <!-- Sonda temporária de rasterização no iOS: will-change:transform empurra o logo para uma
+         camada composta própria, rasterizada na escala nativa do dispositivo. Leitura: se "finança"
+         ficar nítido e o resto da tela continuar mole, o raster por camada manda e isso escala para
+         o app inteiro; se continuar igual, nenhuma regra CSS resolve e o estado é do contêiner. -->
+    <style>
+      .app-logo { will-change: transform; }
+    </style>
+
     <!-- SEO / Info -->
     <meta name="description" content="Organize suas contas, parcelas e gastos mensais" />
     <meta name="google-site-verification" content="MdRSQUM8GM2eHUGX5UY99GltH_2rhXKkTlDNKTirI7w" />
