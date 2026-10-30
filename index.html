@@ -17,12 +17,12 @@
     <meta name="theme-color" content="#0a0a0a" />
     <meta name="mobile-web-app-capable" content="yes" />
 
-    <!-- Sonda temporária de rasterização no iOS: will-change:transform empurra o logo para uma
-         camada composta própria, rasterizada na escala nativa do dispositivo. Leitura: se "finança"
-         ficar nítido e o resto da tela continuar mole, o raster por camada manda e isso escala para
-         o app inteiro; se continuar igual, nenhuma regra CSS resolve e o estado é do contêiner. -->
+    <!-- Sonda temporária de rasterização no iOS. A anterior no .app-logo foi nula (54/px antes e
+         depois): camada-filha herda a escala da camada-pai, então só o elemento que VIRA camada
+         composta pode ser corrigido. Aqui é o header, que o position: sticky promove e cujos glifos
+         medem 53/px contra 190/px dos chips de mês, que ficam na camada principal. -->
     <style>
-      .app-logo { will-change: transform; }
+      .app-header { will-change: transform; }
     </style>
 
     <!-- SEO / Info -->
