@@ -89,7 +89,7 @@ export function usePluggy(userId: string | null, email: string | null) {
       let completedSuccessfully = false;
       const widget = new PluggyConnect({
         connectToken,
-        includeSandbox: false,
+        includeSandbox: true,
         onSuccess: ({ item }) => {
           if (completedSuccessfully) return;
           const itemId = item?.id;

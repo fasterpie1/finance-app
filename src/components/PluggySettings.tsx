@@ -17,7 +17,7 @@ const copy = {
     checking: 'Verificando conexões...',
     signIn: 'Entre na sua conta para conectar uma instituição.',
     none: 'Nenhuma instituição conectada.',
-    trial: 'O teste de produção da Pluggy é temporário; configure as credenciais no servidor, nunca neste navegador.',
+    trial: 'Sandbox ativo: escolha apenas uma instituição de demonstração e use dados fictícios. Não informe credenciais bancárias reais.',
     syncTiming: 'A busca lê o que o banco já disponibilizou no Pluggy; novas compras podem levar um tempo para aparecer.',
   },
   en: {
@@ -29,7 +29,7 @@ const copy = {
     checking: 'Checking connections...',
     signIn: 'Sign in to connect an institution.',
     none: 'No institution connected.',
-    trial: 'Pluggy production trials are temporary; configure credentials on the server, never in this browser.',
+    trial: 'Sandbox is enabled: choose a demo institution and use fictional data only. Do not enter real bank credentials.',
     syncTiming: 'This fetch reads what the bank has already made available through Pluggy; new purchases may take time to appear.',
   },
 } as const;
