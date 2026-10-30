@@ -1,0 +1,12 @@
+/* O iOS rasteriza as camadas compostas dos elementos aderidos/fixos numa escala abaixo do 3x da
+   tela: no print de 2026-10-30 o header mede 53/px de borda contra 190/px dos chips de mês, que
+   estão na camada principal e ficam nítidos. São duas alavancas independentes para o mesmo defeito,
+   uma em cada elemento, para a leitura dizer qual resolve — ou se nenhuma resolve. */
+
+.app-header {
+  will-change: transform;
+}
+
+.app-nav {
+  transform: translateZ(0);
+}

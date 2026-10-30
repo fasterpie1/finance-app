@@ -17,14 +17,6 @@
     <meta name="theme-color" content="#0a0a0a" />
     <meta name="mobile-web-app-capable" content="yes" />
 
-    <!-- Sonda temporária de rasterização no iOS. A anterior no .app-logo foi nula (54/px antes e
-         depois): camada-filha herda a escala da camada-pai, então só o elemento que VIRA camada
-         composta pode ser corrigido. Aqui é o header, que o position: sticky promove e cujos glifos
-         medem 53/px contra 190/px dos chips de mês, que ficam na camada principal. -->
-    <style>
-      .app-header { will-change: transform; }
-    </style>
-
     <!-- SEO / Info -->
     <meta name="description" content="Organize suas contas, parcelas e gastos mensais" />
     <meta name="google-site-verification" content="MdRSQUM8GM2eHUGX5UY99GltH_2rhXKkTlDNKTirI7w" />
