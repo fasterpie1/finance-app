@@ -111,14 +111,17 @@ function useKeyboardOpen() {
     const check = () => {
       // O chat precisa medir exatamente o que aparece: com 100dvh o shell continua do tamanho
       // de antes do teclado e o navegador rola o documento, escondendo a última resposta.
-      tallest = Math.max(tallest, vv.height);
       document.documentElement.style.setProperty('--vv-height', `${Math.round(vv.height)}px`);
       // Com resizes-visual o navegador desloca o viewport visual (offsetTop) em vez de rolar o
       // documento: sem compensar isso o chat ficava pendurado acima da borda superior.
       document.documentElement.style.setProperty('--vv-offset', `${Math.round(vv.offsetTop)}px`);
+      // Com o zoom de pinça liberado, vv.height encolhe sem nenhum teclado: multiplicar pela
+      // escala devolve a altura visível invariante a zoom, que só cai de verdade com teclado.
+      const visivel = vv.height * vv.scale;
+      tallest = Math.max(tallest, visivel);
       // Em resizes-content o innerHeight encolhe junto com o viewport, então a razão antiga
       // nunca disparava; a maior altura já medida funciona nos dois modos.
-      setOpen(tallest - vv.height > 140);
+      setOpen(tallest - visivel > 140);
     };
     check();
     vv.addEventListener('resize', check);
