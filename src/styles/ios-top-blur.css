@@ -1,25 +1,22 @@
-/* iOS 27 desenha uma camada de transparência do sistema no topo de um PWA instalado na tela
-   inicial — maior que a barra de status e por baixo do conteúdo, que sai embaçado. Medido em
-   2026-10-30 no print dele: o header tem borda de 53/px contra 190/px dos chips de mês, que ficam
-   logo abaixo e escapam da faixa. Não é CSS nosso: will-change e translateZ(0) nas camadas
+/* O iOS 27 desenha uma camada de transparência do sistema sobre a borda superior de um PWA
+   instalado na tela inicial — maior que a barra de status e por cima do conteúdo, que sai embaçado.
+   Medido em 2026-10-30 no print dele: o header tem borda de 53/px contra 190/px dos chips de mês,
+   que ficam logo abaixo e escapam da faixa. Não é CSS nosso: will-change e translateZ(0) nas camadas
    compostas não moveram nada, e "Reduzir Transparência" no aparelho faz a faixa sumir.
-   O que derruba a camada nos relatos é haver um elemento fixo pintado na borda superior; o nosso
-   header é sticky, então não conta. A faixa abaixo tem exatamente a cor do fundo do header nas
-   duas temas e pointer-events:none — invisível por construção. */
+   O que derruba a camada nos relatos é haver um elemento FIXO pintado na borda y=0; o header é
+   sticky, então não conta. O gatilho é a classe .ios-standalone aplicada em main.tsx, porque o iOS
+   nem sempre reporta display-mode: standalone quando o app vem do ícone. */
 
-@media (display-mode: standalone) {
-  .ios-top-blur-shield {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: max(11px, env(safe-area-inset-top, 0px));
-    background: #0a0a0a;
-    pointer-events: none;
-    z-index: 60;
-  }
-
-  body[data-theme='light'] .ios-top-blur-shield {
-    background: #f4f5f7;
-  }
+/* SONDAS VISÍVEIS — as duas cores abaixo existem só para ele confirmar no aparelho se a faixa está
+   de fato renderizando. Responder isso, voltar para #0a0a0a no escuro e #f4f5f7 no claro (a cor do
+   fundo do header nas duas temas, que é também a do auth-shell) e apagar este comentário. */
+html.ios-standalone .ios-top-blur-shield {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: max(22px, env(safe-area-inset-top, 0px));
+  background: #ff2d55;
+  pointer-events: none;
+  z-index: 60;
 }
