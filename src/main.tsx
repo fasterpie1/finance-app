@@ -1,7 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
-import './styles/ios-raster.css'
+import './styles/ios-top-blur.css'
 import App from './App.tsx'
 
 createRoot(document.getElementById('root')!).render(
