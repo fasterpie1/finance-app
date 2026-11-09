@@ -609,6 +609,40 @@ describe('contexto das perguntas de outubro com novembro aberto', () => {
     expect(text).not.toContain('- Lazer: bruto');
   });
 
+  it.each(['E no Débito/Pix?', 'E no Pix?', 'E no débito?', 'E no Débito/Pix?\nTraga como lista e com valores\nPor quê?'])('substitui o crédito pela origem recente: %s', (followup) => {
+    const before = { ...september, bills: [bill({ amount: 200, category: 'compras', cardPaymentMethod: 'debito_pix' }), bill({ amount: 900, category: 'lazer' })] };
+    const after = { ...october, bills: [bill({ amount: 50, category: 'compras', cardPaymentMethod: 'debito_pix' })] };
+    const universe = universeOf(november, [before, after, november]);
+    const snapshot = structuredClone(universe.months);
+    const question = `Compare categorias no crédito de setembro e outubro\n${followup}`;
+    const text = plain(buildAssistantDataSection(universe, after, false, classifyAssistantIntents(question, universe), question));
+    expect(text).toContain('COMPARAÇÃO DE CATEGORIAS NO DÉBITO/PIX (Setembro 2026 vs Outubro 2026)');
+    expect(text).toContain('não incluem crédito nem contas fora do cartão');
+    expect(text).toContain('Setembro 2026: Débito/Pix R$ 200,00, minha parte R$ 200,00');
+    expect(text).toContain('Outubro 2026: Débito/Pix R$ 50,00, minha parte R$ 50,00');
+    expect(text).toContain('variação: bruto -R$ 150,00 (-75%), minha parte -R$ 150,00 (-75%)');
+    expect(text).not.toContain('COMPARAÇÃO DE CATEGORIAS NO CRÉDITO');
+    expect(text).not.toContain('- Lazer:');
+    expect(universe.months).toEqual(snapshot);
+  });
+
+  it('permite voltar do Débito/Pix para o crédito', () => {
+    const universe = universeOf(november, [september, october, november]);
+    const question = 'Compare categorias no crédito de setembro e outubro\nE no Débito/Pix?\nE no crédito?';
+    const text = plain(buildAssistantDataSection(universe, october, false, classifyAssistantIntents(question, universe), question));
+    expect(text).toContain('COMPARAÇÃO DE CATEGORIAS NO CRÉDITO (Setembro 2026 vs Outubro 2026)');
+    expect(text).toContain('Outubro 2026: crédito bruto R$ 300,00, minha parte R$ 150,00');
+    expect(text).not.toContain('COMPARAÇÃO DE CATEGORIAS NO DÉBITO/PIX');
+  });
+
+  it('não restringe ao crédito quando o pedido recente inclui ambas as origens', () => {
+    const universe = universeOf(november, [september, october, november]);
+    const question = 'Compare categorias no crédito de setembro e outubro\nE incluindo crédito e Débito/Pix?';
+    const text = buildAssistantDataSection(universe, october, false, classifyAssistantIntents(question, universe), question);
+    expect(text).toContain('COMPARAÇÃO DE CATEGORIAS (Setembro 2026 vs Outubro 2026)');
+    expect(text).not.toContain('COMPARAÇÃO DE CATEGORIAS NO CRÉDITO');
+  });
+
   it('preserva a tabela dos dois meses ao pedir detalhes da comparação', () => {
     const universe = universeOf(november, [september, october, november]);
     const question = 'Detalhe a comparação de categorias de Setembro e Outubro incluindo Débito/Pix';

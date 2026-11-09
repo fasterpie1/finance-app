@@ -22,7 +22,7 @@ const mocks = vi.hoisted(() => ({
   supported: vi.fn<() => boolean>(), speech: vi.fn<typeof startSpeechInput>(),
   locale: 'pt-BR',
   intents: vi.fn<(question: string, universe: AssistantUniverse, hasImage?: boolean) => string[]>(),
-  dataSection: vi.fn<(...args: unknown[]) => string>(),
+  dataSection: vi.fn<typeof import('../services/assistantContext').buildAssistantDataSection>(),
 }));
 vi.mock('react', async () => {
   const actual = await vi.importActual<typeof import('react')>('react');
@@ -485,6 +485,50 @@ describe('envio e parser no ChatView', () => {
     expect(mocks.send).toHaveBeenCalledTimes(3);
     expect(mocks.dataSection.mock.calls.at(-1)?.[1]).toEqual(month);
     expect(mocks.dataSection.mock.calls.at(-1)?.[4]).toBe(`${question}\nTraga como lista e com valores\nPor quê?`);
+  });
+
+  it('mantém outubro e a comparação no terceiro follow-up com o contexto real', async () => {
+    const actual = await vi.importActual<typeof import('../services/assistantContext')>('../services/assistantContext');
+    mocks.intents.mockImplementation(actual.classifyAssistantIntents);
+    mocks.dataSection.mockImplementation(actual.buildAssistantDataSection);
+    mocks.send.mockResolvedValue('Resposta fictícia em texto.');
+    const september = { ...month, id: 'set-teste', name: 'Setembro' };
+    const november = { ...month, id: 'nov-teste', name: 'Novembro' };
+    render({ universe: { ...universe, months: [september, month, november], selectedMonth: november } });
+    const questions = ['Quais categorias eu mais melhorei em outubro?', 'Traga como lista e com valores', 'Por quê?', 'Mostre como tabela e com valores', 'Detalhe os lançamentos'];
+    for (const question of questions) {
+      type(question); await send();
+      const request = mocks.send.mock.calls.at(-1)![0];
+      expect(request.response_format).toEqual({ type: 'text' });
+      expect(JSON.stringify(request.messages)).toContain('COMPARAÇÃO DE CATEGORIAS (Setembro 2026 vs Outubro 2026)');
+      expect(JSON.stringify(request.messages)).toContain('MÊS: Outubro 2026');
+    }
+    expect(mocks.send).toHaveBeenCalledTimes(questions.length);
+    expect(mocks.send.mock.calls.at(-1)![0].messages).toHaveLength(6);
+    expect(props.onCommand).not.toHaveBeenCalled();
+  });
+
+  it('troca crédito por Débito/Pix e conserva a origem em continuações longas', async () => {
+    const actual = await vi.importActual<typeof import('../services/assistantContext')>('../services/assistantContext');
+    mocks.intents.mockImplementation(actual.classifyAssistantIntents);
+    mocks.dataSection.mockImplementation(actual.buildAssistantDataSection);
+    mocks.send.mockResolvedValue('Resposta fictícia em texto.');
+    const debitBill = { id: 'pix-teste', name: 'Compra fictícia', amount: 50, category: 'compras' as const, dueDay: 10, isPaid: false, type: 'mensal' as const, month: 'Outubro', note: '', cardPaymentMethod: 'debito_pix' as const };
+    const october = { ...month, bills: [debitBill] };
+    const september = { ...month, id: 'set-teste', name: 'Setembro', bills: [{ ...debitBill, id: 'pix-set-teste', amount: 200 }] };
+    const november = { ...month, id: 'nov-teste', name: 'Novembro' };
+    render({ universe: { ...universe, months: [september, october, november], selectedMonth: november } });
+    type('Compare categorias no crédito de setembro e outubro'); await send();
+    for (const question of ['E no Débito/Pix?', 'Traga como lista e com valores', 'Por quê?', 'Mostre como tabela']) {
+      type(question); await send();
+      const system = (mocks.send.mock.calls.at(-1)![0].messages as Array<{ content: string }>)[0].content;
+      expect(system).toContain('COMPARAÇÃO DE CATEGORIAS NO DÉBITO/PIX (Setembro 2026 vs Outubro 2026)');
+      expect(system).toContain('minha parte 200');
+      expect(system).toContain('minha parte 50');
+      expect(system).not.toContain('COMPARAÇÃO DE CATEGORIAS NO CRÉDITO');
+    }
+    expect(mocks.send).toHaveBeenCalledTimes(5);
+    expect(props.onCommand).not.toHaveBeenCalled();
   });
 
   it('reduz linhas antes da chamada e não envia contexto acima do orçamento', async () => {

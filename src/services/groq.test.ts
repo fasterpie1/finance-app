@@ -289,6 +289,46 @@ describe('buildAssistantHistory', () => {
     ]);
   });
 
+  it('preserva o assunto e as mudanças de referência depois de várias continuações', () => {
+    const questions = ['Compare categorias em outubro', 'Traga como lista e com valores', 'E neste mês?', 'E Compras?', 'Por quê?', 'Mostre em tabela'];
+    const messages: StoredMessage[] = questions.slice(0, -1).flatMap((content, index) => [
+      { role: 'user' as const, content },
+      { role: 'assistant' as const, content: `Resposta ${index}` },
+    ]);
+    messages.push({ role: 'user', content: questions.at(-1)! });
+    const before = structuredClone(messages);
+    const history = buildAssistantHistory(messages);
+    expect(history).toHaveLength(5);
+    expect(history.filter((message) => message.role === 'user').map((message) => message.content).join('\n')).toBe(questions.join('\n'));
+    expect(history.filter((message) => message.role === 'assistant').map((message) => message.content)).toEqual(['Resposta 3', 'Resposta 4']);
+    expect(messages).toEqual(before);
+  });
+
+  it('não recupera assuntos anteriores ao início da sequência atual', () => {
+    const questions = ['Quanto gastei em Lazer em setembro?', 'Compare categorias em outubro', 'Traga como lista', 'Por quê?', 'Continue', 'Mostre em tabela'];
+    const messages: StoredMessage[] = questions.slice(0, -1).flatMap((content) => [
+      { role: 'user' as const, content }, { role: 'assistant' as const, content: 'Resposta fictícia' },
+    ]);
+    messages.push({ role: 'user', content: questions.at(-1)! });
+    const context = buildAssistantHistory(messages).filter((message) => message.role === 'user').map((message) => message.content).join('\n');
+    expect(context).toBe(questions.slice(1).join('\n'));
+    expect(context).not.toContain('setembro');
+  });
+
+  it('não recupera referências de uma pergunta falha ao compactar continuações', () => {
+    const messages: StoredMessage[] = [
+      { role: 'user', content: 'Compare categorias em outubro' }, { role: 'assistant', content: 'Comparação fictícia' },
+      { role: 'user', content: 'E em setembro?' }, { role: 'error', content: 'Falha fictícia' },
+      { role: 'user', content: 'Traga como lista' }, { role: 'assistant', content: 'Lista fictícia' },
+      { role: 'user', content: 'Por quê?' }, { role: 'assistant', content: 'Explicação fictícia' },
+      { role: 'user', content: 'Mostre em tabela' },
+    ];
+    const context = buildAssistantHistory(messages).filter((message) => message.role === 'user').map((message) => message.content).join('\n');
+    expect(context).toContain('outubro');
+    expect(context).not.toContain('setembro');
+    expect(context).not.toContain('Falha fictícia');
+  });
+
   it('junta respostas consecutivas sem mutar a lista ou os objetos originais', () => {
     const messages: StoredMessage[] = [
       { role: 'user', content: 'Pergunta anterior' },

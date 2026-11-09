@@ -243,7 +243,13 @@ function buildCategoryComparisonSection(
 ): string {
   const months = comparisonMonths(universe, question);
   const target = months.at(-1)!;
-  const creditOnly = /\b(cartao|credito|fatura|card|credit|invoice)\b/.test(normalize(question));
+  const paymentQuestion = question.split('\n').reverse()
+    .map((turn) => normalize(turn).replace(/\b(nao inclua|nao incluir|sem|exclua|without|excluding|do not include)\b[^.!?;]*/g, ''))
+    .find((turn) => /\b(cartao|credito|debito|pix|fatura|card|credit|debit|invoice)\b/.test(turn)) ?? '';
+  const mentionsCredit = /\b(cartao|credito|fatura|card|credit|invoice)\b/.test(paymentQuestion);
+  const mentionsDebitPix = /\b(debito|pix|debit)\b/.test(paymentQuestion);
+  const creditOnly = mentionsCredit && !mentionsDebitPix;
+  const debitPixOnly = mentionsDebitPix && !mentionsCredit && !/\b(inclu\w*|include|including)\b/.test(paymentQuestion);
   const today = new Date();
   const monthIndex = MONTH_NAMES.findIndex((name) => normalize(name) === normalize(target.name));
   const monthIndexEn = MONTH_NAMES_EN.findIndex((name) => normalize(name) === normalize(target.name));
@@ -257,7 +263,9 @@ function buildCategoryComparisonSection(
     totals: getAssistantCategoryTotals(month, universe),
   }));
   const categories = [...new Set(totalsByMonth.flatMap(({ totals }) => totals
-    .filter((entry) => !creditOnly || entry.creditCents !== 0 || entry.creditPersonalCents !== 0)
+    .filter((entry) => creditOnly
+      ? entry.creditCents !== 0 || entry.creditPersonalCents !== 0
+      : !debitPixOnly || entry.debitPixCents !== 0)
     .map((entry) => entry.label)))]
     .filter((category) => !categoryFilter || normalize(category) === normalize(categoryFilter));
   const lines = categories.map((category) => {
@@ -265,12 +273,12 @@ function buildCategoryComparisonSection(
       const entry = totals.find((candidate) => normalize(candidate.label) === normalize(category));
       return {
         month,
-        credit: (creditOnly ? entry?.creditCents : entry?.chargeCents) ?? 0,
-        personal: (creditOnly ? entry?.creditPersonalCents : entry?.personalCents) ?? 0,
+        credit: (creditOnly ? entry?.creditCents : debitPixOnly ? entry?.debitPixCents : entry?.chargeCents) ?? 0,
+        personal: (creditOnly ? entry?.creditPersonalCents : debitPixOnly ? entry?.debitPixCents : entry?.personalCents) ?? 0,
       };
     });
     const values = entries.map(({ month, credit, personal }) => (
-      `${monthLabel(month)}: ${creditOnly ? 'crédito bruto' : 'total bruto'} ${universe.money(centsToAmount(credit))}, minha parte ${universe.money(centsToAmount(personal))}`
+      `${monthLabel(month)}: ${creditOnly ? 'crédito bruto' : debitPixOnly ? 'Débito/Pix' : 'total bruto'} ${universe.money(centsToAmount(credit))}, minha parte ${universe.money(centsToAmount(personal))}`
     ));
     const previous = entries.at(-2);
     const current = entries.at(-1);
@@ -290,7 +298,9 @@ function buildCategoryComparisonSection(
   return [
     creditOnly
       ? `COMPARAÇÃO DE CATEGORIAS NO CRÉDITO (${months.map(monthLabel).join(' vs ')}). Valores calculados pelo app; não incluem Débito/Pix nem contas fora do cartão.`
-      : `COMPARAÇÃO DE CATEGORIAS (${months.map(monthLabel).join(' vs ')}). Valores calculados pelo app; incluem crédito, Débito/Pix e contas fora do cartão. Priorize minha parte, não gastos de terceiros.`,
+      : debitPixOnly
+        ? `COMPARAÇÃO DE CATEGORIAS NO DÉBITO/PIX (${months.map(monthLabel).join(' vs ')}). Valores calculados pelo app; não incluem crédito nem contas fora do cartão.`
+        : `COMPARAÇÃO DE CATEGORIAS (${months.map(monthLabel).join(' vs ')}). Valores calculados pelo app; incluem crédito, Débito/Pix e contas fora do cartão. Priorize minha parte, não gastos de terceiros.`,
     ...lines.length ? lines : ['- nenhuma categoria com lançamentos nos períodos'],
     periodStatus,
     'As variações em reais e percentuais já foram calculadas pelo app; repita-as sem recalcular. "Sem base anterior" significa que o período inicial teve valor zero. O mês aberto pode estar parcial; não afirme melhora definitiva nem invente causas.',

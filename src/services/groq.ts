@@ -206,7 +206,13 @@ export function buildAssistantHistory(messages: Array<{ role: 'user' | 'assistan
       history[history.length - 1].content += `\n${message.content}`;
     }
   }
-  return pending ? [...history.slice(-4), pending] : history.slice(-4);
+  const recent = pending ? [...history.slice(-4), pending] : history.slice(-4);
+  if (history.length > 4 && recent[0]?.role === 'user' && needsAssistantHistory(recent[0].content)) {
+    const earlierQuestions = history.slice(0, -4).filter((message) => message.role === 'user');
+    const subjectIndex = earlierQuestions.findLastIndex((message) => !needsAssistantHistory(message.content));
+    recent[0].content = [...earlierQuestions.slice(Math.max(0, subjectIndex)).map((message) => message.content), recent[0].content].join('\n');
+  }
+  return recent;
 }
 
 export function assistantRequestFitsBudget(request: Record<string, unknown>): boolean {
