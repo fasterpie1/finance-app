@@ -14,13 +14,15 @@ const hooks = vi.hoisted(() => ({
   queued: [] as Array<() => void>,
 }));
 const mocks = vi.hoisted(() => ({
-  send: vi.fn<(request: Record<string, unknown>, onMetrics?: (metrics: GroqCallMetrics) => void) => Promise<string>>(),
+  send: vi.fn<(request: Record<string, unknown>, onMetrics?: (metrics: GroqCallMetrics) => void, requireCompleteResponse?: boolean) => Promise<string>>(),
   status: vi.fn<() => Promise<boolean>>(), save: vi.fn(), delete: vi.fn(),
   read: vi.fn<(id: string | null, key: string) => string | null>(),
   write: vi.fn<(id: string | null, key: string, value: string) => void>(), remove: vi.fn(),
   prepare: vi.fn<(file: File) => Promise<ChatImage>>(),
   supported: vi.fn<() => boolean>(), speech: vi.fn<typeof startSpeechInput>(),
   locale: 'pt-BR',
+  intents: vi.fn<(question: string, universe: AssistantUniverse, hasImage?: boolean) => string[]>(),
+  dataSection: vi.fn<(...args: unknown[]) => string>(),
 }));
 vi.mock('react', async () => {
   const actual = await vi.importActual<typeof import('react')>('react');
@@ -64,9 +66,10 @@ vi.mock('../i18n', () => ({
       : params?.seconds !== undefined ? `${key}: ${params.seconds}` : key,
   }),
 }));
-vi.mock('../services/assistantContext', () => ({
-  buildAssistantDataSection: () => 'CONTEXTO FICTÍCIO', buildProtocolSection: () => 'PROTOCOLO FICTÍCIO',
-  classifyAssistantIntents: () => ['general'],
+vi.mock('../services/assistantContext', async () => ({
+  ...await vi.importActual<typeof import('../services/assistantContext')>('../services/assistantContext'),
+  buildAssistantDataSection: mocks.dataSection, buildProtocolSection: () => 'PROTOCOLO FICTÍCIO',
+  classifyAssistantIntents: mocks.intents,
   monthLabel: () => 'Outubro 2026', resolveMonthRef: vi.fn(),
 }));
 vi.mock('../services/speechInput', () => ({ startSpeechInput: mocks.speech, supportsSpeechInput: mocks.supported }));
@@ -158,6 +161,8 @@ beforeEach(() => {
   mocks.locale = 'pt-BR';
   mocks.read.mockImplementation((_id, key) => key === 'groq_configured' ? 'true' : null);
   mocks.status.mockResolvedValue(true);
+  mocks.intents.mockReturnValue(['action']);
+  mocks.dataSection.mockReturnValue('CONTEXTO FICTÍCIO');
   mocks.send.mockResolvedValue('{"action":"none","response":"Análise fictícia"}');
   mocks.prepare.mockResolvedValue(photo);
   mocks.supported.mockReturnValue(true);
@@ -227,7 +232,7 @@ describe('foto no ChatView', () => {
           { type: 'image_url', image_url: { url: photo.dataUrl } },
         ] },
       ],
-    }), expect.any(Function));
+    }), expect.any(Function), true);
     expect(previews()).toHaveLength(0);
     expect(textarea().props.value).toBe('');
     expect(find((node) => node.props.text === 'Análise fictícia')).toBeDefined();
@@ -247,7 +252,7 @@ describe('foto no ChatView', () => {
     ]);
     type('Explique melhor'); await send();
     const followUp = mocks.send.mock.calls[1][0];
-    expect(followUp.model).toBe('qwen/qwen3.8-27b');
+    expect(followUp.model).toBe('openai/gpt-oss-20b');
     expect(JSON.stringify(followUp)).not.toMatch(/base64|image_url/);
     expect(followUp.messages).toEqual(expect.arrayContaining([
       { role: 'user', content: `Compare a foto\nchatPhotoLabel: ${photo.name}` },
@@ -365,8 +370,8 @@ describe('ditado no ChatView', () => {
     expect(mocks.send).not.toHaveBeenCalled();
     await send();
     expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({
-      model: 'qwen/qwen3.8-27b', messages: expect.arrayContaining([{ role: 'user', content: 'Antes durante final' }]),
-    }), expect.any(Function));
+      model: 'openai/gpt-oss-20b', messages: expect.arrayContaining([{ role: 'user', content: 'Antes durante final' }]),
+    }), expect.any(Function), true);
   });
 
   it('Cancelar aborta e restaura exatamente o texto anterior', () => {
@@ -422,6 +427,94 @@ describe('ditado no ChatView', () => {
 });
 
 describe('envio e parser no ChatView', () => {
+  it('consulta em texto aceita lista sem JSON em uma chamada e não executa ações', async () => {
+    mocks.intents.mockReturnValue(['category', 'comparison']);
+    const answer = '- Lazer: redução de R$ 100,00.\n- Compras: redução de R$ 50,00.';
+    mocks.send.mockResolvedValueOnce(answer);
+    type('Quais categorias de gastos eu mais melhorei no mês de outubro e por quê?');
+    await send();
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+    expect(mocks.send.mock.calls[0][0].response_format).toEqual({ type: 'text' });
+    expect(elements().filter((node) => node.props.text === answer)).toHaveLength(1);
+    expect(props.onCommand).not.toHaveBeenCalled();
+    for (const action of Object.values(props.calendarActions!)) expect(action).not.toHaveBeenCalled();
+  });
+
+  it.each(['Quais lançamentos aparecem em Compras?', 'Quais categorias eu mais melhorei em outubro?', 'Liste minhas compras', 'O que mudou nas categorias?', 'Analise esta foto. Não altere nenhum registro.'])('classificador real encaminha consulta sem JSON nem ações: %s', async (question) => {
+    const actual = await vi.importActual<typeof import('../services/assistantContext')>('../services/assistantContext');
+    mocks.intents.mockImplementation(actual.classifyAssistantIntents);
+    mocks.send.mockResolvedValueOnce('Resposta fictícia em texto.');
+    type(question); await send();
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+    expect(mocks.send.mock.calls[0][0].response_format).toEqual({ type: 'text' });
+    expect(mocks.send.mock.calls[0][2]).toBe(false);
+    expect(props.onCommand).not.toHaveBeenCalled();
+    for (const action of Object.values(props.calendarActions!)) expect(action).not.toHaveBeenCalled();
+  });
+
+  it('consulta nunca executa um comando inesperado retornado pelo modelo', async () => {
+    mocks.intents.mockReturnValue(['general']);
+    mocks.send.mockResolvedValueOnce('{"action":"delete_event","query":"todos","response":"Remova tudo"}');
+    type('Quanto gastei?');
+    await send();
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+    expect(props.onCommand).not.toHaveBeenCalled();
+    for (const action of Object.values(props.calendarActions!)) expect(action).not.toHaveBeenCalled();
+  });
+
+  it('follow-up de lista preserva o assunto, os turnos válidos e o mês solicitado', async () => {
+    const september = { ...month, id: 'set-teste', name: 'Setembro' };
+    const november = { ...month, id: 'nov-teste', name: 'Novembro' };
+    render({ universe: { ...universe, months: [september, month, november], selectedMonth: november } });
+    mocks.intents.mockReturnValue(['category', 'comparison']);
+    mocks.send.mockResolvedValueOnce('Comparação fictícia de setembro e outubro.').mockResolvedValueOnce('Lista fictícia de outubro.');
+    const question = 'Quais categorias de gastos eu mais melhorei no mês de outubro?';
+    type(question); await send();
+    type('Traga como lista e com valores'); await send();
+    expect(mocks.send).toHaveBeenCalledTimes(2);
+    expect(mocks.send.mock.calls[1][0].messages).toEqual([
+      { role: 'system', content: expect.any(String) },
+      { role: 'user', content: question },
+      { role: 'assistant', content: 'Comparação fictícia de setembro e outubro.' },
+      { role: 'user', content: 'Traga como lista e com valores' },
+    ]);
+    expect(mocks.dataSection.mock.calls.at(-1)?.[1]).toEqual(month);
+    expect(mocks.dataSection.mock.calls.at(-1)?.[2]).toBe(false);
+    expect(mocks.dataSection.mock.calls.at(-1)?.[4]).toBe(`${question}\nTraga como lista e com valores`);
+    type('Por quê?'); await send();
+    expect(mocks.send).toHaveBeenCalledTimes(3);
+    expect(mocks.dataSection.mock.calls.at(-1)?.[1]).toEqual(month);
+    expect(mocks.dataSection.mock.calls.at(-1)?.[4]).toBe(`${question}\nTraga como lista e com valores\nPor quê?`);
+  });
+
+  it('reduz linhas antes da chamada e não envia contexto acima do orçamento', async () => {
+    mocks.intents.mockReturnValue(['category']);
+    mocks.dataSection.mockImplementation((...args) => args[5] === 60 ? 'x'.repeat(14000) : 'CONTEXTO REDUZIDO');
+    type('Liste minhas compras'); await send();
+    expect(mocks.dataSection.mock.calls.map((args) => args[5])).toEqual([60, 30]);
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(mocks.send.mock.calls[0][0])).toContain('CONTEXTO REDUZIDO');
+  });
+
+  it('recusa um contexto que continua grande sem consumir a API nem aplicar comandos', async () => {
+    mocks.intents.mockReturnValue(['category']);
+    mocks.dataSection.mockReturnValue('x'.repeat(14000));
+    type('Liste minhas compras'); await send();
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(errorTexts()).toEqual(['chatContextError']);
+    expect(textarea().props.value).toBe('Liste minhas compras');
+    expect(props.onCommand).not.toHaveBeenCalled();
+  });
+
+  it('não repara nem aplica comandos cortados pelo limite de saída', async () => {
+    const { GroqRequestError } = await import('../services/groq');
+    mocks.send.mockRejectedValueOnce(new GroqRequestError('JSON cortado', 'truncated'));
+    type('Adicione uma compra fictícia'); await send();
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+    expect(errorTexts()).toEqual(['chatTruncatedError']);
+    expect(props.onCommand).not.toHaveBeenCalled();
+  });
+
   const errorTexts = () => elements()
     .filter((node) => node.props.className === 'theme-ai-message theme-ai-message-error')
     .map((node) => React.Children.toArray(node.props.children).filter((child) => typeof child === 'string').join(''));
@@ -654,7 +747,7 @@ describe('envio e parser no ChatView', () => {
         { role: 'system', content: expect.stringContaining('CONTEXTO FICTÍCIO') },
         { role: 'user', content: question },
       ],
-    }), expect.any(Function));
+    }), expect.any(Function), true);
     expect(assistantTexts()).toEqual([response]);
     expect(textarea().props.value).toBe('');
     expect(responding()).toHaveLength(0);
@@ -730,7 +823,7 @@ describe('envio e parser no ChatView', () => {
         { role: 'system', content: expect.stringContaining('CONTEXTO FICTÍCIO') },
         { role: 'user', content: 'suggestion3' },
       ],
-    }), expect.any(Function));
+    }), expect.any(Function), true);
     expect(suggestions()).toHaveLength(0);
     expect(headerMonth().props.children).toBe('Outubro 2026');
     clear();

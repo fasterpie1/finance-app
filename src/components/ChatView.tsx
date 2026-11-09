@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { buildAssistantChatRequest, buildAssistantHistory, classifyGroqError, deleteGroqKey, GroqRequestError, hasGroqKey, needsAssistantHistory, saveGroqKey, sendGroqChat } from '../services/groq';
+import { assistantRequestFitsBudget, buildAssistantChatRequest, buildAssistantHistory, classifyGroqError, deleteGroqKey, GroqRequestError, hasGroqKey, needsAssistantHistory, saveGroqKey, sendGroqChat } from '../services/groq';
 import { prepareChatImage, type ChatImage } from '../services/statementFiles';
 import { startSpeechInput, supportsSpeechInput } from '../services/speechInput';
 import { readUserStorage, removeUserStorage, writeUserStorage } from '../services/userStorage';
@@ -11,6 +11,7 @@ import {
   buildProtocolSection,
   classifyAssistantIntents,
   monthLabel,
+  resolveAssistantQuestionMonth,
   resolveMonthRef,
 } from '../services/assistantContext';
 import { type BudgetMonth } from '../types';
@@ -267,7 +268,8 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
     const typed = (text ?? input).trim();
     const msg = typed || (image ? t('chatDescribePhoto') : '');
     if (!msg || showKeySetup || inFlightRef.current || imageLoading || dictating || !isActive) return;
-    const intents = classifyAssistantIntents(msg, universe, Boolean(image));
+    const requestIntents = classifyAssistantIntents(msg, universe, Boolean(image));
+    const structured = requestIntents.includes('action') || requestIntents.includes('calendar');
     if (Date.now() < retryUntilRef.current) return;
     const requestId = ++requestRef.current;
     inFlightRef.current = true;
@@ -292,7 +294,7 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
         tokenMetrics.outputTokens += metrics.outputTokens ?? 0;
         tokenMetrics.totalTokens += metrics.totalTokens;
         tokenMetrics.cachedInputTokens += metrics.cachedInputTokens ?? 0;
-      });
+      }, structured);
     };
     try {
       const today = new Date().toISOString().slice(0, 10);
@@ -305,10 +307,21 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
       const historyMessages = needsAssistantHistory(msg)
         ? buildAssistantHistory(storedHistory)
         : currentMessage ? [{ role: currentMessage.role as 'user' | 'assistant', content: currentMessage.content }] : [];
-      // Só um mês vai linha a linha no prompt: com o extrato de todos os meses o limite de tokens
-      // por minuto da Groq gratuita estourava e a resposta chegava cortada.
-      const includeDetails = intents.includes('action') || /\b(detalh\w*|list\w*|estabelec\w*|datas?|quando|qual dia|quem|quais compras|which purchases|merchant)\b/i.test(msg);
-      const systemFor = (month: BudgetMonth, withCalendar: boolean, detailed = false) => `${buildAssistantDataSection(universe, month, detailed, intents, msg)}\n\n${buildProtocolSection(universe, intents)}\nFotos de mensagens anteriores não estão disponíveis: use apenas os dados já descritos na conversa ou peça para anexar novamente.${withCalendar && calendarActions && !image ? calendarInstructions : ''}`;
+      const contextQuestion = historyMessages.filter((message) => message.role === 'user').map((message) => message.content).join('\n') || msg;
+      const intents = classifyAssistantIntents(contextQuestion, universe, Boolean(image))
+        .filter((intent) => structured || (intent !== 'action' && intent !== 'calendar'));
+      const detailMonth = resolveAssistantQuestionMonth(universe, contextQuestion);
+      const includeDetails = requestIntents.includes('action')
+        || /\b(detalh\w*|estabelec\w*|lan[cç]amentos|registros|datas?|quando|qual dia|quem|quais compras|which purchases|merchant)\b/i.test(contextQuestion)
+        || (/\blist\w*\b/i.test(contextQuestion) && !intents.includes('comparison'));
+      const requestFor = (month: BudgetMonth, withCalendar: boolean, detailed: boolean, turnMessages: Parameters<typeof buildAssistantChatRequest>[1]) => {
+        for (const maxLines of [60, 30, 15, 0]) {
+          const system = `${buildAssistantDataSection(universe, month, detailed, intents, contextQuestion, maxLines)}\n\n${buildProtocolSection(universe, intents, structured)}\nIdioma da resposta: ${locale === 'en' ? 'inglês' : 'português brasileiro'}.\nFotos de mensagens anteriores não estão disponíveis: use apenas os dados já descritos na conversa ou peça para anexar novamente.${withCalendar && calendarActions && !image ? calendarInstructions : ''}`;
+          const request = buildAssistantChatRequest(system, turnMessages, image?.dataUrl, structured);
+          if (assistantRequestFitsBudget(request)) return request;
+        }
+        throw new GroqRequestError('Contexto financeiro grande demais para uma única consulta.', 'context');
+      };
       const sendWithJsonRetry = async (request: Record<string, unknown>): Promise<{ content: string; usedFormatFallback: boolean }> => {
         try {
           return { content: await sendMeasured(request), usedFormatFallback: false };
@@ -351,7 +364,13 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
         if (!command) throw new GroqRequestError('Resposta inválida da IA após uma tentativa de correção.', 'format');
         return { content: repairedContent, command };
       };
-      const initialRequest = buildAssistantChatRequest(systemFor(universe.selectedMonth, intents.includes('calendar'), includeDetails), historyMessages, image?.dataUrl);
+      const initialRequest = requestFor(detailMonth, requestIntents.includes('calendar'), includeDetails, historyMessages);
+      if (!structured) {
+        const answer = await sendMeasured(initialRequest);
+        if (requestId !== requestRef.current) return;
+        setMessages((prev) => [...prev, { role: 'assistant', content: answer }]);
+        return;
+      }
       let sentResponse = await sendWithJsonRetry(initialRequest);
       let rawContent = sentResponse.content;
       if (requestId !== requestRef.current) return;
@@ -364,11 +383,11 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
           setMessages((prev) => [...prev, { role: 'assistant', content: `Não há mês cadastrado com o nome "${(command?.month ?? '').trim()}". Os meses disponíveis são ${universe.months.map((month) => monthLabel(month)).join(', ')}.` }]);
           return;
         }
-        const detailRequest = buildAssistantChatRequest(systemFor(target, false, true), [
+        const detailRequest = requestFor(target, false, true, [
           ...historyMessages,
           { role: 'assistant', content: rawContent },
-          { role: 'user', content: `Extrato completo de ${monthLabel(target)} carregado acima. Responda a pergunta agora, com action none.` },
-        ], image?.dataUrl);
+          { role: 'user', content: `Dados disponíveis de ${monthLabel(target)} carregados acima. Responda a pergunta agora, com action none; indique se o detalhe foi limitado.` },
+        ]);
         sentResponse = await sendWithJsonRetry(detailRequest);
         rawContent = sentResponse.content;
         if (requestId !== requestRef.current) return;
@@ -436,6 +455,8 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
           : t('chatGroqRateLimited', { details: rateLimitDetails ? ` (${rateLimitDetails})` : '' })
         : error.kind === 'session' ? t('sessionExpiredAssistant')
         : error.kind === 'format' ? t('chatFormatError')
+        : error.kind === 'truncated' ? t('chatTruncatedError')
+        : error.kind === 'context' ? t('chatContextError')
         : error.kind === 'network' ? t('chatNetworkError') : t('chatRequestError');
       setMessages((prev) => [...prev, { role: 'error', content }]);
     } finally {

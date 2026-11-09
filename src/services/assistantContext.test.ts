@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BILL_CATEGORY_LABELS, formatCurrency, type Bill, type BudgetMonth, type CreditCardInvoice, type CreditCardTransaction } from '../types';
-import { answerAssistantQuestion, buildAssistantDataSection, buildChartDataSection, buildOverviewSection, buildProtocolSection, classifyAssistantIntents, getAssistantCategoryTotals, getCardMonthTotalsCents, monthLabel, resolveMonthRef, type AssistantUniverse } from './assistantContext';
+import { answerAssistantQuestion, buildAssistantDataSection, buildChartDataSection, buildOverviewSection, buildProtocolSection, classifyAssistantIntents, getAssistantCategoryTotals, getCardMonthTotalsCents, monthLabel, resolveAssistantQuestionMonth, resolveMonthRef, type AssistantUniverse } from './assistantContext';
 import { amountToCents, centsToAmount, getCardCharges, getChargeImpactCents, getMonthPlannedCents, getPersonalImpactCents } from './cardTransactions';
 import { cardInvoiceId, type PaymentCard } from './paymentCards';
 
@@ -389,6 +389,14 @@ describe('answerAssistantQuestion', () => {
     expect(classifyAssistantIntents('Olá tudo bem?', universe)).toEqual(['greeting']);
   });
 
+  it.each(['Quais lançamentos aparecem em Compras?', 'Liste os registros de outubro', 'Quais categorias eu melhorei em outubro?'])('não confunde substantivos de consulta com comandos: %s', (question) => {
+    expect(classifyAssistantIntents(question, universeOf(october, [september, october]))).not.toContain('action');
+  });
+
+  it.each(['Lance uma compra', 'Lançar uma compra', 'Registre uma conta', 'Registrar uma conta', 'Adicione uma conta', 'Categorize meus gastos'])('mantém os pedidos de alteração no protocolo validado: %s', (question) => {
+    expect(classifyAssistantIntents(question, universeOf(october, [september, october]))).toContain('action');
+  });
+
   it('classifica comparação de categoria e calcula no app sem inferir melhora no mês parcial', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-10-16T12:00:00Z'));
@@ -558,6 +566,98 @@ describe('answerAssistantQuestion', () => {
   });
 });
 
+describe('contexto das perguntas de outubro com novembro aberto', () => {
+  const november = { ...october, id: 'nov', name: 'Novembro', creditCardInvoices: [] };
+
+  it.each(['no mês de outubro?', 'em Outubro de 2026?', 'em outubro 26?'])('seleciona o mês mencionado em vez do aberto: %s', (reference) => {
+    const universe = universeOf(november, [september, october, november]);
+    expect(resolveAssistantQuestionMonth(universe, `Quais categorias eu melhorei ${reference}`)).toBe(october);
+  });
+
+  it('compara outubro com setembro, incluindo Débito/Pix e sem dados de novembro', () => {
+    const before = { ...september, bills: [bill({ amount: 200, category: 'compras', cardPaymentMethod: 'debito_pix' })] };
+    const after = { ...october, bills: [bill({ amount: 50, category: 'compras', cardPaymentMethod: 'debito_pix' })] };
+    const universe = universeOf(november, [before, after, november]);
+    const snapshot = structuredClone(universe.months);
+    const question = 'Quais foram as categorias de gastos que eu mais melhorei no mês de outubro e por quê?';
+    const text = plain(buildAssistantDataSection(universe, after, false, classifyAssistantIntents(question, universe), question));
+    expect(text).toContain('COMPARAÇÃO DE CATEGORIAS (Setembro 2026 vs Outubro 2026)');
+    expect(text).toContain('incluem crédito, Débito/Pix e contas fora do cartão');
+    expect(text).toContain('Setembro 2026: total bruto R$ 200,00, minha parte R$ 200,00');
+    expect(text).toContain('Outubro 2026: total bruto R$ 350,00, minha parte R$ 200,00');
+    expect(text).not.toContain('GRÁFICO DE');
+    expect(text).not.toContain('Categorias de Novembro');
+    expect(text).toContain('não afirme melhora definitiva nem invente causas');
+    expect(universe.months).toEqual(snapshot);
+  });
+
+  it('prioriza referências relativas recentes e compara o mês atual com o anterior', () => {
+    const universe = universeOf(november, [september, october, november]);
+    expect(resolveAssistantQuestionMonth(universe, 'Quais categorias melhorei em outubro?\nE neste mês?')).toBe(november);
+    const question = 'Compare categorias deste mês com o mês passado';
+    const text = buildAssistantDataSection(universe, resolveAssistantQuestionMonth(universe, question), false, classifyAssistantIntents(question, universe), question);
+    expect(text).toContain('COMPARAÇÃO DE CATEGORIAS (Outubro 2026 vs Novembro 2026)');
+    expect(text).not.toContain('Setembro 2026:');
+  });
+
+  it('troca o filtro para a categoria citada no último turno', () => {
+    const universe = universeOf(november, [september, october, november]);
+    universe.categoryNames = ['Lazer', 'Compras'];
+    const question = 'Quanto gastei em Lazer em outubro?\nE Compras?';
+    const text = buildAssistantDataSection(universe, october, false, ['category'], question);
+    expect(text).toContain('- Compras: bruto');
+    expect(text).not.toContain('- Lazer: bruto');
+  });
+
+  it('preserva a tabela dos dois meses ao pedir detalhes da comparação', () => {
+    const universe = universeOf(november, [september, october, november]);
+    const question = 'Detalhe a comparação de categorias de Setembro e Outubro incluindo Débito/Pix';
+    const text = buildAssistantDataSection(universe, october, true, classifyAssistantIntents(question, universe), question);
+    expect(text).toContain('COMPARAÇÃO DE CATEGORIAS (Setembro 2026 vs Outubro 2026)');
+    expect(text).toContain('Lançamentos da fatura de Outubro 2026');
+    expect(text).not.toContain('Categorias de Novembro');
+  });
+
+  it.each(['O que mudou nas categorias?', 'Analise esta foto. Não altere nenhum registro.', 'Do not delete records, just explain the photo'])('consulta ou negação não habilita comandos: %s', (question) => {
+    expect(classifyAssistantIntents(question, universeOf(november, [october, november]))).not.toContain('action');
+  });
+
+  it('não remove um pedido afirmativo que vem após uma proibição', () => {
+    expect(classifyAssistantIntents('Não remova nada. Adicione uma compra.', universeOf(november, [october, november]))).toContain('action');
+  });
+
+  it('não resolve um ano inexistente como se fosse o ano cadastrado', () => {
+    const universe = universeOf(november, [september, october, november]);
+    expect(resolveMonthRef(universe, 'Outubro 2025')).toBeUndefined();
+  });
+
+  it('limita linhas sem diminuir os totais oficiais nem alterar os dados', () => {
+    const many = monthWith({
+      creditCardInvoices: [invoiceOf(cardC6.id, Array.from({ length: 100 }, () => transaction({ category: 'compras' })))],
+      bills: Array.from({ length: 100 }, () => bill({ category: 'compras' })),
+    });
+    const universe = universeOf(many, [many]);
+    const snapshot = structuredClone(many);
+    const full = buildAssistantDataSection(universe, many, true, ['category'], 'Quais compras?');
+    const limited = buildAssistantDataSection(universe, many, true, ['category'], 'Quais compras?', 3);
+    const totals = (text: string) => text.split('\n').filter((line) => line.startsWith('- Compras:'));
+    expect(totals(limited)).toEqual(totals(full));
+    expect(limited.match(/\| Loja Teste \|/g)).toHaveLength(3);
+    expect(limited).toContain('+97 lançamentos menores');
+    expect(limited).toContain('+97 contas não detalhadas');
+    expect(many).toEqual(snapshot);
+  });
+
+  it('consultas em texto não exigem JSON nem expõem ações executáveis', () => {
+    const universe = universeOf(november, [september, october, november]);
+    const text = buildProtocolSection(universe, ['category', 'comparison'], false);
+    expect(text).toContain('Responda diretamente em texto');
+    expect(text).toContain('consulta somente leitura');
+    expect(text).not.toContain('Retorne exatamente um JSON');
+    expect(text).not.toContain('Ações aceitas');
+  });
+});
+
 describe('buildAssistantDataSection sem detalhes', () => {
   it('usa contexto financeiro mínimo em saudações para poupar tokens', () => {
     const month = adjustedMonth();
@@ -595,7 +695,8 @@ describe('buildAssistantDataSection sem detalhes', () => {
     expect(full).toContain('Compra Teste');
     expect(compact).not.toContain('Contas lançadas em');
     expect(compact).not.toContain('Lançamentos da fatura de');
-    expect(compact).toContain('peça get_month_detail');
+    expect(compact).toContain('informe a limitação');
+    expect(compact).not.toContain('peça get_month_detail');
   });
 
   it('mantém o dashboard do mês aberto e as categorias do mês de detalhe solicitado', () => {
