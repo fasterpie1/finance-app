@@ -11,6 +11,7 @@ import {
   buildProtocolSection,
   classifyAssistantIntents,
   monthLabel,
+  resolveAssistantPaymentSource,
   resolveAssistantQuestionMonth,
   resolveMonthRef,
 } from '../services/assistantContext';
@@ -310,14 +311,22 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
       const contextQuestion = historyMessages.filter((message) => message.role === 'user').map((message) => message.content).join('\n') || msg;
       const intents = classifyAssistantIntents(contextQuestion, universe, Boolean(image))
         .filter((intent) => structured || (intent !== 'action' && intent !== 'calendar'));
+      const paymentSource = resolveAssistantPaymentSource(contextQuestion);
+      const paymentScope = !structured && intents.includes('comparison') && intents.includes('category') && paymentSource !== 'all'
+        ? `Origem atual da consulta: somente ${paymentSource === 'debit_pix' ? 'Débito/Pix' : 'crédito'}. Use exclusivamente os totais desta origem no contexto atual, inclusive ao apresentar listas ou tabelas; não retome a origem de perguntas ou respostas anteriores.`
+        : '';
       const detailMonth = resolveAssistantQuestionMonth(universe, contextQuestion);
       const includeDetails = requestIntents.includes('action')
         || /\b(detalh\w*|estabelec\w*|lan[cç]amentos|registros|datas?|quando|qual dia|quem|quais compras|which purchases|merchant)\b/i.test(contextQuestion)
         || (/\blist\w*\b/i.test(contextQuestion) && !intents.includes('comparison'));
       const requestFor = (month: BudgetMonth, withCalendar: boolean, detailed: boolean, turnMessages: Parameters<typeof buildAssistantChatRequest>[1]) => {
+        const lastUserIndex = turnMessages.findLastIndex((message) => message.role === 'user');
+        const scopedMessages = paymentScope
+          ? turnMessages.map((message, index) => index === lastUserIndex ? { ...message, content: `${message.content}\n${paymentScope}` } : message)
+          : turnMessages;
         for (const maxLines of [60, 30, 15, 0]) {
           const system = `${buildAssistantDataSection(universe, month, detailed, intents, contextQuestion, maxLines)}\n\n${buildProtocolSection(universe, intents, structured)}\nIdioma da resposta: ${locale === 'en' ? 'inglês' : 'português brasileiro'}.\nFotos de mensagens anteriores não estão disponíveis: use apenas os dados já descritos na conversa ou peça para anexar novamente.${withCalendar && calendarActions && !image ? calendarInstructions : ''}`;
-          const request = buildAssistantChatRequest(system, turnMessages, image?.dataUrl, structured);
+          const request = buildAssistantChatRequest(system, scopedMessages, image?.dataUrl, structured);
           if (assistantRequestFitsBudget(request)) return request;
         }
         throw new GroqRequestError('Contexto financeiro grande demais para uma única consulta.', 'context');

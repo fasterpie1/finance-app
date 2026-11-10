@@ -236,6 +236,17 @@ function comparisonMonths(universe: AssistantUniverse, question: string): Budget
   return previous ? [previous, target] : [target];
 }
 
+export function resolveAssistantPaymentSource(question: string): 'credit' | 'debit_pix' | 'all' {
+  const paymentQuestion = question.split('\n').reverse()
+    .map((turn) => normalize(turn).replace(/\b(nao inclua|nao incluir|sem|exclua|without|excluding|do not include)\b[^.!?;]*/g, ''))
+    .find((turn) => /\b(cartao|credito|debito|pix|fatura|card|credit|debit|invoice)\b/.test(turn)) ?? '';
+  const mentionsCredit = /\b(cartao|credito|fatura|card|credit|invoice)\b/.test(paymentQuestion);
+  const mentionsDebitPix = /\b(debito|pix|debit)\b/.test(paymentQuestion);
+  if (mentionsCredit && !mentionsDebitPix) return 'credit';
+  if (mentionsDebitPix && !mentionsCredit && !/\b(inclu\w*|include|including)\b/.test(paymentQuestion)) return 'debit_pix';
+  return 'all';
+}
+
 function buildCategoryComparisonSection(
   universe: AssistantUniverse,
   question: string,
@@ -243,13 +254,9 @@ function buildCategoryComparisonSection(
 ): string {
   const months = comparisonMonths(universe, question);
   const target = months.at(-1)!;
-  const paymentQuestion = question.split('\n').reverse()
-    .map((turn) => normalize(turn).replace(/\b(nao inclua|nao incluir|sem|exclua|without|excluding|do not include)\b[^.!?;]*/g, ''))
-    .find((turn) => /\b(cartao|credito|debito|pix|fatura|card|credit|debit|invoice)\b/.test(turn)) ?? '';
-  const mentionsCredit = /\b(cartao|credito|fatura|card|credit|invoice)\b/.test(paymentQuestion);
-  const mentionsDebitPix = /\b(debito|pix|debit)\b/.test(paymentQuestion);
-  const creditOnly = mentionsCredit && !mentionsDebitPix;
-  const debitPixOnly = mentionsDebitPix && !mentionsCredit && !/\b(inclu\w*|include|including)\b/.test(paymentQuestion);
+  const paymentSource = resolveAssistantPaymentSource(question);
+  const creditOnly = paymentSource === 'credit';
+  const debitPixOnly = paymentSource === 'debit_pix';
   const today = new Date();
   const monthIndex = MONTH_NAMES.findIndex((name) => normalize(name) === normalize(target.name));
   const monthIndexEn = MONTH_NAMES_EN.findIndex((name) => normalize(name) === normalize(target.name));

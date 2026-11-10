@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AssistantUniverse } from '../services/assistantContext';
 import type { startSpeechInput } from '../services/speechInput';
 import type { ChatImage } from '../services/statementFiles';
-import { classifyGroqError, type GroqCallMetrics } from '../services/groq';
+import { assistantRequestFitsBudget, classifyGroqError, type GroqCallMetrics } from '../services/groq';
 import { ChatView } from './ChatView';
 
 // Harness de handlers sem React/DOM montado; efeitos e cleanups são simulados.
@@ -508,26 +508,44 @@ describe('envio e parser no ChatView', () => {
     expect(props.onCommand).not.toHaveBeenCalled();
   });
 
-  it('troca crédito por Débito/Pix e conserva a origem em continuações longas', async () => {
+  it.each([false, true])('fixa a origem no pedido final após tabela e poda do histórico: resposta longa=%s', async (longAnswer) => {
     const actual = await vi.importActual<typeof import('../services/assistantContext')>('../services/assistantContext');
     mocks.intents.mockImplementation(actual.classifyAssistantIntents);
     mocks.dataSection.mockImplementation(actual.buildAssistantDataSection);
-    mocks.send.mockResolvedValue('Resposta fictícia em texto.');
+    mocks.send.mockResolvedValue(`Comparação anterior no crédito.${longAnswer ? 'x'.repeat(11000) : ''}`);
     const debitBill = { id: 'pix-teste', name: 'Compra fictícia', amount: 50, category: 'compras' as const, dueDay: 10, isPaid: false, type: 'mensal' as const, month: 'Outubro', note: '', cardPaymentMethod: 'debito_pix' as const };
-    const october = { ...month, bills: [debitBill] };
-    const september = { ...month, id: 'set-teste', name: 'Setembro', bills: [{ ...debitBill, id: 'pix-set-teste', amount: 200 }] };
+    const creditBill = { ...debitBill, id: 'credito-teste', amount: 350, cardPaymentMethod: undefined, isOnCreditCard: true };
+    const october = { ...month, bills: [debitBill, creditBill] };
+    const september = { ...month, id: 'set-teste', name: 'Setembro', bills: [{ ...debitBill, id: 'pix-set-teste', amount: 200 }, { ...creditBill, id: 'credito-set-teste', amount: 300 }] };
     const november = { ...month, id: 'nov-teste', name: 'Novembro' };
     render({ universe: { ...universe, months: [september, october, november], selectedMonth: november } });
+    const before = structuredClone(props.universe.months);
     type('Compare categorias no crédito de setembro e outubro'); await send();
-    for (const question of ['E no Débito/Pix?', 'Traga como lista e com valores', 'Por quê?', 'Mostre como tabela']) {
+    for (const question of ['E no Débito/Pix?', 'Traga como lista e com valores', 'Por quê?', 'Mostre em tabela']) {
       type(question); await send();
-      const system = (mocks.send.mock.calls.at(-1)![0].messages as Array<{ content: string }>)[0].content;
-      expect(system).toContain('COMPARAÇÃO DE CATEGORIAS NO DÉBITO/PIX (Setembro 2026 vs Outubro 2026)');
-      expect(system).toContain('minha parte 200');
-      expect(system).toContain('minha parte 50');
-      expect(system).not.toContain('COMPARAÇÃO DE CATEGORIAS NO CRÉDITO');
+      const request = mocks.send.mock.calls.at(-1)![0];
+      const messages = request.messages as Array<{ role: string; content: string }>;
+      expect(messages[0].content).toContain('COMPARAÇÃO DE CATEGORIAS NO DÉBITO/PIX (Setembro 2026 vs Outubro 2026)');
+      expect(messages[0].content).toContain('minha parte 200');
+      expect(messages[0].content).toContain('minha parte 50');
+      expect(messages[0].content).not.toContain('COMPARAÇÃO DE CATEGORIAS NO CRÉDITO');
+      expect(messages.at(-1)?.content).toContain(`${question}\nOrigem atual da consulta: somente Débito/Pix.`);
+      expect(messages.at(-1)?.content).toContain('Use exclusivamente os totais desta origem no contexto atual');
+      expect(messages.at(-1)?.content).toContain('não retome a origem de perguntas ou respostas anteriores');
+      expect(assistantRequestFitsBudget(request)).toBe(true);
+      if (longAnswer) expect(messages).toHaveLength(2);
     }
-    expect(mocks.send).toHaveBeenCalledTimes(5);
+    type('E no crédito?'); await send();
+    let messages = mocks.send.mock.calls.at(-1)![0].messages as Array<{ content: string }>;
+    expect(messages[0].content).toContain('COMPARAÇÃO DE CATEGORIAS NO CRÉDITO');
+    expect(messages[0].content).toContain('minha parte 350');
+    expect(messages.at(-1)?.content).toContain('Origem atual da consulta: somente crédito.');
+    expect(messages.at(-1)?.content).not.toContain('somente Débito/Pix');
+    type('E incluindo crédito e Débito/Pix?'); await send();
+    messages = mocks.send.mock.calls.at(-1)![0].messages as Array<{ content: string }>;
+    expect(messages.at(-1)?.content).toBe('E incluindo crédito e Débito/Pix?');
+    expect(mocks.send).toHaveBeenCalledTimes(7);
+    expect(props.universe.months).toEqual(before);
     expect(props.onCommand).not.toHaveBeenCalled();
   });
 
