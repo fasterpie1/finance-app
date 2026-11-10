@@ -8,6 +8,9 @@ import { ChatView } from './components/ChatView';
 import { CategoryChart } from './components/CategoryChart';
 import { CardSpendingChart } from './components/CardSpendingChart';
 import { SpendingPace } from './components/SpendingPace';
+import { DailySpendingChart } from './components/DailySpendingChart';
+import { MonthlySpendingInsights } from './components/MonthlySpendingInsights';
+import './components/SpendingInsights.css';
 import { RecurringChargesNotice } from './components/RecurringChargesNotice';
 import { PriceChangeNotice } from './components/PriceChangeNotice';
 import { IncomeSourcesModal } from './components/IncomeSourcesModal';
@@ -591,6 +594,11 @@ function App({ userId, email, signOut }: { userId: string | null; email: string 
 
   const toggleAdd = (section: AddSection) => setAddSection((prev) => (prev === section ? null : section));
   const handleAddBill = (bill: Bill) => { db.addBill(bill); setAddSection(null); };
+  const repeatCharge = (charge: import('./services/recurringCharges').MissingCharge) => {
+    const source = db.months.find((month) => month.id === charge.lastMonthId)?.bills.find((bill) => bill.id === charge.lastBillId);
+    if (!source) return;
+    db.addBill({ ...source, id: '', isPaid: false, month: db.selectedMonth.name, purchaseDate: undefined, calendarEventId: undefined });
+  };
   const hasFixedBills = db.fixedBills.length > 0;
   const selectedMonthIndex = db.months.findIndex((month) => month.id === db.selectedMonthId);
   const previousChartMonths = selectedMonthIndex < 0
@@ -969,12 +977,8 @@ function App({ userId, email, signOut }: { userId: string | null; email: string 
               selectedMonthId={db.selectedMonthId}
               userId={userId}
               hideValues={hideValues}
-              onReclassify={(charge) => db.reclassifyBills(charge.occurrences.map(({ monthId, billId }) => ({ monthId, billId })), 'assinatura')}
-              onRepeat={(charge) => {
-                const source = db.months.flatMap((month) => month.bills).find((bill) => bill.id === charge.lastBillId);
-                if (!source) return;
-                db.addBill({ ...source, id: '', isPaid: false, month: db.selectedMonth.name });
-              }}
+              onReclassify={(charge) => db.reclassifyRecurringCharges(charge.occurrences, 'assinatura')}
+              onRepeat={repeatCharge}
             />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {db.variableBills.map((bill) => (<BillRow key={bill.id} bill={bill} onTogglePaid={() => togglePaidWithCalendar(bill)} onSave={saveBillWithCalendar} onDelete={() => deleteBillWithCalendar(bill)} onCalendarReminder={() => void addBillReminder(bill)} calendarReminderLoading={calendarWorkingId === bill.id} hideValues={hideValues} />))}
@@ -988,9 +992,13 @@ function App({ userId, email, signOut }: { userId: string | null; email: string 
           <CollapsibleSection key="chart" title={t('spendingViews')} isOpen={isSectionOpen('chart_v2', true)} onToggle={() => toggleSection('chart_v2')} hideValues={hideValues} editMode={editMode}>
             <SpendingPace month={db.selectedMonth} months={db.months} hideValues={hideValues} />
             <div style={{ height: 1, background: '#1a1a1a', margin: '18px 0' }} />
+            <DailySpendingChart key={`daily:${db.selectedMonthId}`} month={db.selectedMonth} hideValues={hideValues} />
+            <div style={{ height: 1, background: '#1a1a1a', margin: '18px 0' }} />
             <CardSpendingChart months={db.months} selectedMonthName={db.selectedMonth.name} selectedMonthYear={db.selectedMonth.year} hideValues={hideValues} />
             <div style={{ height: 1, background: '#1a1a1a', margin: '18px 0' }} />
-            <CategoryChart bills={db.selectedMonth.bills} invoices={db.selectedMonth.creditCardInvoices} previousMonths={previousChartMonths} hideValues={hideValues} />
+            <CategoryChart key={`category:${db.selectedMonthId}`} month={db.selectedMonth} onSetCategoryLimit={db.setCategoryLimit} bills={db.selectedMonth.bills} invoices={db.selectedMonth.creditCardInvoices} previousMonths={previousChartMonths} hideValues={hideValues} />
+            <div style={{ height: 1, background: '#1a1a1a', margin: '18px 0' }} />
+            <MonthlySpendingInsights key={`insights:${db.selectedMonthId}`} month={db.selectedMonth} months={db.months} hideValues={hideValues} />
           </CollapsibleSection>
         );
 
@@ -1375,7 +1383,13 @@ function App({ userId, email, signOut }: { userId: string | null; email: string 
         </div>
         {tab === 'cartao' && (
           <CreditCardView
+            key={db.selectedMonthId}
             userId={userId}
+            selectedMonthId={db.selectedMonthId}
+            reimbursementReceipts={db.selectedMonth.reimbursementReceipts ?? []}
+            onAddReimbursement={db.recordReimbursement} onRemoveReimbursement={db.undoReimbursement}
+            onReclassifyRecurring={(charge) => db.reclassifyRecurringCharges(charge.occurrences, 'assinatura')}
+            onRepeatCharge={repeatCharge}
             selectedMonthName={db.selectedMonth.name} selectedMonthYear={db.selectedMonth.year}
             creditCardInvoices={db.selectedMonth.creditCardInvoices ?? []} linkedFixedBills={linkedFixedBills} monthBills={db.selectedMonth.bills} allMonths={db.months}
             debitPixBills={db.debitPixBills}

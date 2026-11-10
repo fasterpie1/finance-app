@@ -3,6 +3,7 @@ import {
   type Bill,
   type CategoryId,
   type CreditCardInvoice,
+  getMonthIndex,
 } from '../types';
 import { usePreferences } from '../i18n';
 import { safeSetItem } from '../services/safeStorage';
@@ -159,6 +160,11 @@ export const CardSpendingChart: React.FC<Props> = ({ months, selectedMonthName, 
         <div>
           <h3 style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{title}</h3>
           <div className="theme-muted-text" style={{ marginTop: 5, fontSize: 12, color: '#8b8b8b' }}>{t('lastMonthsHint', { count: windowSize })}</div>
+          {chartMonths.some((month) => month.year === new Date().getFullYear() && getMonthIndex(month.name) === new Date().getMonth()) && (
+            <div className="theme-muted-text" style={{ marginTop: 5, fontSize: 11, color: '#8b8b8b' }}>
+              {locale === 'en' ? 'The current month is partial; other months cover the full period.' : 'O mês atual é parcial; os outros meses representam o período inteiro.'}
+            </div>
+          )}
         </div>
         {/* Os controles precisam da linha inteira: dividindo-a com o título, a dica os empurra
             e as duas famílias de botão quebram no meio no celular. */}

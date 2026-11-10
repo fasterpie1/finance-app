@@ -31,7 +31,8 @@ const fieldStyle: React.CSSProperties = {
 };
 
 export const InlineAddRow: React.FC<Props> = ({ monthName, onSave, onCancel, defaultType = 'mensal' }) => {
-  const { parseAmount, currencySymbol, categoryColor, typeLabel, t } = usePreferences();
+  const { parseAmount, currencySymbol, categoryColor, typeLabel, t, locale } = usePreferences();
+  const [purchaseDate, setPurchaseDate] = useState('');
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');
   const [dueDay, setDueDay] = useState('1');
@@ -57,6 +58,7 @@ export const InlineAddRow: React.FC<Props> = ({ monthName, onSave, onCancel, def
       month: monthName,
       note: '',
       isOnCreditCard: onCard || undefined,
+      purchaseDate: type === 'variavel' ? purchaseDate || undefined : undefined,
     });
   };
 
@@ -77,6 +79,10 @@ export const InlineAddRow: React.FC<Props> = ({ monthName, onSave, onCancel, def
         <span style={{ fontSize: 11, color: '#8b8b8b' }}>{t('dayPlaceholder')}</span>
         <input inputMode="numeric" pattern="[0-9]*" value={dueDay} onChange={(e) => setDueDay(e.target.value.replace(/[^0-9]/g, ''))} onKeyDown={onKeyDown} style={{ ...fieldStyle, width: 48 }} />
       </div>
+      {type === 'variavel' && <label style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', fontSize: 11, color: '#8b8b8b' }}>
+        {locale === 'en' ? 'Purchase date (optional)' : 'Data da compra (opcional)'}
+        <input type="date" value={purchaseDate} onChange={(event) => setPurchaseDate(event.target.value)} style={{ ...fieldStyle, minHeight: 44 }} />
+      </label>}
       <CategorySelect value={category} ariaLabel={t('category')} onChange={setCategory} style={{ ...fieldStyle, minWidth: 100 }} />
       <select value={type} onChange={(e) => setType(e.target.value as BillType)} style={{ ...fieldStyle, minWidth: 90 }}>
         {(Object.keys(BILL_TYPE_LABELS) as BillType[]).map((billType) => (

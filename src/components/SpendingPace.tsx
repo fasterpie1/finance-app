@@ -11,7 +11,7 @@ interface Props {
 }
 
 export const SpendingPace: React.FC<Props> = ({ month, months, hideValues }) => {
-  const { formatMoney, formatMonthShort, t } = usePreferences();
+  const { formatMoney, formatMonthShort, t, locale } = usePreferences();
   const monthIndex = getMonthIndex(month.name);
   if (monthIndex < 0) return null;
 
@@ -85,13 +85,18 @@ export const SpendingPace: React.FC<Props> = ({ month, months, hideValues }) => 
 
       <div className="theme-pace-muted" style={{ fontSize: 11, color: '#8b8b8b' }}>
         {t('pacePlannedThisMonth')} {money(planned)}
-        {deltaPct !== null && previousMonth && (
+        {(isCurrent || isPast) && deltaPct !== null && previousMonth && (
           <span> · {t('paceVsPrevious', {
             month: formatMonthShort(previousMonth.name, previousMonth.year),
-            delta: `${deltaPct >= 0 ? '+' : '−'}${Math.abs(deltaPct).toFixed(0)}%`,
+            delta: hideValues ? mask : `${deltaPct >= 0 ? '+' : '−'}${Math.abs(deltaPct).toFixed(0)}%`,
           })}</span>
         )}
       </div>
+      {isCurrent && previousMonth && (
+        <div className="theme-pace-muted" style={{ fontSize: 11, color: '#8b8b8b' }}>
+          {locale === 'en' ? 'Partial month compared with the entire previous month; a decrease so far is not savings.' : 'Mês parcial comparado ao mês anterior inteiro; uma redução até agora não significa economia.'}
+        </div>
+      )}
     </div>
   );
 };

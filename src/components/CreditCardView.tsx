@@ -7,7 +7,7 @@ import {
   getMonthIndex,
 } from '../types';
 import { type CreditCardPurchase, type MonthInfo } from '../store/useDashboard';
-import { amountToCents, centsToAmount, describeDuplicateMatch, formatTransactionDay, getCardCharges, getCardTotalWithPendingBillsCents, getInvoiceTotalCents, getOwnerLabel, getThirdPartyTotalsCents, getTransactionDay, setTransactionDay, sortInvoiceTransactions } from '../services/cardTransactions';
+import { amountToCents, centsToAmount, describeDuplicateMatch, formatTransactionDay, getCardCharges, getCardTotalWithPendingBillsCents, getInvoiceTotalCents, getOwnerLabel, getTransactionDay, setTransactionDay, sortInvoiceTransactions } from '../services/cardTransactions';
 import { findDuplicateTransaction } from '../services/transactionDuplicates';
 import { getCardDueDay, getInvoiceCardLabel, getPaymentCardLabel, groupInvoicesByCard, type PaymentCard, resolveBillCardId } from '../services/paymentCards';
 import { BillRow } from './BillRow';
@@ -21,6 +21,11 @@ import { CalendarReminderButton } from './CalendarReminderButton';
 import { type AppLocale, usePreferences } from '../i18n';
 import { PluggyReviewQueue, type PluggyTransactionReview } from './PluggyReviewQueue';
 import { type PendingPluggyTransaction } from '../services/pluggy';
+import type { BudgetMonth, ReimbursementReceipt } from '../types';
+import { ReimbursementPanel } from './ReimbursementPanel';
+import { RecurringChargesNotice } from './RecurringChargesNotice';
+import type { MissingCharge, RecurringCharge } from '../services/recurringCharges';
+import { getReimbursementBalances } from '../services/reimbursements';
 
 interface Props {
   userId: string | null;
@@ -30,7 +35,13 @@ interface Props {
   debitPixBills: Bill[];
   linkedFixedBills: Bill[];
   monthBills: Bill[];
-  allMonths: { id: string; name: string; year: number; bills: Bill[]; creditCardInvoices?: CreditCardInvoice[] }[];
+  allMonths: BudgetMonth[];
+  selectedMonthId: string;
+  reimbursementReceipts: ReimbursementReceipt[];
+  onAddReimbursement: (receipt: Omit<ReimbursementReceipt, 'id'>) => void;
+  onRemoveReimbursement: (receiptId: string) => void;
+  onReclassifyRecurring: (charge: RecurringCharge) => void;
+  onRepeatCharge: (charge: MissingCharge) => void;
   onTogglePaid: (id: string) => void;
   onSaveBill: (bill: Bill) => void;
   onDeleteBill: (id: string) => void;
@@ -288,10 +299,13 @@ interface InvoiceTransactionsProps {
   onTogglePaid: (id: string) => void;
   onSaveBill: (bill: Bill) => void;
   onDeleteBill: (id: string) => void;
+  reimbursementReceipts: ReimbursementReceipt[];
+  onAddReimbursement: (receipt: Omit<ReimbursementReceipt, 'id'>) => void;
+  onRemoveReimbursement: (receiptId: string) => void;
   hideValues?: boolean;
 }
 
-function InvoiceTransactions({ invoices, monthBills, bars, paymentCards, userId, onUpdate, onTogglePaid, onSaveBill, onDeleteBill, hideValues }: InvoiceTransactionsProps) {
+function InvoiceTransactions({ invoices, monthBills, bars, paymentCards, userId, onUpdate, onTogglePaid, onSaveBill, onDeleteBill, reimbursementReceipts, onAddReimbursement, onRemoveReimbursement, hideValues }: InvoiceTransactionsProps) {
   const { formatMoney, parseAmount, typeLabel, categoryColor, t, locale } = usePreferences();
   const ownerOptions = getOwnerOptions(t);
   const [filter, setFilter] = useState<OwnerFilter>('ALL');
@@ -335,13 +349,13 @@ function InvoiceTransactions({ invoices, monthBills, bars, paymentCards, userId,
   const ownerChips: OwnerChip[] = [
     { value: 'ME', label: t('me'), cents: charges.personalCents },
     { value: 'THIRD_PARTY', label: t('thirdParty'), cents: charges.thirdPartyCents },
-    ...getThirdPartyTotalsCents(allTransactions).map((group): OwnerChip => ({
-      value: `person:${group.name}`, label: group.name, cents: group.cents,
+    ...getReimbursementBalances(allTransactions, reimbursementReceipts).map((group): OwnerChip => ({
+      value: `person:${group.name}`, label: group.name, cents: group.owedCents,
     })),
     { value: 'SHARED', label: t('shared'), cents: charges.sharedCents },
     { value: 'ALL', label: t('all'), cents: charges.totalCents },
   ];
-  const chips = ownerChips.filter((chip) => chip.value === 'ME' || chip.value === 'ALL' || chip.cents !== 0);
+  const chips = ownerChips.filter((chip) => chip.value === 'ME' || chip.value === 'ALL' || chip.value.startsWith('person:') || chip.cents !== 0);
   const visibleCreditCardBills = pendingBillsOf(charges.pendingBills);
   // Com cartão cadastrado a lista sempre mora dentro do bloco do banco, mesmo que seja um só.
   const grouped = Boolean(bars && bars.length > 0);
@@ -450,6 +464,9 @@ function InvoiceTransactions({ invoices, monthBills, bars, paymentCards, userId,
           );
         })}
       </div>
+      {filter.startsWith('person:') && (
+        <ReimbursementPanel key={filter} personName={filter.slice('person:'.length)} transactions={allTransactions} receipts={reimbursementReceipts} hideValues={hideValues} onAdd={onAddReimbursement} onRemove={onRemoveReimbursement} />
+      )}
       {!grouped && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: -6 }}>
           <h3 style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#8f8f8f', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('invoiceItems')}</h3>
@@ -501,6 +518,7 @@ export const CreditCardView: React.FC<Props> = ({
   onTogglePaid, onSaveBill, onDeleteBill, onAddPurchase, onAddPurchasesBatch, onImportInvoice, onUpdateInvoice, onClassifyTransactions, getAffectedMonths, onPayCreditCard, onUnpayCreditCard, creditCardDueDay, onUpdateCreditCardDueDay, hideValues,
   invoiceCalendarEventId, invoiceCalendarEventIds, onInvoiceCalendarReminder, invoiceCalendarReminderLoading, paymentCards,
   pendingPluggyTransactions, onReviewPluggyTransaction,
+  selectedMonthId, reimbursementReceipts, onAddReimbursement, onRemoveReimbursement, onReclassifyRecurring, onRepeatCharge,
 }) => {
   const { formatMoney, formatMonthShort, parseAmount, t } = usePreferences();
   const [name, setName] = useState('');
@@ -647,8 +665,8 @@ export const CreditCardView: React.FC<Props> = ({
   // Cada barra já traz o total daquele cartão, então a soma repetida é ruído: "todas as faturas"
   // só serve para somar mais de uma, e "minha parte" só existe quando a fatura é dividida.
   const summaryTiles = [
+    { label: t('myInvoiceShare'), cents: charges.personalCents, hint: t('myInvoiceShareHint') },
     ...(invoiceBars.length > 1 ? [{ label: t('totalAllInvoices'), cents: charges.totalCents, hint: t('totalAllInvoicesHint') }] : []),
-    ...(charges.personalCents !== charges.totalCents ? [{ label: t('myInvoiceShare'), cents: charges.personalCents, hint: t('myInvoiceShareHint') }] : []),
   ];
 
   const handleAdd = () => {
@@ -668,7 +686,7 @@ export const CreditCardView: React.FC<Props> = ({
   const masked = '••••';
   const debitPixCents = debitPixBills.reduce((sum, bill) => sum + amountToCents(bill.amount), 0);
   const moneyTabs: Array<{ key: CardSection; label: string; cents: number; count: number }> = [
-    { key: 'fatura', label: t('cardTabOnCard'), cents: charges.totalCents, count: monthlyLaunchmentCount },
+    { key: 'fatura', label: t('myInvoiceShare'), cents: charges.personalCents, count: monthlyLaunchmentCount },
     { key: 'debito_pix', label: t('debitPix'), cents: debitPixCents, count: debitPixBills.length },
   ];
   const actionTabs: Array<{ key: CardSection; label: string }> = [
@@ -844,7 +862,8 @@ export const CreditCardView: React.FC<Props> = ({
           hideValues={hideValues}
         />
       )}
-      {(creditCardInvoices.length > 0 || charges.pendingBills.length > 0) && <InvoiceTransactions invoices={creditCardInvoices} monthBills={monthBills} bars={groupedBars ? invoiceBars : undefined} paymentCards={paymentCards} userId={userId} onUpdate={onUpdateInvoice} onTogglePaid={onTogglePaid} onSaveBill={onSaveBill} onDeleteBill={onDeleteBill} hideValues={hideValues} />}
+      <RecurringChargesNotice months={allMonths} selectedMonthId={selectedMonthId} userId={userId} hideValues={hideValues} onReclassify={onReclassifyRecurring} onRepeat={onRepeatCharge} />
+      {(creditCardInvoices.length > 0 || charges.pendingBills.length > 0 || reimbursementReceipts.length > 0) && <InvoiceTransactions invoices={creditCardInvoices} monthBills={monthBills} bars={groupedBars ? invoiceBars : undefined} paymentCards={paymentCards} userId={userId} onUpdate={onUpdateInvoice} onTogglePaid={onTogglePaid} onSaveBill={onSaveBill} onDeleteBill={onDeleteBill} reimbursementReceipts={reimbursementReceipts} onAddReimbursement={onAddReimbursement} onRemoveReimbursement={onRemoveReimbursement} hideValues={hideValues} />}
 
       {/* Contas fixas vinculadas ao cartão que já estão pagas na fatura do banco. */}
       {unlistedLinkedBills.length > 0 && (

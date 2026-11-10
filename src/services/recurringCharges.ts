@@ -1,8 +1,11 @@
 import type { BillType, BudgetMonth, CategoryId } from '../types';
+import { getCardCharges, getPersonalImpactCents, isOnCreditCardBill } from './cardTransactions';
 
 export interface RecurringOccurrence {
   monthId: string;
   billId: string;
+  invoiceId?: string;
+  transactionId?: string;
   amount: number;
 }
 
@@ -113,6 +116,58 @@ function collectGroups(months: BudgetMonth[], selectedMonthId: string): Collecte
   return { groups: [...groups.values()], window, currentMonthId };
 }
 
+/** Só a descoberta de assinaturas inclui faturas, sem contar de novo a conta importada. */
+function collectRecurringGroups(months: BudgetMonth[], selectedMonthId: string): Collected | null {
+  const selectedIndex = months.findIndex((month) => month.id === selectedMonthId);
+  if (selectedIndex < 0) return null;
+  const window = months.slice(Math.max(0, selectedIndex - WINDOW_MONTHS + 1), selectedIndex + 1);
+  const currentMonthId = window[window.length - 1]?.id;
+  if (!currentMonthId) return null;
+
+  const groups = new Map<string, Group>();
+  const addOccurrence = (name: string, occurrence: Occurrence) => {
+    const key = normalizeChargeName(name);
+    if (key.length < MIN_NAME_LENGTH) return;
+    const group = groups.get(key) ?? { key, name, category: occurrence.category, occurrences: [] };
+    // A apresentação acompanha a última ocorrência elegível, nunca um lançamento excluído.
+    group.name = name;
+    group.category = occurrence.category;
+    group.occurrences.push(occurrence);
+    groups.set(key, group);
+  };
+
+  window.forEach((month) => {
+    const invoices = month.creditCardInvoices ?? [];
+    const bills = [
+      ...month.bills.filter((bill) => !isOnCreditCardBill(bill)),
+      ...getCardCharges(invoices, month.bills).pendingBills,
+    ];
+    bills.forEach((bill) => {
+      if (bill.type !== 'variavel' || bill.category === 'assinatura' || (bill.installmentTotal ?? 1) > 1 || !(bill.amount > 0)) return;
+      addOccurrence(bill.name, {
+        monthId: month.id, billId: bill.id, amount: bill.amount, type: bill.type, category: bill.category,
+      });
+    });
+    invoices.forEach((invoice) => invoice.transactions.forEach((transaction) => {
+      if (transaction.type !== 'PURCHASE' || (transaction.owner !== 'ME' && transaction.owner !== 'SHARED')
+        || (transaction.installmentTotal ?? 1) > 1 || transaction.category === 'assinatura') return;
+      const cents = getPersonalImpactCents(transaction);
+      if (!(cents > 0)) return;
+      addOccurrence(transaction.merchant, {
+        monthId: month.id,
+        billId: transaction.id,
+        invoiceId: invoice.id,
+        transactionId: transaction.id,
+        amount: cents / 100,
+        type: 'variavel',
+        category: transaction.category ?? 'outros',
+      });
+    }));
+  });
+
+  return { groups: [...groups.values()], window, currentMonthId };
+}
+
 function distinctMonthIds(occurrences: RecurringOccurrence[]): string[] {
   return [...new Set(occurrences.map((occurrence) => occurrence.monthId))];
 }
@@ -128,7 +183,7 @@ function median(values: number[]): number {
  * assinatura que foi lançada como gasto variável e nunca mudou de categoria.
  */
 export function findRecurringCharges(months: BudgetMonth[], selectedMonthId: string): RecurringCharge[] {
-  const collected = collectGroups(months, selectedMonthId);
+  const collected = collectRecurringGroups(months, selectedMonthId);
   if (!collected) return [];
   const { groups, currentMonthId } = collected;
 

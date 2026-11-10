@@ -138,7 +138,15 @@ export interface Bill {
   /** Competência em que a compra foi realizada; a conta pode vencer no mês seguinte. */
   cardPurchaseMonth?: string;
   cardPurchaseYear?: number;
+  purchaseDate?: string;
   calendarEventId?: string;
+}
+
+export interface ReimbursementReceipt {
+  id: string;
+  personName: string;
+  amountCents: number;
+  date: string;
 }
 
 export interface IncomeSource {
@@ -157,6 +165,8 @@ export interface BudgetMonth {
   bills: Bill[];
   /** Faturas importadas do cartão, separadas das contas do orçamento. */
   creditCardInvoices?: CreditCardInvoice[];
+  categoryLimitsCents?: Partial<Record<CategoryId, number>>;
+  reimbursementReceipts?: ReimbursementReceipt[];
   savingsGoal?: number;
   savingsGoalMode?: 'auto' | 'manual';
   savedAmount?: number;

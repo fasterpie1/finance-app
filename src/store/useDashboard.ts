@@ -6,6 +6,10 @@ import { supabase } from '../services/supabase';
 import { readUserStorage, removeUserStorage, writeUserStorage } from '../services/userStorage';
 import { amountToCents, centsToAmount, formatTransactionDay, getCardCharges, getInvoicePersonalTotalCents, getMonthPlannedCents, isOnCreditCardBill } from '../services/cardTransactions';
 import { cardInvoiceId, findPaymentCard, getCardDueDay, getPaymentCardLabel, groupInvoicesByCard, resolveBillCardId, adoptPaymentCardsFromInvoices, type PaymentCard } from '../services/paymentCards';
+import type { ReimbursementReceipt } from '../types';
+import type { RecurringOccurrence } from '../services/recurringCharges';
+import { addReimbursementReceipt, removeReimbursementReceipt } from '../services/reimbursements';
+import { parseExpenseDate } from '../services/spendingInsights';
 
 const STORAGE_KEY = 'financa_months_v1';
 const SELECTED_KEY = 'financa_selected_v1';
@@ -545,6 +549,45 @@ export function useDashboard(userId: string | null = null) {
     []
   );
 
+  const reclassifyRecurringCharges = useCallback((targets: RecurringOccurrence[], category: CategoryId) => {
+    setMonths((prev) => prev.map((month) => {
+      const selected = targets.filter((target) => target.monthId === month.id);
+      if (selected.length === 0) return month;
+      const billIds = new Set(selected.filter((target) => !target.invoiceId).map((target) => target.billId));
+      return {
+        ...month,
+        bills: month.bills.map((bill) => billIds.has(bill.id) ? { ...bill, category } : bill),
+        creditCardInvoices: (month.creditCardInvoices ?? []).map((invoice) => {
+          const ids = new Set(selected.filter((target) => target.invoiceId === invoice.id).map((target) => target.transactionId));
+          return ids.size === 0 ? invoice : {
+            ...invoice,
+            transactions: invoice.transactions.map((transaction) => ids.has(transaction.id) ? { ...transaction, category } : transaction),
+          };
+        }),
+      };
+    }));
+  }, []);
+
+  const setCategoryLimit = useCallback((category: CategoryId, limitCents: number | undefined) => {
+    if (!category.trim() || (limitCents !== undefined && (!Number.isSafeInteger(limitCents) || limitCents <= 0))) return;
+    setMonths((prev) => prev.map((month) => {
+      if (month.id !== selectedMonthId) return month;
+      const limits = { ...month.categoryLimitsCents };
+      if (limitCents === undefined) delete limits[category];
+      else limits[category] = limitCents;
+      return { ...month, categoryLimitsCents: limits };
+    }));
+  }, [selectedMonthId]);
+
+  const recordReimbursement = useCallback((receipt: Omit<ReimbursementReceipt, 'id'>) => {
+    const identified = { ...receipt, id: uuid() };
+    setMonths((prev) => prev.map((month) => month.id === selectedMonthId ? addReimbursementReceipt(month, identified) : month));
+  }, [selectedMonthId]);
+
+  const undoReimbursement = useCallback((receiptId: string) => {
+    setMonths((prev) => prev.map((month) => month.id === selectedMonthId ? removeReimbursementReceipt(month, receiptId) : month));
+  }, [selectedMonthId]);
+
   const addBill = useCallback(
     (bill: Bill) => {
       setMonths((prev) =>
@@ -745,6 +788,7 @@ export function useDashboard(userId: string | null = null) {
         dueDay: purchase.dueDay ?? 1, type: 'variavel', isPaid: false, month: mi.name,
         note: 'Débito/Pix', isOnCreditCard: true, cardPaymentMethod: 'debito_pix',
         installmentCurrent: 1, installmentTotal: 1,
+        purchaseDate: parseExpenseDate(purchaseDate, startName, startYear),
       };
       const invoiceId = cardInvoiceId('manual-invoice', mi.year, mi.name, purchase.cardId);
       const transaction: CreditCardTransaction = {
@@ -1207,6 +1251,10 @@ export function useDashboard(userId: string | null = null) {
     remaining,
     saveBill,
     reclassifyBills,
+    reclassifyRecurringCharges,
+    setCategoryLimit,
+    recordReimbursement,
+    undoReimbursement,
     addBill,
     deleteBill,
     togglePaid,
