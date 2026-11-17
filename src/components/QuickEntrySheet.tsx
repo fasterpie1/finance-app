@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useRef, useState } from 'react';
 import { useModalA11y } from '../hooks/useModalA11y';
 import { usePreferences } from '../i18n';
 
@@ -69,10 +69,6 @@ export function QuickEntrySheet({
     onClose();
   }, [onClose]);
   const dialogRef = useModalA11y<HTMLDivElement>(open, closeAndReset);
-
-  useEffect(() => {
-    if (open) inputRef.current?.focus();
-  }, [open]);
 
   if (!open) return null;
 
@@ -145,12 +141,8 @@ export function QuickEntrySheet({
         </div>
         <p className="quick-entry-safety">{text.safety}</p>
         {mode === 'invoice' && <p className="quick-entry-description">{text.invoiceDescription}</p>}
-        <div className="quick-entry-embedded-content" style={{ display: mode === 'assistant' ? 'block' : 'none' }}>
-          {assistantContent}
-        </div>
-        <div className="quick-entry-embedded-content" style={{ display: mode === 'invoice' ? 'block' : 'none' }}>
-          {invoiceContent}
-        </div>
+        {mode === 'assistant' && <div className="quick-entry-embedded-content">{assistantContent}</div>}
+        {mode === 'invoice' && <div className="quick-entry-embedded-content">{invoiceContent}</div>}
       </section>
     </div>
   );
