@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { useModalA11y } from '../hooks/useModalA11y';
 import { usePreferences } from '../i18n';
 
@@ -64,7 +64,11 @@ export function QuickEntrySheet({
   const text = copy[locale];
   const [description, setDescription] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const dialogRef = useModalA11y<HTMLDivElement>(open, onClose);
+  const closeAndReset = useCallback(() => {
+    setDescription('');
+    onClose();
+  }, [onClose]);
+  const dialogRef = useModalA11y<HTMLDivElement>(open, closeAndReset);
 
   useEffect(() => {
     if (open) inputRef.current?.focus();
@@ -82,7 +86,7 @@ export function QuickEntrySheet({
   };
 
   return (
-    <div className="quick-entry-backdrop" role="presentation" onClick={onClose}>
+    <div className="quick-entry-backdrop" role="presentation" onClick={closeAndReset}>
       <section
         ref={dialogRef}
         className="quick-entry-sheet"
@@ -98,7 +102,7 @@ export function QuickEntrySheet({
             <h2 id="quick-entry-title">{text.title}</h2>
           </div>
           <div className="quick-entry-heading-actions">
-            <button type="button" className="settings-icon-button" onClick={onClose} aria-label={text.close}>×</button>
+            <button type="button" className="settings-icon-button" onClick={closeAndReset} aria-label={text.close}>×</button>
           </div>
         </div>
         <p className="quick-entry-description">{text.description}</p>
