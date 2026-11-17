@@ -134,6 +134,37 @@ describe('getSpendingEntries', () => {
     ]);
   });
 
+  it('exposes personal, shared, third-party, unclassified, and refund amounts for the transaction list', () => {
+    const entries = getSpendingEntries(personalMonth(), 'all', true);
+    const byId = new Map(entries.map((entry) => [entry.id, entry]));
+
+    expect(byId.get('invoice:invoice-a:shared')).toMatchObject({
+      owner: 'SHARED',
+      cents: 4000,
+      thirdPartyCents: 6000,
+      grossCents: 10000,
+      isRefund: false,
+    });
+    expect(byId.get('invoice:invoice-a:third-party')).toMatchObject({
+      owner: 'THIRD_PARTY',
+      cents: 0,
+      thirdPartyCents: 2000,
+      grossCents: 2000,
+    });
+    expect(byId.get('invoice:invoice-a:unclassified')).toMatchObject({
+      owner: 'UNCLASSIFIED',
+      cents: 0,
+      grossCents: 2000,
+    });
+    expect(byId.get('invoice:invoice-a:third-party-refund')).toMatchObject({
+      owner: 'THIRD_PARTY',
+      thirdPartyCents: -2000,
+      grossCents: -2000,
+      isRefund: true,
+    });
+    expect(byId.has('invoice:invoice-a:payment')).toBe(false);
+  });
+
   it.each([
     ['account', 2084, ['bill:account', 'bill:debit']],
     ['card', 7155, ['bill:pending', 'invoice:invoice-a:shared', 'invoice:invoice-a:mine', 'invoice:invoice-a:refund', 'invoice:invoice-a:shared-refund']],

@@ -1,5 +1,5 @@
-import { getMonthIndex, type BudgetMonth, type CategoryId } from '../types';
-import { amountToCents, getCardCharges, getPersonalImpactCents, getUnimportedCardBills, isOnCreditCardBill } from './cardTransactions';
+import { getMonthIndex, type BudgetMonth, type CategoryId, type ExpenseOwner } from '../types';
+import { amountToCents, getCardCharges, getChargeImpactCents, getPersonalImpactCents, getThirdPartyImpactCents, getUnimportedCardBills, isOnCreditCardBill } from './cardTransactions';
 import { getCategoryChartData, type ChartSource } from './financeCharts';
 
 export interface SpendingEntry {
@@ -11,6 +11,11 @@ export interface SpendingEntry {
   date?: string;
   isInstallment: boolean;
   isPurchase: boolean;
+  owner?: ExpenseOwner;
+  thirdPartyName?: string;
+  thirdPartyCents?: number;
+  grossCents?: number;
+  isRefund?: boolean;
 }
 
 export function parseExpenseDate(value: string | undefined, monthName: string, year: number): string | undefined {
@@ -26,7 +31,7 @@ export function parseExpenseDate(value: string | undefined, monthName: string, y
   return `${resolvedYear}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
-export function getSpendingEntries(month: BudgetMonth, source: ChartSource = 'all'): SpendingEntry[] {
+export function getSpendingEntries(month: BudgetMonth, source: ChartSource = 'all', includeOwnerDetails = false): SpendingEntry[] {
   const invoices = month.creditCardInvoices ?? [];
   const cardBills = getCardCharges(invoices, month.bills).pendingBills;
   const matchedTypes = new Map<string, boolean>();
@@ -47,15 +52,17 @@ export function getSpendingEntries(month: BudgetMonth, source: ChartSource = 'al
     // Legacy Debit/Pix defaulted missing days to 1, so that value is ambiguous.
     const legacyDate = bill.type === 'variavel' && bill.cardPaymentMethod === 'debito_pix' && bill.dueDay > 1
       ? `${bill.dueDay}/${getMonthIndex(purchaseMonth) + 1}/${purchaseYear}` : undefined;
+    const cents = amountToCents(bill.amount);
     return {
       id: `bill:${bill.id}`,
       merchant: bill.name,
       category: bill.category,
-      cents: amountToCents(bill.amount),
+      cents,
       source: isOnCreditCardBill(bill) ? 'card' : 'account',
       date: parseExpenseDate(bill.purchaseDate ?? legacyDate, purchaseMonth, purchaseYear),
       isInstallment: bill.type === 'parcela' || (bill.installmentTotal ?? 1) > 1,
       isPurchase: bill.type === 'variavel',
+      ...(includeOwnerDetails ? { owner: 'ME' as const, thirdPartyCents: 0, grossCents: cents, isRefund: false } : {}),
     };
   });
   invoices.forEach((invoice) => invoice.transactions.forEach((transaction) => {
@@ -68,9 +75,18 @@ export function getSpendingEntries(month: BudgetMonth, source: ChartSource = 'al
       date: parseExpenseDate(transaction.date, invoice.month, invoice.year),
       isInstallment: transaction.type === 'INSTALLMENT' || (transaction.installmentTotal ?? 1) > 1,
       isPurchase: transaction.type === 'PURCHASE' && (matchedTypes.get(transaction.id) ?? true),
+      ...(includeOwnerDetails ? {
+        owner: transaction.owner,
+        thirdPartyName: transaction.thirdPartyName,
+        thirdPartyCents: getThirdPartyImpactCents(transaction),
+        grossCents: getChargeImpactCents(transaction),
+        isRefund: transaction.type === 'REFUND',
+      } : {}),
     });
   }));
-  return entries.filter((entry) => entry.cents !== 0 && (source === 'all' || entry.source === source));
+  return entries.filter((entry) => (entry.cents !== 0
+    || (includeOwnerDetails && ((entry.thirdPartyCents ?? 0) !== 0 || ((entry.grossCents ?? 0) !== 0 && entry.owner === 'UNCLASSIFIED'))))
+    && (source === 'all' || entry.source === source));
 }
 
 export function getDailySpending(month: BudgetMonth, source: ChartSource = 'all') {

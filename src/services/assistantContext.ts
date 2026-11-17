@@ -696,6 +696,7 @@ export function buildProtocolSection(universe: AssistantUniverse, intents: Assis
   if (active.has('action')) {
     lines.push('Ações aceitas: add_purchase, assign_card, set_category, set_owner, mark_paid, mark_unpaid, create_card e create_category. Use os campos e escopo declarativos; o app seleciona as transações e pede confirmação.');
     lines.push('Para ações, explique em response o plano. Em scope, use categoria, cartão, dono, estabelecimento, dia, withoutCard ou unclassifiedCategory; não invente IDs.');
+    lines.push('Para add_purchase, informe name, amount, category e paymentMethod ("credito" ou "debito_pix"); informe card apenas para crédito. Se faltar algum campo obrigatório, use action "none" e pergunte somente o que falta. Considere todas as mensagens anteriores da conversa para completar as respostas.');
     lines.push(buildCardsSection(universe));
     lines.push(buildCategoryNamesSection(universe.categoryNames));
   }

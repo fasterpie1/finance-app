@@ -250,8 +250,9 @@ function planAddPurchase(command: AssistantCommand, host: AssistantCommandHost, 
   if (!Number.isFinite(amount) || amount <= 0) return answer('Diga o valor da compra, por exemplo 129,90.');
   const category = categoryTarget(command.category, host);
   if (category.error) return answer(category.error);
-  const target = cardTarget(command.card, host);
-  if (target.error) return answer(target.error);
+  const paymentMethod = command.paymentMethod === 'debito_pix' ? 'debito_pix' : 'credito';
+  const target = paymentMethod === 'credito' ? cardTarget(command.card, host) : undefined;
+  if (target?.error) return answer(target.error);
   const installmentTotal = Math.max(1, Number(command.installmentTotal) || 1);
   const installmentCurrent = Math.min(Math.max(1, Number(command.installmentCurrent) || 1), installmentTotal);
   const dueDay = Number(command.day ?? command.dueDay) || undefined;
@@ -261,12 +262,14 @@ function planAddPurchase(command: AssistantCommand, host: AssistantCommandHost, 
     ? Math.round(Math.max(0, Math.min(amount, Number(command.personalAmount) || 0)) * 100)
     : undefined;
   if (owner === 'SHARED' && !personalAmountCents) return answer('Na compra compartilhada, diga qual parte é sua.');
-  const card = target.card;
-  const newCard = target.needsCreate;
+  const card = target?.card;
+  const newCard = target?.needsCreate;
   const summary = [
     `Lançar ${name} — ${host.universe.money(amount)} em ${monthLabel(data.month)}${installmentTotal > 1 ? ` (${installmentCurrent}/${installmentTotal} de ${installmentTotal}x)` : ''}`,
     `Categoria: ${category.id ? host.universe.categoryLabel(category.id) : `nova categoria "${category.needsCreate}"`}`,
-    `Cartão: ${card ? getPaymentCardLabel(card) : `${newCard?.bank} ${newCard?.last4}`}`,
+    paymentMethod === 'credito'
+      ? `Cartão: ${card ? getPaymentCardLabel(card) : `${newCard?.bank} ${newCard?.last4}`}`
+      : 'Pagamento: Débito/Pix',
     `Dono: ${owner === 'THIRD_PARTY' ? `de terceiro${thirdPartyName ? ` (${thirdPartyName})` : ''}` : owner === 'SHARED' ? `compartilhado${thirdPartyName ? ` com ${thirdPartyName}` : ''}` : 'meu'}`,
   ];
   // Cartão e categoria novos só nascem no Aplicar: antes disso o plano não cadastra nada.
@@ -276,8 +279,10 @@ function planAddPurchase(command: AssistantCommand, host: AssistantCommandHost, 
     apply: () => {
       const categoryId = category.id ?? (category.needsCreate ? host.createCategory(category.needsCreate) : undefined);
       if (!categoryId) return 'Não consegui cadastrar essa categoria.';
-      const finalCard = card ?? (newCard ? host.createCard(newCard.bank, newCard.last4) : undefined);
-      if (!finalCard) return 'Não consegui cadastrar esse cartão. Tente pela tela Cartão.';
+      const finalCard = paymentMethod === 'credito'
+        ? card ?? (newCard ? host.createCard(newCard.bank, newCard.last4) : undefined)
+        : undefined;
+      if (paymentMethod === 'credito' && !finalCard) return 'Não consegui cadastrar esse cartão. Tente pela tela Cartão.';
       host.addPurchase({
         name,
         amount,
@@ -285,14 +290,14 @@ function planAddPurchase(command: AssistantCommand, host: AssistantCommandHost, 
         dueDay,
         installmentCurrent,
         installmentTotal,
-        paymentMethod: command.paymentMethod === 'debito_pix' ? 'debito_pix' : 'credito',
+        paymentMethod,
         owner,
         personalAmountCents,
         thirdPartyName,
-        cardId: finalCard.id,
-        cardLabel: getPaymentCardLabel(finalCard),
+        cardId: finalCard?.id,
+        cardLabel: finalCard ? getPaymentCardLabel(finalCard) : undefined,
       });
-      return `Lançado: ${name} — ${host.universe.money(amount)} no ${getPaymentCardLabel(finalCard)}.`;
+      return `Lançado: ${name} — ${host.universe.money(amount)}${finalCard ? ` no ${getPaymentCardLabel(finalCard)}` : ' no Débito/Pix'}.`;
     },
   };
 }
@@ -460,4 +465,3 @@ export function planAssistantCommand(command: AssistantCommand, host: AssistantC
 
   return answer(command.response ?? 'Não entendi esse pedido.');
 }
-

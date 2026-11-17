@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { getMonthIndex, type CategoryId } from '../types';
 import { type CreditCardInvoice, type CreditCardTransaction, type ExpenseOwner } from '../types';
 import { describeDuplicateMatch, getTransactionDay, setTransactionDay } from '../services/cardTransactions';
@@ -43,6 +43,10 @@ interface Props {
   paymentCards: PaymentCard[];
 }
 
+export interface StatementImportPanelHandle {
+  openFilePicker: () => void;
+}
+
 const fieldStyle: React.CSSProperties = {
   background: '#0e0e0e', border: '1px solid #1e1e1e', borderRadius: 6, color: '#e0e0e0', padding: '6px 10px', fontSize: 12, outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box',
 };
@@ -57,7 +61,7 @@ const MAX_FILE_SIZE_MB = 20;
  *  cobrança). Esse texto não serve para o usuário final, então vira a mensagem traduzida. */
 const AI_LIMIT_ERROR = /request too large|output tokens per minute|otpm|rate limit|tokens per minute|try again in|upgrade to dev tier|service tier/i;
 
-export const StatementImportPanel: React.FC<Props> = ({ onImport, onImportExpenses, onLaunched, userId, month, year, existingTransactions, paymentCards }) => {
+export const StatementImportPanel = forwardRef<StatementImportPanelHandle, Props>(({ onImport, onImportExpenses, onLaunched, userId, month, year, existingTransactions, paymentCards }, ref) => {
   const { formatMoney, parseAmount, t } = usePreferences();
   const fileRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
@@ -83,6 +87,12 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onImportExpens
   const displayedTotal = !isExpenseMode && statementTotalCents != null ? statementTotalCents / 100 : selectedTotal;
   /** Linhas que batem com algo já lançado e ainda não foram reconhecidas como outra compra. */
   const pendingDuplicates = items.filter((i) => i.duplicateMatch && !i.duplicateConfirmed).length;
+
+  useImperativeHandle(ref, () => ({
+    openFilePicker: () => {
+      if (!loading && !checkingKey && apiKeyConfigured) fileRef.current?.click();
+    },
+  }), [apiKeyConfigured, checkingKey, loading]);
 
   const handleFile = async (file: File) => {
     setError('');
@@ -503,4 +513,4 @@ export const StatementImportPanel: React.FC<Props> = ({ onImport, onImportExpens
       </div>
     </div>
   );
-};
+});

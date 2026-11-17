@@ -9,7 +9,6 @@ import { centsToAmount } from '../services/cardTransactions';
 import { type ChartSource, getCategoryAnomalies, getCategoryChartData } from '../services/financeCharts';
 import { getSpendingEntries } from '../services/spendingInsights';
 import { SpendingDetails } from './SpendingDetails';
-import { CategoryBudgetLimits } from './CategoryBudgetLimits';
 import './SpendingInsights.css';
 
 interface Props {
@@ -19,7 +18,6 @@ interface Props {
   previousMonths?: Array<Pick<BudgetMonth, 'bills' | 'creditCardInvoices'>>;
   hideValues?: boolean;
   month?: BudgetMonth;
-  onSetCategoryLimit?: (category: CategoryId, limitCents: number | undefined) => void;
 }
 
 interface CategoryData {
@@ -36,7 +34,7 @@ const copy: Record<AppLocale, Record<string, string>> = {
   en: { details: 'Category transactions', hidden: 'Amount hidden', anomalyHidden: 'Above the usual level' },
 };
 
-export const CategoryChart: React.FC<Props> = ({ bills, invoices = [], previousMonths = [], hideValues, month, onSetCategoryLimit }) => {
+export const CategoryChart: React.FC<Props> = ({ bills, invoices = [], previousMonths = [], hideValues, month }) => {
   const { formatMoney, categoryLabel, categoryColor, locale, t } = usePreferences();
   const text = copy[locale];
   const id = useId();
@@ -54,7 +52,6 @@ export const CategoryChart: React.FC<Props> = ({ bills, invoices = [], previousM
   const anomalies = getCategoryAnomalies(chartData, previousMonths, source);
   const ratioFormatter = new Intl.NumberFormat(locale === 'en' ? 'en-US' : 'pt-BR', { maximumFractionDigits: 1 });
   const { totalCents } = chartData;
-  const budgetLimits = month && onSetCategoryLimit ? <CategoryBudgetLimits key={`${month.id}:${month.year}:${month.name}`} month={month} hideValues={hideValues} onSetLimit={onSetCategoryLimit} /> : null;
   const sourceToggle = (
     <div className="chart-source-toggle" role="group" aria-label={t('chartSourceToggleLabel')} style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
       {SOURCE_ORDER.map((option) => (
@@ -68,7 +65,6 @@ export const CategoryChart: React.FC<Props> = ({ bills, invoices = [], previousM
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       {sourceToggle}
       <div className="theme-muted-text" style={{ textAlign: 'center', color: '#8b8b8b', fontSize: 12, padding: 20 }}>{t('noExpenses')}</div>
-      {budgetLimits}
     </div>
   );
   const total = centsToAmount(totalCents);
@@ -163,7 +159,6 @@ export const CategoryChart: React.FC<Props> = ({ bills, invoices = [], previousM
           );
         })}
       </div>
-      {budgetLimits}
     </div>
   );
 };

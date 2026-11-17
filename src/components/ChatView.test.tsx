@@ -68,7 +68,7 @@ vi.mock('../i18n', () => ({
 }));
 vi.mock('../services/assistantContext', async () => ({
   ...await vi.importActual<typeof import('../services/assistantContext')>('../services/assistantContext'),
-  buildAssistantDataSection: mocks.dataSection, buildProtocolSection: () => 'PROTOCOLO FICTÍCIO',
+  buildAssistantDataSection: mocks.dataSection,
   classifyAssistantIntents: mocks.intents,
   monthLabel: () => 'Outubro 2026', resolveMonthRef: vi.fn(),
 }));
@@ -427,6 +427,144 @@ describe('ditado no ChatView', () => {
 });
 
 describe('envio e parser no ChatView', () => {
+  it('mantém o contexto do lançamento entre respostas e não envia contexto financeiro interno', async () => {
+    const categoryNames = ['Alimentação', 'Mercado'];
+    const cards = [{ id: 'c6-test', bank: 'C6', last4: '8649' }];
+    const onCommand = vi.fn((command) => ({
+      kind: 'answer' as const,
+      text: command.name ? 'Compra pronta para revisar.' : 'Diga o nome da compra (o estabelecimento).',
+    }));
+    mocks.send
+      .mockResolvedValueOnce('{"action":"add_purchase","amount":45,"category":"Alimentação","paymentMethod":"debito_pix","response":"Preparando a compra."}')
+      .mockResolvedValueOnce('{"action":"add_purchase","name":"Bar da Cachaça","amount":45,"category":"Alimentação","paymentMethod":"debito_pix","response":"Compra pronta para revisar."}');
+    render({
+      quickPurchase: true,
+      universe: { ...universe, categoryNames, cards },
+      onCommand,
+      quickPrompt: 'Quero lançar esta compra: 45 reais hoje no débito, almoço',
+      onQuickPromptConsumed: () => { props.quickPrompt = null; },
+    });
+    await settle();
+    type('Bar da Cachaça');
+    await send();
+
+    expect(mocks.send).toHaveBeenCalledTimes(2);
+    const firstRequest = mocks.send.mock.calls[0][0];
+    const secondRequest = mocks.send.mock.calls[1][0];
+    const firstMessages = firstRequest.messages as Array<{ role: string; content: string }>;
+    expect(firstMessages[0].content).toContain('Categorias disponíveis: Alimentação, Mercado.');
+    expect(firstMessages[0].content).toContain('Cartões disponíveis: C6 8649.');
+    expect(firstMessages[0].content).toContain('Você é a IA financeira pessoal do Finança App.');
+    expect(firstMessages[0].content).toContain('Se faltar algum campo obrigatório, use action "none"');
+    expect(firstMessages[0].content).not.toContain('CONTEXTO FICTÍCIO');
+    expect(firstMessages[0].content).not.toContain('Entrada ');
+    expect(firstMessages[0].content).not.toContain('backend');
+    expect(firstMessages[1].content).toBe('Quero lançar esta compra: 45 reais hoje no débito, almoço');
+    expect(secondRequest.messages).toEqual([
+      { role: 'system', content: expect.any(String) },
+      { role: 'user', content: 'Quero lançar esta compra: 45 reais hoje no débito, almoço' },
+      { role: 'assistant', content: 'Qual é o nome do estabelecimento?' },
+      { role: 'user', content: 'Bar da Cachaça' },
+    ]);
+    expect(onCommand).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      action: 'add_purchase', name: 'Bar da Cachaça', amount: 45, paymentMethod: 'debito_pix',
+    }));
+  });
+
+  it('completa o comando parcial mesmo se a IA tratar o estabelecimento como busca de transação', async () => {
+    const planned = vi.fn(() => 'Lançado');
+    const onCommand = vi.fn((command) => command.name
+      ? { kind: 'plan' as const, summary: ['Compra pronta para conferir'], apply: planned }
+      : { kind: 'answer' as const, text: 'Diga o nome da compra (o estabelecimento).' });
+    mocks.send
+      .mockResolvedValueOnce('{"action":"add_purchase","amount":35,"category":"Alimentação","paymentMethod":"debito_pix","response":"Qual o estabelecimento?"}')
+      .mockResolvedValueOnce('{"action":"get_month_detail","month":"Novembro 2026","response":"Buscando a transação."}');
+    render({
+      quickPurchase: true,
+      quickPrompt: 'Quero lançar esta compra: 35 reais de almoço no débito',
+      onQuickPromptConsumed: () => { props.quickPrompt = null; },
+      onCommand,
+    });
+    await settle();
+    type('Bar da Cachaça');
+    await send();
+
+    expect(onCommand).toHaveBeenLastCalledWith(expect.objectContaining({
+      action: 'add_purchase',
+      name: 'Bar da Cachaça',
+      amount: 35,
+      category: 'Alimentação',
+      paymentMethod: 'debito_pix',
+    }));
+    expect(find((node) => node.props.className === 'chat-pending-change')).toBeDefined();
+    expect(button('assistantApply')).toBeDefined();
+    expect(planned).not.toHaveBeenCalled();
+  });
+
+  it('usa o estabelecimento já escrito no prompt completo sem perguntar de novo', async () => {
+    const planned = vi.fn(() => 'Lançado');
+    const onCommand = vi.fn((command) => ({
+      kind: 'plan' as const,
+      summary: [`Lançar ${command.name}`],
+      apply: planned,
+    }));
+    mocks.send.mockResolvedValueOnce('{"action":"none","response":"Qual foi o valor da compra?"}');
+    render({
+      quickPurchase: true,
+      universe: { ...universe, categoryNames: ['Alimentação', 'Mercado'] },
+      quickPrompt: 'Quero lançar esta compra: Almoço no bar da cachaça no debito no valor de R$35 reais, alimentação',
+      onQuickPromptConsumed: () => { props.quickPrompt = null; },
+      onCommand,
+    });
+    await settle();
+
+    expect(onCommand).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      action: 'add_purchase',
+      name: 'Bar da cachaça',
+      amount: 35,
+      category: 'Alimentação',
+      paymentMethod: 'debito_pix',
+    }));
+    expect(find((node) => node.props.className === 'chat-pending-change')).toBeDefined();
+    expect(button('assistantApply')).toBeDefined();
+    expect(planned).not.toHaveBeenCalled();
+  });
+
+  it('aplica a compra ao digitar confirmar sem enviar uma nova pergunta à IA', async () => {
+    const apply = vi.fn(() => 'Lançado: Bar da Cachaça — R$ 35,00 no Débito/Pix.');
+    const onCommand = vi.fn(() => ({
+      kind: 'plan' as const,
+      summary: ['Lançar Bar da Cachaça — R$ 35,00', 'Pagamento: Débito/Pix'],
+      apply,
+    }));
+    mocks.send.mockResolvedValueOnce('{"action":"none","response":"Qual foi o valor da compra?"}');
+    render({
+      quickPurchase: true,
+      universe: { ...universe, categoryNames: ['Alimentação', 'Mercado'] },
+      quickPrompt: 'Quero lançar esta compra: Almoço no bar da cachaça no debito no valor de R$35 reais, alimentação',
+      onQuickPromptConsumed: () => { props.quickPrompt = null; },
+      onCommand,
+    });
+    await settle();
+    expect(find((node) => node.props.className === 'chat-pending-change')).toBeDefined();
+    expect(onCommand).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      action: 'add_purchase',
+      name: 'Bar da cachaça',
+      amount: 35,
+      category: 'Alimentação',
+      paymentMethod: 'debito_pix',
+    }));
+
+    type('confirmar');
+    await send();
+
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+    expect(apply).toHaveBeenCalledOnce();
+    expect(elements().some((node) => node.props.className === 'chat-pending-change')).toBe(false);
+    expect(assistantTexts()).toContain('Lançado: Bar da Cachaça — R$ 35,00 no Débito/Pix.');
+    expect(assistantTexts()).not.toContain('Qual é o nome do estabelecimento?');
+  });
+
   it('consulta em texto aceita lista sem JSON em uma chamada e não executa ações', async () => {
     mocks.intents.mockReturnValue(['category', 'comparison']);
     const answer = '- Lazer: redução de R$ 100,00.\n- Compras: redução de R$ 50,00.';

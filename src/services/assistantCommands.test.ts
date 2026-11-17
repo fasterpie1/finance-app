@@ -254,6 +254,29 @@ describe('comandos da assistente', () => {
     expect(calls.add[0].purchase).toMatchObject({ cardId: 'card_new', cardLabel: 'Itaú 3300' });
   });
 
+  it('lança compra em Débito/Pix sem exigir cartão', () => {
+    const { host, calls } = hostOf();
+    const plan = planAssistantCommand({
+      action: 'add_purchase',
+      name: 'Bar da Cachaça',
+      amount: 45,
+      category: 'Saúde',
+      paymentMethod: 'debito_pix',
+    }, host);
+    if (plan.kind !== 'plan') throw new Error('esperava um plano');
+    expect(plain(plan.summary.join('\n'))).toContain('Pagamento: Débito/Pix');
+    expectNoCall(calls);
+    expect(plan.apply()).toContain('no Débito/Pix');
+    expect(calls.add[0].purchase).toMatchObject({
+      name: 'Bar da Cachaça',
+      amount: 45,
+      paymentMethod: 'debito_pix',
+      cardId: undefined,
+      cardLabel: undefined,
+    });
+    expect(calls.createCard).toHaveLength(0);
+  });
+
   it('diz quando nenhum lançamento bate com o alcance', () => {
     const { host } = hostOf();
     const outcome = planAssistantCommand({ action: 'set_category', category: 'Saúde', scope: { merchant: 'inexistente' } }, host);

@@ -1,10 +1,16 @@
 import { useState, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
 import { useDashboard } from './store/useDashboard';
+import { AppOpeningAnimation } from './components/AppOpeningAnimation';
 import { SummaryCard } from './components/SummaryCard';
+import { MonthlyLimitHero } from './components/MonthlyLimitHero';
+import { CategoryBudgetLimits } from './components/CategoryBudgetLimits';
+import { QuickEntrySheet, type QuickEntryMode } from './components/QuickEntrySheet';
+import { TransactionsView } from './components/TransactionsView';
 import { BillRow } from './components/BillRow';
 import { InlineAddRow } from './components/InlineAddRow';
 import { CreditCardView } from './components/CreditCardView';
 import { ChatView } from './components/ChatView';
+import { StatementImportPanel, type StatementImportPanelHandle } from './components/StatementImportPanel';
 import { CategoryChart } from './components/CategoryChart';
 import { CardSpendingChart } from './components/CardSpendingChart';
 import { SpendingPace } from './components/SpendingPace';
@@ -29,7 +35,7 @@ import { findOrCreatePaymentCard, findPaymentCard, getCardDueDay, getPaymentCard
 import { type AssistantUniverse } from './services/assistantContext';
 import { findCategoryId, planAssistantCommand, type AssistantCommand, type AssistantCommandHost } from './services/assistantCommands';
 import { type Bill, MONTH_NAMES, getMonthIndex } from './types';
-import { centsToAmount, getCardCharges, getCardTotalWithPendingBillsCents } from './services/cardTransactions';
+import { amountToCents, centsToAmount, getCardCharges, getCardTotalWithPendingBillsCents } from './services/cardTransactions';
 import { safeSetItem } from './services/safeStorage';
 import { getAppUpdate, watchAppUpdate } from './services/appVersion';
 import { type PendingPluggyTransaction } from './services/pluggy';
@@ -37,7 +43,7 @@ import { usePluggy } from './hooks/usePluggy';
 import { isPluggyAllowedEmail } from './services/pluggyAccess';
 import { PreferencesProvider, usePreferences, type AppLocale, type DisplayCurrency } from './i18n';
 
-type Tab = 'dashboard' | 'cartao' | 'chat';
+type Tab = 'dashboard' | 'cartao' | 'transactions' | 'chat';
 type AddSection = 'fixed' | 'variable' | null;
 
 const SECTIONS_KEY = 'financa_sections_v1';
@@ -46,10 +52,13 @@ const LAYOUT_KEY = 'financa_layout_order';
 const THEME_KEY = 'financa_theme';
 const DAILY_NOTIFICATION_KEY = 'financa_daily_bill_notification_v1';
 
-type SectionId = 'savings' | 'fixed' | 'cartao_preview' | 'variable' | 'chart' | 'backup';
+type SectionId = 'limits' | 'savings' | 'fixed' | 'cartao_preview' | 'variable' | 'chart' | 'backup';
 
-const DEFAULT_ORDER: SectionId[] = ['fixed', 'cartao_preview', 'variable', 'chart', 'savings', 'backup'];
+const DEFAULT_ORDER: SectionId[] = ['fixed', 'cartao_preview', 'variable', 'chart', 'limits', 'savings', 'backup'];
 const LEGACY_DEFAULT_ORDER: SectionId[] = ['savings', 'fixed', 'cartao_preview', 'variable', 'chart', 'backup'];
+const PREVIOUS_DEFAULT_ORDER: SectionId[] = ['fixed', 'cartao_preview', 'variable', 'chart', 'savings', 'backup'];
+const PREVIOUS_FULL_DEFAULT_ORDER: SectionId[] = ['limits', 'fixed', 'cartao_preview', 'variable', 'chart', 'savings', 'backup'];
+const SECTION_IDS: SectionId[] = ['limits', 'savings', 'fixed', 'cartao_preview', 'variable', 'chart', 'backup'];
 
 function loadSections(): Record<string, boolean> {
   try { const raw = localStorage.getItem(SECTIONS_KEY); if (raw) return JSON.parse(raw); } catch { /* ignore */ }
@@ -78,9 +87,23 @@ function loadLayoutOrder(): SectionId[] {
   try {
     const raw = localStorage.getItem(LAYOUT_KEY);
     if (raw) {
-      const arr = JSON.parse(raw) as SectionId[];
-      if (arr.length === DEFAULT_ORDER.length) {
-        return arr.join(',') === LEGACY_DEFAULT_ORDER.join(',') ? DEFAULT_ORDER : arr;
+      const arr: unknown = JSON.parse(raw);
+      if (Array.isArray(arr) && arr.every((id): id is SectionId => typeof id === 'string' && SECTION_IDS.includes(id as SectionId))) {
+        const order = arr as SectionId[];
+        if (order.length === DEFAULT_ORDER.length
+          && new Set(order).size === SECTION_IDS.length
+          && SECTION_IDS.every((id) => order.includes(id))) {
+          return order.join(',') === PREVIOUS_FULL_DEFAULT_ORDER.join(',') ? DEFAULT_ORDER : order;
+        }
+        const previousIds = SECTION_IDS.filter((id) => id !== 'limits');
+        if (order.length === previousIds.length
+          && new Set(order).size === previousIds.length
+          && previousIds.every((id) => order.includes(id))) {
+          if (order.join(',') === LEGACY_DEFAULT_ORDER.join(',')) return DEFAULT_ORDER;
+          if (order.join(',') === PREVIOUS_DEFAULT_ORDER.join(',')) return DEFAULT_ORDER;
+          const insertionPoint = Math.min(order.indexOf('chart') + 1, order.length);
+          return [...order.slice(0, insertionPoint), 'limits', ...order.slice(insertionPoint)];
+        }
       }
     }
   } catch { /* ignore */ }
@@ -138,6 +161,16 @@ function useKeyboardOpen() {
 const IconDashboard = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" />
+  </svg>
+);
+const IconTransactions = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M5 4h14v16H5z" /><path d="M8 8h8M8 12h8M8 16h5" />
+  </svg>
+);
+const IconAdd = () => (
+  <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+    <path d="M12 5v14M5 12h14" />
   </svg>
 );
 const IconCard = () => (
@@ -284,6 +317,11 @@ function App({ userId, email, signOut }: { userId: string | null; email: string 
   }, [addOpenFinanceTransaction, email, markReviewed, paymentCards, selectMonth]);
   const [tab, setTab] = useState<Tab>('dashboard');
   const [addSection, setAddSection] = useState<AddSection>(null);
+  const [quickEntryOpen, setQuickEntryOpen] = useState(false);
+  const [quickEntryMode, setQuickEntryMode] = useState<QuickEntryMode>('home');
+  const [quickEntrySuccess, setQuickEntrySuccess] = useState<string | null>(null);
+  const [quickPrompt, setQuickPrompt] = useState<string | null>(null);
+  const statementImportRef = useRef<StatementImportPanelHandle>(null);
   const [incomeModalOpen, setIncomeModalOpen] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const keyboardOpen = useKeyboardOpen();
@@ -314,6 +352,7 @@ function App({ userId, email, signOut }: { userId: string | null; email: string 
   const [helpOpen, setHelpOpen] = useState(false);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
   const closeHelp = useCallback(() => setHelpOpen(false), []);
+  const clearQuickPrompt = useCallback(() => setQuickPrompt(null), []);
   const settingsRef = useModalA11y<HTMLElement>(settingsOpen && !helpOpen, closeSettings);
   const helpRef = useModalA11y<HTMLElement>(helpOpen, closeHelp);
   const monthButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -395,7 +434,6 @@ function App({ userId, email, signOut }: { userId: string | null; email: string 
   const toggleSection = (key: string) => {
     setSections((prev) => { const next = { ...prev, [key]: !(prev[key] ?? true) }; saveSections(next); return next; });
   };
-
   // Layout order
   const [layoutOrder, setLayoutOrder] = useState<SectionId[]>(loadLayoutOrder);
   const [editMode, setEditMode] = useState(false);
@@ -543,10 +581,12 @@ function App({ userId, email, signOut }: { userId: string | null; email: string 
   // Débito/pix é deduzido na hora e não tem toggle; conta como pago (mesma regra de useDashboard.totalPaid).
   const paidCount = db.selectedMonth.bills.filter((b) => b.isPaid || b.cardPaymentMethod === 'debito_pix').length;
   const totalCount = db.selectedMonth.bills.length;
-  const progressPct = totalCount > 0 ? Math.round((paidCount / totalCount) * 100) : 0;
+  const progressPct = totalCount > 0 ? Math.round((paidCount / totalCount) * 100) : 100;
   const fixedTotal = db.fixedBills.reduce((s, b) => s + b.amount, 0);
   const fixedPaidTotal = db.fixedBills.filter((b) => b.isPaid).reduce((s, b) => s + b.amount, 0);
-  const pendingAmount = db.totalPlanned - db.totalPaid;
+  const pendingCount = Math.max(totalCount - paidCount, 0);
+  const pendingAmount = Math.max(db.totalPlanned - db.totalPaid, 0);
+  const hasPendingBills = pendingCount > 0;
   const selectedInvoices = db.selectedMonth.creditCardInvoices ?? [];
   // Uma única fonte para todo número de cartão: o banco cobra a fatura inteira, o painel mostra a minha parte.
   const cardCharges = getCardCharges(selectedInvoices, db.selectedMonth.bills);
@@ -613,6 +653,7 @@ function App({ userId, email, signOut }: { userId: string | null; email: string 
   const allCardPaid = hasCardItems
     && cardCharges.pendingBills.every((b) => b.isPaid)
     && (db.selectedMonth.creditCardInvoices ?? []).every((invoice) => invoice.isPaid);
+  const allObligationsPaid = !hasPendingBills && (!hasCardItems || allCardPaid);
 
   const removeCalendarEvent = async (eventId: string): Promise<boolean> => {
     try { await deleteCalendarEvent(eventId); return true; } catch (error) { setCalendarError(error instanceof Error ? error.message : 'Não foi possível atualizar o Google Agenda.'); return false; }
@@ -772,6 +813,19 @@ function App({ userId, email, signOut }: { userId: string | null; email: string 
   /* ─── Section renderers ─── */
   const renderSection = (id: SectionId) => {
     switch (id) {
+      case 'limits':
+        return (
+          <CollapsibleSection
+            key="limits"
+            title={locale === 'en' ? 'Monthly category limits' : 'Limites do mês'}
+            isOpen={isSectionOpen('limits')}
+            onToggle={() => toggleSection('limits')}
+            hideValues={hideValues}
+            editMode={editMode}
+          >
+            <CategoryBudgetLimits month={db.selectedMonth} hideValues={hideValues} onSetLimit={db.setCategoryLimit} />
+          </CollapsibleSection>
+        );
       case 'savings':
         return (
           <CollapsibleSection key="savings" title={t('savingsGoal')} isOpen={isSectionOpen('savings', false)} onToggle={() => toggleSection('savings')} hideValues={hideValues} editMode={editMode} rightAction={
@@ -781,7 +835,14 @@ function App({ userId, email, signOut }: { userId: string | null; email: string 
           }>
             {savingsGoal > 0 ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <div className="theme-goal-metrics" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
+              {savedAmount === 0 && (
+                <p className="theme-muted-text" style={{ margin: 0, fontSize: 11, lineHeight: 1.5 }}>
+                  {locale === 'en'
+                    ? 'The goal shows how much you can save from the predicted remainder. “Saved this month” is a separate amount you enter to track what you have actually set aside.'
+                    : 'A meta mostra quanto você poderá guardar da sobra prevista. “Guardado no mês” é um valor separado, informado por você, para acompanhar quanto já reservou de verdade.'}
+                </p>
+              )}
+              <div className="theme-goal-metrics" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
                   <div className="theme-goal-card" style={{ background: '#0e0e0e', borderRadius: 8, padding: '10px 12px', minWidth: 0 }}>
                     <div style={{ fontSize: 10, color: '#8b8b8b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{savingsGoalIsManual ? t('fixedMonthlyGoal') : t('expectedLeft')}</div>
                     <div className="privacy-mask theme-goal-metric-value" style={{ fontSize: 18, fontWeight: 700, color: hideValues ? 'var(--privacy-mask)' : '#d4d4d4', marginTop: 4 }}>{hideValues ? masked : formatCurrency(savingsGoal)}</div>
@@ -996,7 +1057,7 @@ function App({ userId, email, signOut }: { userId: string | null; email: string 
             <div style={{ height: 1, background: '#1a1a1a', margin: '18px 0' }} />
             <CardSpendingChart months={db.months} selectedMonthName={db.selectedMonth.name} selectedMonthYear={db.selectedMonth.year} hideValues={hideValues} />
             <div style={{ height: 1, background: '#1a1a1a', margin: '18px 0' }} />
-            <CategoryChart key={`category:${db.selectedMonthId}`} month={db.selectedMonth} onSetCategoryLimit={db.setCategoryLimit} bills={db.selectedMonth.bills} invoices={db.selectedMonth.creditCardInvoices} previousMonths={previousChartMonths} hideValues={hideValues} />
+            <CategoryChart key={`category:${db.selectedMonthId}`} month={db.selectedMonth} bills={db.selectedMonth.bills} invoices={db.selectedMonth.creditCardInvoices} previousMonths={previousChartMonths} hideValues={hideValues} />
             <div style={{ height: 1, background: '#1a1a1a', margin: '18px 0' }} />
             <MonthlySpendingInsights key={`insights:${db.selectedMonthId}`} month={db.selectedMonth} months={db.months} hideValues={hideValues} />
           </CollapsibleSection>
@@ -1026,6 +1087,7 @@ function App({ userId, email, signOut }: { userId: string | null; email: string 
 
   return (
     <div className={`app-shell${tab === 'chat' ? ' app-shell-chat' : ''}${tab === 'chat' && keyboardOpen ? ' app-shell-chat-keyboard' : ''}`} style={{ minHeight: '100vh', background: '#0a0a0a', color: '#e0e0e0', fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif" }}>
+      <AppOpeningAnimation />
 
       {/* ─── Header (simples, com safe area) ─── */}
       <header ref={headerRef} className="app-header" style={{
@@ -1081,23 +1143,75 @@ function App({ userId, email, signOut }: { userId: string | null; email: string 
       )}
 
       {/* ─── Bottom Nav ─── */}
-      <nav className="app-nav" style={{
-        position: 'fixed', bottom: 0, left: 0, right: 0, height: 56,
+      <nav className="app-nav" aria-label={locale === 'en' ? 'Main navigation' : 'Navegação principal'} style={{
+        position: 'fixed', bottom: 0, left: 0, right: 0, height: 68,
         background: '#0e0e0e', borderTop: '1px solid #151515',
         display: keyboardOpen ? 'none' : 'flex', alignItems: 'center', justifyContent: 'space-around',
         zIndex: 100, paddingBottom: 'env(safe-area-inset-bottom, 0px)',
       }}>
-        {([
-          { key: 'dashboard' as Tab, icon: IconDashboard, label: t('dashboard') },
-          { key: 'cartao' as Tab, icon: IconCard, label: t('card') },
-          { key: 'chat' as Tab, icon: IconChat, label: t('assistant') },
-        ]).map(({ key, icon: Icon, label }) => (
-          <button type="button" key={key} onClick={() => { setTab(key); setEditMode(false); }} className={tab === key ? 'is-active' : undefined} style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '6px 18px', minWidth: 70, transition: 'all 0.15s', color: tab === key ? '#e0e0e0' : '#555' }}>
-            <Icon />
-            <span style={{ fontSize: 9, fontWeight: tab === key ? 600 : 400, color: tab === key ? '#c0c0c0' : '#8b8b8b', letterSpacing: '0.02em', textTransform: 'uppercase' }}>{label}</span>
+        <button type="button" onClick={() => { setTab('dashboard'); setEditMode(false); }} className={tab === 'dashboard' ? 'is-active' : undefined} style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '6px 8px', flex: 1, minWidth: 0, transition: 'all 0.15s', color: tab === 'dashboard' ? '#e0e0e0' : '#555' }}>
+          <IconDashboard /><span style={{ fontSize: 9, fontWeight: tab === 'dashboard' ? 600 : 400, color: tab === 'dashboard' ? '#c0c0c0' : '#8b8b8b', letterSpacing: '0.02em', textTransform: 'uppercase' }}>{t('dashboard')}</span>
         </button>
-        ))}
+        <button type="button" onClick={() => { setTab('cartao'); setEditMode(false); }} className={tab === 'cartao' ? 'is-active' : undefined} style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '6px 8px', flex: 1, minWidth: 0, transition: 'all 0.15s', color: tab === 'cartao' ? '#e0e0e0' : '#555' }}>
+          <IconCard /><span style={{ fontSize: 9, fontWeight: tab === 'cartao' ? 600 : 400, color: tab === 'cartao' ? '#c0c0c0' : '#8b8b8b', letterSpacing: '0.02em', textTransform: 'uppercase' }}>{t('card')}</span>
+        </button>
+        <button type="button" className="app-nav-add" onClick={() => { setQuickEntryMode('home'); setQuickEntrySuccess(null); setQuickPrompt(null); setQuickEntryOpen(true); }} aria-label={locale === 'en' ? 'New transaction' : 'Novo lançamento'} title={locale === 'en' ? 'New transaction' : 'Novo lançamento'}>
+          <IconAdd />
+        </button>
+        <button type="button" onClick={() => { setTab('transactions'); setEditMode(false); }} className={tab === 'transactions' ? 'is-active' : undefined} style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '6px 8px', flex: 1, minWidth: 0, transition: 'all 0.15s', color: tab === 'transactions' ? '#e0e0e0' : '#555' }}>
+          <IconTransactions /><span style={{ fontSize: 9, fontWeight: tab === 'transactions' ? 600 : 400, color: tab === 'transactions' ? '#c0c0c0' : '#8b8b8b', letterSpacing: '0.02em', textTransform: 'uppercase' }}>{locale === 'en' ? 'Activity' : 'Extrato'}</span>
+        </button>
+        <button type="button" onClick={() => { setTab('chat'); setEditMode(false); }} className={tab === 'chat' ? 'is-active' : undefined} style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '6px 8px', flex: 1, minWidth: 0, transition: 'all 0.15s', color: tab === 'chat' ? '#e0e0e0' : '#555' }}>
+          <IconChat /><span style={{ fontSize: 9, fontWeight: tab === 'chat' ? 600 : 400, color: tab === 'chat' ? '#c0c0c0' : '#8b8b8b', letterSpacing: '0.02em', textTransform: 'uppercase' }}>{t('assistant')}</span>
+        </button>
       </nav>
+
+      <QuickEntrySheet
+        open={quickEntryOpen}
+        mode={quickEntryMode}
+        successMessage={quickEntrySuccess}
+        onModeChange={(mode) => { setQuickEntryMode(mode); setQuickEntrySuccess(null); }}
+        onClose={() => { setQuickEntryOpen(false); setQuickEntryMode('home'); setQuickPrompt(null); }}
+        onAskAssistant={(description) => {
+          setQuickPrompt(`Quero lançar esta compra: ${description}`);
+          setQuickEntryMode('assistant');
+          setQuickEntrySuccess(null);
+        }}
+        onImportInvoice={() => {
+          setQuickEntryMode('invoice');
+          setQuickEntrySuccess(null);
+          statementImportRef.current?.openFilePicker();
+        }}
+        assistantContent={(
+          <div className="quick-entry-assistant">
+            <ChatView key={userId ?? 'local'} embedded quickPurchase isActive={quickEntryOpen && quickEntryMode === 'assistant'} quickPrompt={quickPrompt} onQuickPromptConsumed={clearQuickPrompt} universe={assistantUniverse} userId={userId} calendarActions={calendarAssistantActions} onCommand={handleAssistantCommand} />
+          </div>
+        )}
+        invoiceContent={(
+          <StatementImportPanel
+            ref={statementImportRef}
+            userId={userId}
+            month={db.selectedMonth.name}
+            year={db.selectedMonth.year}
+            existingTransactions={selectedInvoices.flatMap((invoice) => invoice.transactions)}
+            paymentCards={paymentCards}
+            onImport={db.addCreditCardInvoice}
+            onImportExpenses={(expenses) => db.addCreditCardPurchasesBatch(expenses.map((expense) => ({
+              name: expense.name,
+              amount: expense.amount,
+              dueDay: expense.day,
+              category: expense.category,
+              installmentCurrent: 1,
+              installmentTotal: 1,
+              paymentMethod: 'debito_pix',
+            })))}
+            onLaunched={() => {
+              setQuickEntryMode('home');
+              setQuickEntrySuccess(locale === 'en' ? 'Transactions added. You can continue or close.' : 'Lançamentos adicionados. Você pode continuar ou fechar.');
+            }}
+          />
+        )}
+      />
 
       {settingsOpen && (
         <>
@@ -1210,7 +1324,7 @@ function App({ userId, email, signOut }: { userId: string | null; email: string 
       )}
 
       {/* ─── Main ─── */}
-      <div className={`app-content${tab === 'chat' ? ' app-content-chat' : ''}`} style={{ maxWidth: 900, margin: '0 auto', padding: '16px 16px calc(56px + env(safe-area-inset-bottom, 0px) + 24px)', display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div className={`app-content app-content-${tab}${tab === 'chat' ? ' app-content-chat' : ''}`} style={{ maxWidth: 900, margin: '0 auto', padding: '16px 16px calc(76px + env(safe-area-inset-bottom, 0px) + 24px)', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
         {/* Month selector */}
         {tab !== 'chat' && <div className="theme-month-selector" style={{ display: 'flex', gap: 5, overflowX: 'auto', alignItems: 'center' }}>
@@ -1241,13 +1355,23 @@ function App({ userId, email, signOut }: { userId: string | null; email: string 
               </div>
             )}
 
+            <MonthlyLimitHero
+              predictedRemainderCents={amountToCents(db.remaining)}
+              savingsGoalCents={savingsGoalIsManual ? amountToCents(savingsGoal) : 0}
+              paidBillCount={paidCount}
+              totalBillCount={totalCount}
+              hasCardItems={hasCardItems}
+              allObligationsPaid={allObligationsPaid}
+              hideValues={hideValues}
+            />
+
             {/* Progress */}
-            <div className="theme-progress-panel" style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 10, padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div className={`theme-progress-panel${allObligationsPaid ? ' is-complete' : ''}`} style={{ background: '#111', border: `1px solid ${allObligationsPaid ? '#14532d' : '#1a1a1a'}`, borderRadius: 10, padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 12, color: '#8b8b8b' }}>{t('paidBills')}: <strong style={{ color: '#999' }}>{paidCount}</strong> {t('of')} <strong style={{ color: '#999' }}>{totalCount}</strong></span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: progressPct === 100 ? '#10b981' : '#8f8f8f' }}>{progressPct}%</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: progressPct === 100 ? '#10b981' : '#ef4444' }}>{progressPct}%</span>
               </div>
-              <ProgressBar value={paidCount} max={totalCount} />
+              <ProgressBar value={totalCount === 0 ? 1 : paidCount} max={Math.max(totalCount, 1)} color={progressPct === 100 ? '#10b981' : '#ef4444'} />
             </div>
 
             {/* Summary cards 2×2 com olhinho no centro */}
@@ -1257,7 +1381,16 @@ function App({ userId, email, signOut }: { userId: string | null; email: string 
                   <SummaryCard title={t('monthlyIncome')} value={formatCurrency(db.selectedMonth.income)} accent="green" subtitle={t('tapToEdit')} valueColor="#10b981" hidden={hideValues} />
                 </div>
 
-                <SummaryCard title={t('billsToPay')} value={formatCurrency(pendingAmount)} accent="red" subtitle={`${totalCount - paidCount} ${t('pending').toLowerCase()}`} valueColor="#ef4444" hidden={hideValues} />
+                <SummaryCard
+                  title={hasPendingBills ? t('billsToPay') : t('paidBills')}
+                  value={formatCurrency(pendingAmount)}
+                  accent={hasPendingBills ? 'red' : 'green'}
+                  subtitle={hasPendingBills
+                    ? `${pendingCount} ${t('pending').toLowerCase()}`
+                    : locale === 'en' ? 'All bills paid' : 'Tudo em dia'}
+                  valueColor={hasPendingBills ? '#ef4444' : '#10b981'}
+                  hidden={hideValues}
+                />
                 <SummaryCard title={t('totalPaid')} value={formatCurrency(db.totalPaid)} accent="green" subtitle={`${paidCount} ${t('of')} ${totalCount}`} valueColor="#10b981" hidden={hideValues} />
                 <SummaryCard title={db.remaining >= 0 ? t('expectedLeft') : t('expectedDeficit')} value={formatCurrency(Math.abs(db.remaining))} accent={db.remaining >= 0 ? 'yellow' : 'red'} subtitle={t('incomeLessBills')} valueColor={db.remaining >= 0 ? '#f59e0b' : '#ef4444'} hidden={hideValues} />
               </div>
@@ -1379,7 +1512,7 @@ function App({ userId, email, signOut }: { userId: string | null; email: string 
         )}
 
         <div className={tab === 'chat' ? undefined : 'chat-offscreen'}>
-          <ChatView key={userId ?? 'local'} isActive={tab === 'chat'} universe={assistantUniverse} userId={userId} calendarActions={calendarAssistantActions} onCommand={handleAssistantCommand} />
+          <ChatView key={userId ?? 'local'} isActive={tab === 'chat' && !(quickEntryOpen && quickEntryMode === 'assistant')} quickPrompt={quickPrompt} onQuickPromptConsumed={clearQuickPrompt} universe={assistantUniverse} userId={userId} calendarActions={calendarAssistantActions} onCommand={handleAssistantCommand} />
         </div>
         {tab === 'cartao' && (
           <CreditCardView
@@ -1405,6 +1538,9 @@ function App({ userId, email, signOut }: { userId: string | null; email: string 
             onReviewPluggyTransaction={handleReviewPluggyTransaction}
             hideValues={hideValues}
           />
+        )}
+        {tab === 'transactions' && (
+          <TransactionsView month={db.selectedMonth} onAdd={() => { setQuickEntryMode('home'); setQuickEntrySuccess(null); setQuickPrompt(null); setQuickEntryOpen(true); }} />
         )}
       </div>
     </div>

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   type CategoryId,
   type CreditCardInvoice,
@@ -289,6 +289,8 @@ function InvoiceDueBar({ label, cents, dueDay, isPaid, hasItems, calendarAdded, 
 
 interface InvoiceTransactionsProps {
   invoices: CreditCardInvoice[];
+  selectedMonthName: string;
+  selectedMonthYear: number;
   monthBills: Bill[];
   /** Cada barra vem como bloco retrátil: fechado, a lista de compras não empurra o resto da tela. */
   bars?: InvoiceBar[];
@@ -305,10 +307,11 @@ interface InvoiceTransactionsProps {
   hideValues?: boolean;
 }
 
-function InvoiceTransactions({ invoices, monthBills, bars, paymentCards, userId, onUpdate, onTogglePaid, onSaveBill, onDeleteBill, reimbursementReceipts, onAddReimbursement, onRemoveReimbursement, hideValues }: InvoiceTransactionsProps) {
+function InvoiceTransactions({ invoices, selectedMonthName, selectedMonthYear, monthBills, bars, paymentCards, userId, onUpdate, onTogglePaid, onSaveBill, onDeleteBill, reimbursementReceipts, onAddReimbursement, onRemoveReimbursement, hideValues }: InvoiceTransactionsProps) {
   const { formatMoney, parseAmount, typeLabel, categoryColor, t, locale } = usePreferences();
   const ownerOptions = getOwnerOptions(t);
   const [filter, setFilter] = useState<OwnerFilter>('ALL');
+  const [query, setQuery] = useState('');
   const [pendingRemoval, setPendingRemoval] = useState<CreditCardTransaction | null>(null);
   const summaryRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef({ active: false, startX: 0, scrollLeft: 0 });
@@ -328,7 +331,16 @@ function InvoiceTransactions({ invoices, monthBills, bars, paymentCards, userId,
     }
     return transaction.owner === filter;
   };
-  const transactions = sortInvoiceTransactions(allTransactions.filter(matchesFilter));
+  const normalizedQuery = normalizeCardQuery(query);
+  const matchesQuery = (value: string | undefined) => !normalizedQuery || normalizeCardQuery(value ?? '').includes(normalizedQuery);
+  const matchesTransactionQuery = (transaction: CreditCardTransaction) => [
+    transaction.merchant,
+    transaction.thirdPartyName,
+    transaction.category,
+    transactionTypeLabels[locale][transaction.type],
+    getOwnerLabel(transaction.owner),
+  ].some(matchesQuery);
+  const transactions = sortInvoiceTransactions(allTransactions.filter(matchesFilter).filter(matchesTransactionQuery));
   const updateTransaction = (id: string, patch: Partial<CreditCardInvoice['transactions'][number]>, remove = false) => {
     const invoice = invoices.find((item) => item.transactions.some((transaction) => transaction.id === id));
     if (!invoice) return;
@@ -344,7 +356,9 @@ function InvoiceTransactions({ invoices, monthBills, bars, paymentCards, userId,
   };
   // Toda conta lançada na mão que pesa na fatura mora aqui: mensal, variável ou parcela. Só a parcela
   // era listada antes, e o resto somava na barra sem aparecer em lugar nenhum.
-  const pendingBillsOf = (bills: Bill[]): Bill[] => (filter === 'ALL' || filter === 'ME' ? bills : []);
+  const pendingBillsOf = (bills: Bill[]): Bill[] => (
+    (filter === 'ALL' || filter === 'ME' ? bills : []).filter((bill) => matchesQuery(bill.name))
+  );
   // Um chip por pessoa nomeada; os que não têm valor no mês somem para não ocupar espaço.
   const ownerChips: OwnerChip[] = [
     { value: 'ME', label: t('me'), cents: charges.personalCents },
@@ -361,7 +375,9 @@ function InvoiceTransactions({ invoices, monthBills, bars, paymentCards, userId,
   const grouped = Boolean(bars && bars.length > 0);
 
   const rowsList = (rows: CreditCardTransaction[], bills: Bill[]) => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+    rows.length + bills.length === 0
+      ? <div className="transactions-empty">{t('noTransactionsInFilter')}</div>
+      : <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       {rows.map((transaction) => (
         <div key={transaction.id} className="cc-transaction-row" style={{ background: '#131313', border: '1px solid #1e1e1e', borderRadius: 10, padding: '11px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -411,7 +427,7 @@ function InvoiceTransactions({ invoices, monthBills, bars, paymentCards, userId,
 
   /** O corpo de um bloco: as compras daquele cartão que passam pelo filtro, mais as parcelas postas na mão. */
   const groupBody = (bar: InvoiceBar) => {
-    const rows = sortInvoiceTransactions(bar.invoices.flatMap((invoice) => invoice.transactions).filter(matchesFilter));
+    const rows = sortInvoiceTransactions(bar.invoices.flatMap((invoice) => invoice.transactions).filter(matchesFilter).filter(matchesTransactionQuery));
     const bills = pendingBillsOf(bar.bills);
     if (rows.length + bills.length === 0) {
       return <div style={{ fontSize: 11, color: '#7a7a7a', padding: '2px 4px' }}>{t('noTransactionsInFilter')}</div>;
@@ -421,6 +437,13 @@ function InvoiceTransactions({ invoices, monthBills, bars, paymentCards, userId,
 
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <header className="transactions-heading">
+        <div>
+          <span className="transactions-eyebrow">{selectedMonthName} {selectedMonthYear}</span>
+          <h1>{t('card')}</h1>
+        </div>
+        <span className="transactions-count">{allTransactions.length + charges.pendingBills.length}</span>
+      </header>
       {/* Com os blocos por cartão, as somas do mês já aparecem em cima: repetir aqui é ruído. */}
       {!grouped && (
       <div
@@ -453,6 +476,16 @@ function InvoiceTransactions({ invoices, monthBills, bars, paymentCards, userId,
         ))}
       </div>
       )}
+      <label className="transactions-search">
+        <span aria-hidden="true">⌕</span>
+        <span className="sr-only">{locale === 'en' ? 'Search card purchases' : 'Buscar compras do cartão'}</span>
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={locale === 'en' ? 'Search card purchases' : 'Buscar compras do cartão'}
+        />
+      </label>
       <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2, touchAction: 'pan-x' }}>
         {chips.map((chip) => {
           const active = filter === chip.value;
@@ -542,10 +575,10 @@ export const CreditCardView: React.FC<Props> = ({
     return 'fatura';
   });
 
-  const selectSection = (next: CardSection) => {
+  const selectSection = useCallback((next: CardSection) => {
     setSection(next);
     try { const saved = localStorage.getItem('financa_sections_v1'); const s = saved ? JSON.parse(saved) : {}; s['creditCardSection'] = next; localStorage.setItem('financa_sections_v1', JSON.stringify(s)); } catch { /* ignore */ }
-  };
+  }, []);
 
   const cur = parseInt(curInstallment) || 1;
   const total = parseInt(totalInstallment) || 1;
@@ -863,7 +896,7 @@ export const CreditCardView: React.FC<Props> = ({
         />
       )}
       <RecurringChargesNotice months={allMonths} selectedMonthId={selectedMonthId} userId={userId} hideValues={hideValues} onReclassify={onReclassifyRecurring} onRepeat={onRepeatCharge} />
-      {(creditCardInvoices.length > 0 || charges.pendingBills.length > 0 || reimbursementReceipts.length > 0) && <InvoiceTransactions invoices={creditCardInvoices} monthBills={monthBills} bars={groupedBars ? invoiceBars : undefined} paymentCards={paymentCards} userId={userId} onUpdate={onUpdateInvoice} onTogglePaid={onTogglePaid} onSaveBill={onSaveBill} onDeleteBill={onDeleteBill} reimbursementReceipts={reimbursementReceipts} onAddReimbursement={onAddReimbursement} onRemoveReimbursement={onRemoveReimbursement} hideValues={hideValues} />}
+      <InvoiceTransactions invoices={creditCardInvoices} selectedMonthName={selectedMonthName} selectedMonthYear={selectedMonthYear} monthBills={monthBills} bars={groupedBars ? invoiceBars : undefined} paymentCards={paymentCards} userId={userId} onUpdate={onUpdateInvoice} onTogglePaid={onTogglePaid} onSaveBill={onSaveBill} onDeleteBill={onDeleteBill} reimbursementReceipts={reimbursementReceipts} onAddReimbursement={onAddReimbursement} onRemoveReimbursement={onRemoveReimbursement} hideValues={hideValues} />
 
       {/* Contas fixas vinculadas ao cartão que já estão pagas na fatura do banco. */}
       {unlistedLinkedBills.length > 0 && (
@@ -929,3 +962,7 @@ export const CreditCardView: React.FC<Props> = ({
     </div>
   );
 };
+
+function normalizeCardQuery(value: string): string {
+  return value.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase();
+}

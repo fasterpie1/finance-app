@@ -28,6 +28,10 @@ interface Props {
   universe: AssistantUniverse;
   userId: string | null;
   isActive?: boolean;
+  embedded?: boolean;
+  quickPurchase?: boolean;
+  quickPrompt?: string | null;
+  onQuickPromptConsumed?: () => void;
   calendarActions?: CalendarAssistantActions;
   /** Interpreta o JSON do modelo contra os dados reais e devolve a resposta ou a mudança pendente. */
   onCommand?: (command: AssistantCommand) => AssistantOutcome;
@@ -47,6 +51,53 @@ const STORAGE_KEY_GROQ_STATUS = 'groq_configured';
 const MAX_STORED_MESSAGES = 50;
 
 const SUGGESTION_KEYS = ['suggestion1', 'suggestion2', 'suggestion3', 'suggestion4', 'suggestion5', 'suggestion6'];
+
+function normalizeQuickPurchaseText(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR');
+}
+
+function parseQuickPurchaseDetails(description: string, categoryNames: string[]): Partial<AssistantCommand> {
+  let value = description
+    .replace(/^\s*(?:(?:quero\s+)?lan[cç]ar\s+(?:(?:esta|essa|uma)\s+)?compra\s*:?\s*)/i, '')
+    .replace(/\b(?:no\s+)?valor\s+de\s*(?:r\$\s*)?\d[\d.,]*(?:\s*reais?)?/gi, ' ')
+    .replace(/r\$\s*\d[\d.,]*(?:\s*reais?)?/gi, ' ')
+    .replace(/\b\d+(?:[.,]\d{1,2})?\s*reais?\b/gi, ' ')
+    .replace(/\b(?:no|na|em|via|por)\s+(?:cart[aã]o\s+)?(?:d[eé]bito|cr[eé]dito|pix)\b/gi, ' ')
+    .replace(/\b(?:hoje|ontem)\b/gi, ' ');
+  for (const category of categoryNames) {
+    const escaped = category.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    value = value.replace(new RegExp(`(?:,\\s*|\\b(?:categoria|em)\\s+)${escaped}\\s*$`, 'i'), '');
+  }
+  value = value.replace(/^[\s,.:;-]+|[\s,.:;-]+$/g, '').replace(/\s+/g, ' ');
+  const establishment = value.match(/\b(?:no|na|em)\s+(.+)$/i)?.[1];
+  const name = establishment?.replace(/^(?:de|do|da|um|uma)\s+/i, '').trim();
+  const details: Partial<AssistantCommand> = {};
+  if (name) details.name = `${name[0].toLocaleUpperCase('pt-BR')}${name.slice(1)}`;
+
+  const amountText = description.match(/\bvalor\s+(?:de\s*)?r\$\s*([\d.,]+)/i)?.[1]
+    ?? description.match(/r\$\s*([\d.,]+)/i)?.[1]
+    ?? description.match(/\b([\d.,]+)\s*reais?\b/i)?.[1];
+  if (amountText) {
+    const normalizedAmount = amountText.includes(',')
+      ? amountText.replace(/\./g, '').replace(',', '.')
+      : amountText;
+    const amount = Number(normalizedAmount);
+    if (Number.isFinite(amount) && amount > 0) details.amount = amount;
+  }
+
+  const normalizedDescription = normalizeQuickPurchaseText(description);
+  const category = [...categoryNames]
+    .sort((left, right) => right.length - left.length)
+    .find((candidate) => {
+      const normalizedCategory = normalizeQuickPurchaseText(candidate);
+      return new RegExp(`(^|[^a-z0-9])${normalizedCategory.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`).test(normalizedDescription);
+    });
+  if (category) details.category = category;
+
+  if (/\b(debito|pix)\b/i.test(normalizedDescription)) details.paymentMethod = 'debito_pix';
+  else if (/\b(credito)\b/i.test(normalizedDescription)) details.paymentMethod = 'credito';
+  return details;
+}
 
 function loadChat(userId: string | null): Message[] {
   try { const raw = readUserStorage(userId, STORAGE_KEY_CHAT); if (raw) return JSON.parse(raw) as Message[]; } catch { /* ignore */ }
@@ -103,7 +154,7 @@ const IconAI = () => (
   </svg>
 );
 
-export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, calendarActions, onCommand }) => {
+export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, embedded = false, quickPurchase = false, quickPrompt, onQuickPromptConsumed, calendarActions, onCommand }) => {
   const { t, locale } = usePreferences();
   const [messages, setMessages] = useState<Message[]>(() => loadChat(userId));
   const [input, setInput] = useState('');
@@ -125,8 +176,18 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
   const speechRef = useRef<ReturnType<typeof startSpeechInput> | null>(null);
   const dictationBaseRef = useRef('');
   const inFlightRef = useRef(false);
+  const sendMessageRef = useRef<(text?: string) => Promise<void>>(async () => {});
   const requestRef = useRef(0);
   const retryUntilRef = useRef(0);
+  const wasActiveRef = useRef(isActive);
+  const quickPurchaseStartRef = useRef<number | null>(null);
+  const quickPurchaseDraftRef = useRef<AssistantCommand | null>(null);
+  const quickPromptSeenRef = useRef<string | null>(null);
+  if (quickPurchase && quickPrompt && quickPromptSeenRef.current !== quickPrompt) {
+    quickPromptSeenRef.current = quickPrompt;
+    quickPurchaseStartRef.current = messages.length;
+    quickPurchaseDraftRef.current = null;
+  }
 
   useEffect(() => {
     if (!retryUntil) return;
@@ -167,7 +228,11 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
     vv.addEventListener('resize', onResize);
     return () => vv.removeEventListener('resize', onResize);
   }, []);
-  useEffect(() => { if (userId) writeUserStorage(userId, STORAGE_KEY_CHAT, JSON.stringify(messages.slice(-MAX_STORED_MESSAGES))); }, [messages, userId]);
+  useEffect(() => {
+    if (isActive && !wasActiveRef.current) setMessages(loadChat(userId));
+    wasActiveRef.current = isActive;
+  }, [isActive, userId]);
+  useEffect(() => { writeUserStorage(userId, STORAGE_KEY_CHAT, JSON.stringify(messages.slice(-MAX_STORED_MESSAGES))); }, [messages, userId]);
   useEffect(() => {
     const cachedStatus = readUserStorage(userId, STORAGE_KEY_GROQ_STATUS);
     if (cachedStatus === 'true') {
@@ -192,7 +257,7 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
 
   const saveKey = async () => { const k = apiKeyInput.trim(); if (!k.startsWith('gsk_')) return; setKeyLoading(true); try { await saveGroqKey(k); writeUserStorage(userId, STORAGE_KEY_GROQ_STATUS, 'true'); setShowKeySetup(false); setApiKeyInput(''); } catch (err) { setMessages((prev) => [...prev, { role: 'error', content: err instanceof Error ? err.message : t('googleErrorDescription') }]); } finally { setKeyLoading(false); } };
   const removeKey = async () => { setKeyLoading(true); try { await deleteGroqKey(); removeUserStorage(userId, STORAGE_KEY_GROQ_STATUS); setShowKeySetup(true); } catch (err) { setMessages((prev) => [...prev, { role: 'error', content: err instanceof Error ? err.message : t('googleErrorDescription') }]); } finally { setKeyLoading(false); } };
-  const clearChat = () => { requestRef.current += 1; inFlightRef.current = false; setLoading(false); setPending(null); setMessages([]); removeUserStorage(userId, STORAGE_KEY_CHAT); };
+  const clearChat = () => { requestRef.current += 1; inFlightRef.current = false; setLoading(false); setPending(null); quickPurchaseDraftRef.current = null; setMessages([]); removeUserStorage(userId, STORAGE_KEY_CHAT); };
 
   const removePhoto = () => {
     imageRequestRef.current += 1;
@@ -264,12 +329,35 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
     setInput(dictationBaseRef.current);
   };
 
+  const applyPending = (confirmationText?: string) => {
+    if (!pending) return;
+    const result = pending.apply();
+    quickPurchaseDraftRef.current = null;
+    setPending(null);
+    setMessages((prev) => [
+      ...prev,
+      ...(confirmationText ? [{ role: 'user' as const, content: confirmationText }] : []),
+      { role: 'assistant', content: result },
+    ]);
+  };
+
+  const cancelPending = () => {
+    quickPurchaseDraftRef.current = null;
+    setPending(null);
+    setMessages((prev) => [...prev, { role: 'assistant', content: t('assistantCancelled') }]);
+  };
+
   const sendMessage = async (text?: string) => {
     const image = attachment;
     const typed = (text ?? input).trim();
     const msg = typed || (image ? t('chatDescribePhoto') : '');
     if (!msg || showKeySetup || inFlightRef.current || imageLoading || dictating || !isActive) return;
-    const requestIntents = classifyAssistantIntents(msg, universe, Boolean(image));
+    if (quickPurchase && pending && /^(?:sim|confirmar|confirmo|pode lançar|pode lancar|pode salvar|pode salvar a compra|salvar|lançar|lancar|ok|pode)$/i.test(msg.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, ''))) {
+      setInput('');
+      applyPending(msg);
+      return;
+    }
+    const requestIntents = quickPurchase ? ['action'] : classifyAssistantIntents(msg, universe, Boolean(image));
     const structured = requestIntents.includes('action') || requestIntents.includes('calendar');
     if (Date.now() < retryUntilRef.current) return;
     const requestId = ++requestRef.current;
@@ -280,8 +368,14 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
     // Uma mudança por vez: se o usuário escrever de novo, a confirmação anterior é descartada.
     setPending(null);
     const userMsg: Message = { role: 'user', content: msg, ...(image ? { photoName: image.name } : {}) };
-    const history = [...messages, userMsg].slice(-MAX_STORED_MESSAGES);
-    setMessages(history);
+    const visibleHistory = [...messages, userMsg].slice(-MAX_STORED_MESSAGES);
+    const turnStart = quickPurchase
+      ? Math.min(messages.length, Math.max(0, quickPurchaseStartRef.current ?? messages.length))
+      : 0;
+    const turnHistory = quickPurchase
+      ? [...messages.slice(turnStart), userMsg].slice(-MAX_STORED_MESSAGES)
+      : visibleHistory;
+    setMessages(visibleHistory);
     setLoading(true);
     const tokenMetrics = { calls: 0, measuredCalls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, cachedInputTokens: 0, latencyMs: 0 };
     let requestFailed = false;
@@ -300,12 +394,14 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
     try {
       const today = new Date().toISOString().slice(0, 10);
       const calendarInstructions = `\n\nVocê também pode controlar o Google Agenda. Hoje é ${today}. Para qualquer pedido de agenda, responda SOMENTE um JSON válido, sem markdown, com este formato: {"action":"...","response":"..."}. Ações disponíveis: create_bill_reminder com billName para uma conta do mês atual (o lembrete usa automaticamente 9h no dia anterior ao vencimento); create_invoice_reminder para a fatura do mês atual (também usa 9h); create_event com title, date YYYY-MM-DD, time HH:mm, durationMinutes e description; list_events com date YYYY-MM-DD (omita para hoje); update_event com eventId ou query e os campos a alterar; delete_event com query ou eventId. Para create_event, NUNCA invente nem assuma título, data ou horário: se algum desses três campos faltar, use action none e escreva em response uma pergunta objetiva dizendo exatamente o que falta. Para perguntas normais use action none e coloque a resposta em response. Não invente IDs nem contas.\n`;
-      const storedHistory = history.map((m) => ({
+      const storedHistory = turnHistory.map((m) => ({
         role: m.role,
         content: `${m.content}${m.photoName ? `\n${t('chatPhotoLabel', { name: m.photoName })}` : ''}`,
       }));
       const currentMessage = storedHistory.at(-1);
-      const historyMessages = needsAssistantHistory(msg)
+      const historyMessages = quickPurchase
+        ? buildAssistantHistory(storedHistory)
+        : needsAssistantHistory(msg)
         ? buildAssistantHistory(storedHistory)
         : currentMessage ? [{ role: currentMessage.role as 'user' | 'assistant', content: currentMessage.content }] : [];
       const contextQuestion = historyMessages.filter((message) => message.role === 'user').map((message) => message.content).join('\n') || msg;
@@ -325,7 +421,15 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
           ? turnMessages.map((message, index) => index === lastUserIndex ? { ...message, content: `${message.content}\n${paymentScope}` } : message)
           : turnMessages;
         for (const maxLines of [60, 30, 15, 0]) {
-          const system = `${buildAssistantDataSection(universe, month, detailed, intents, contextQuestion, maxLines)}\n\n${buildProtocolSection(universe, intents, structured)}\nIdioma da resposta: ${locale === 'en' ? 'inglês' : 'português brasileiro'}.\nFotos de mensagens anteriores não estão disponíveis: use apenas os dados já descritos na conversa ou peça para anexar novamente.${withCalendar && calendarActions && !image ? calendarInstructions : ''}`;
+          const purchaseContext = [
+            `Mês de lançamento: ${monthLabel(universe.selectedMonth)}.`,
+            `Categorias disponíveis: ${universe.categoryNames.join(', ')}.`,
+            `Cartões disponíveis: ${universe.cards.map((card) => `${card.bank} ${card.last4}`).join(', ') || 'nenhum'}.`,
+          ].join('\n');
+          const context = quickPurchase
+            ? `${purchaseContext}\n\n${buildProtocolSection(universe, ['action'], true)}\nNo lançamento rápido, extraia o estabelecimento informado no próprio texto e use esse nome em name. Exemplo: em "Almoço no bar da cachaça no débito por R$ 35, alimentação", use name "Bar da Cachaça", amount 35, category "Alimentação" e paymentMethod "debito_pix". Pergunte o estabelecimento somente se ele realmente não puder ser identificado no texto.`
+            : `${buildAssistantDataSection(universe, month, detailed, intents, contextQuestion, maxLines)}\n\n${buildProtocolSection(universe, intents, structured)}\nFotos de mensagens anteriores não estão disponíveis: use apenas os dados já descritos na conversa ou peça para anexar novamente.${withCalendar && calendarActions && !image ? calendarInstructions : ''}`;
+          const system = `${context}\nIdioma da resposta: ${locale === 'en' ? 'inglês' : 'português brasileiro'}.${!quickPurchase ? `\nFotos de mensagens anteriores não estão disponíveis: use apenas os dados já descritos na conversa ou peça para anexar novamente.${withCalendar && calendarActions && !image ? calendarInstructions : ''}` : ''}`;
           const request = buildAssistantChatRequest(system, scopedMessages, image?.dataUrl, structured);
           if (assistantRequestFitsBudget(request)) return request;
         }
@@ -386,6 +490,28 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
       let parsedResponse = await parseWithRepair(initialRequest, rawContent, !sentResponse.usedFormatFallback);
       rawContent = parsedResponse.content;
       let command = parsedResponse.command;
+      if (quickPurchase) {
+        const draft = quickPurchaseDraftRef.current;
+        const modelPurchase = command.action === 'add_purchase' ? command : {};
+        const explicit = parseQuickPurchaseDetails(msg, universe.categoryNames);
+        const merged: AssistantCommand = { ...draft, ...modelPurchase, ...explicit, action: 'add_purchase' };
+        if (!merged.name?.trim() && draft) merged.name = msg;
+        const missing = !merged.name?.trim() ? 'name'
+          : !(typeof merged.amount === 'number' && merged.amount > 0) ? 'amount'
+          : !merged.category?.trim() ? 'category'
+          : !merged.paymentMethod?.trim() ? 'paymentMethod' : null;
+        if (!missing) {
+          command = { ...merged, response: 'Compra preparada para você conferir.' };
+        } else {
+          command = merged;
+          command.response = missing === 'name' ? 'Qual é o nome do estabelecimento?'
+            : missing === 'amount' ? 'Qual foi o valor da compra?'
+            : missing === 'category' ? `Qual categoria devo usar? ${universe.categoryNames.join(', ')}.`
+            : 'A compra foi no crédito ou no débito/Pix?';
+        }
+        rawContent = JSON.stringify(command);
+      }
+      if (quickPurchase && command.action === 'add_purchase') quickPurchaseDraftRef.current = command;
       if (command?.action === 'get_month_detail') {
         const target = resolveMonthRef(universe, command.month);
         if (!target) {
@@ -430,11 +556,23 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
         return;
       }
       // Alteração no aplicativo: nada muda antes de o usuário tocar em Aplicar.
+      if (quickPurchase && command.action === 'add_purchase') {
+        const missing = !command.name?.trim() ? 'name'
+          : !(typeof command.amount === 'number' && command.amount > 0) ? 'amount'
+          : !command.category?.trim() ? 'category'
+          : !command.paymentMethod?.trim() ? 'paymentMethod' : null;
+        if (missing) {
+          quickPurchaseDraftRef.current = command;
+          setMessages((prev) => [...prev, { role: 'assistant', content: command.response ?? 'Falta uma informação para preparar a compra.' }]);
+          return;
+        }
+      }
       const outcome = onCommand ? onCommand(command) : { kind: 'answer' as const, text: command.response ?? 'Não entendi esse pedido.' };
       if (outcome.kind === 'answer') {
         setMessages((prev) => [...prev, { role: 'assistant', content: outcome.text }]);
         return;
       }
+      if (quickPurchase) quickPurchaseDraftRef.current = null;
       setPending({ summary: outcome.summary, apply: outcome.apply });
       setMessages((prev) => [...prev, { role: 'assistant', content: command.response ?? outcome.summary[0] ?? '' }]);
     } catch (err) {
@@ -486,19 +624,14 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
     }
   };
 
-  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void sendMessage(); } };
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void sendMessage(); }   };
 
-  const applyPending = () => {
-    if (!pending) return;
-    const result = pending.apply();
-    setPending(null);
-    setMessages((prev) => [...prev, { role: 'assistant', content: result }]);
-  };
-
-  const cancelPending = () => {
-    setPending(null);
-    setMessages((prev) => [...prev, { role: 'assistant', content: t('assistantCancelled') }]);
-  };
+  sendMessageRef.current = sendMessage;
+  useEffect(() => {
+    if (!quickPrompt || !isActive || showKeySetup || loading || inFlightRef.current) return;
+    onQuickPromptConsumed?.();
+    void sendMessageRef.current(quickPrompt);
+  }, [isActive, loading, onQuickPromptConsumed, quickPrompt, showKeySetup]);
 
   const waitingForAI = retrySeconds > 0;
 
@@ -543,7 +676,7 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
 
   return (
     <div className="theme-chat-view theme-chat-active" style={{ display: 'flex', flexDirection: 'column', flex: '1 1 auto', minHeight: 0, height: 'auto', overflow: 'hidden', gap: 0 }}>
-      <div className="theme-chat-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexShrink: 0 }}>
+      {!embedded && <div className="theme-chat-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div className="chat-avatar" style={{ width: 28, height: 28, borderRadius: 8, background: '#111520', border: '1px solid #1e2a3e', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#60a5fa' }}><IconAI /></div>
           <div>
@@ -561,10 +694,10 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" /></svg>
             </button>
         </div>
-      </div>
+      </div>}
 
       <div className="theme-chat-messages" style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingRight: 4, paddingBottom: 8 }}>
-        {messages.length === 0 && (
+        {messages.length === 0 && !embedded && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 16 }}>
             <div style={{ textAlign: 'center', color: '#8b8b8b', fontSize: 12 }}>{t('askAboutSpending')}</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center' }}>
@@ -610,7 +743,7 @@ export const ChatView: React.FC<Props> = ({ universe, userId, isActive = true, c
           <div style={{ fontSize: 10, color: '#8a8a8a' }}>{t('assistantConfirmHint')}</div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button type="button" onClick={cancelPending} style={{ flex: 1, background: 'transparent', border: '1px solid #22334a', borderRadius: 6, color: '#9a9a9a', cursor: 'pointer', padding: '10px', fontSize: 13, fontWeight: 600, minHeight: 40 }}>{t('assistantCancel')}</button>
-            <button type="button" onClick={applyPending} style={{ flex: 1, background: '#3b82f6', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '10px', fontSize: 13, fontWeight: 600, minHeight: 40 }}>{t('assistantApply')}</button>
+            <button type="button" onClick={() => applyPending()} style={{ flex: 1, background: '#3b82f6', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '10px', fontSize: 13, fontWeight: 600, minHeight: 40 }}>{t('assistantApply')}</button>
           </div>
         </div>
       )}
