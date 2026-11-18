@@ -1,15 +1,12 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { type IncomeSource } from '../types';
 import { useModalA11y } from '../hooks/useModalA11y';
-
-function newSourceId(): string {
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
-}
+import { mergeMissingIncomeSources, newIncomeSourceId } from '../services/incomeSources';
 
 function seedSources(sources: IncomeSource[] | undefined, income: number): IncomeSource[] {
   if (sources && sources.length > 0) return sources.map((source) => ({ ...source }));
-  if (income > 0) return [{ id: newSourceId(), label: '', amount: income }];
-  return [{ id: newSourceId(), label: '', amount: 0 }];
+  if (income > 0) return [{ id: newIncomeSourceId(), label: '', amount: income }];
+  return [{ id: newIncomeSourceId(), label: '', amount: 0 }];
 }
 
 interface Props {
@@ -17,6 +14,8 @@ interface Props {
   monthLabel: string;
   income: number;
   sources: IncomeSource[] | undefined;
+  previousIncome: number;
+  previousSources: IncomeSource[] | undefined;
   onClose: () => void;
   onSave: (sources: IncomeSource[]) => void;
   formatCurrency: (value: number) => string;
@@ -32,6 +31,7 @@ interface Props {
     remove: string;
     total: string;
     close: string;
+    copyPrevious: string;
   };
   closeIcon: React.ReactNode;
 }
@@ -41,6 +41,8 @@ export const IncomeSourcesModal: React.FC<Props> = ({
   monthLabel,
   income,
   sources,
+  previousIncome,
+  previousSources,
   onClose,
   onSave,
   formatCurrency,
@@ -76,9 +78,23 @@ export const IncomeSourcesModal: React.FC<Props> = ({
   };
 
   const addRow = () => {
-    const id = newSourceId();
+    const id = newIncomeSourceId();
     setRows((prev) => [...prev, { id, label: '', amount: 0 }]);
     setDraftAmounts((prev) => ({ ...prev, [id]: '' }));
+  };
+
+  const previousRows = (previousSources ?? []).filter((source) => source.label.trim() || source.amount > 0);
+  if (previousRows.length === 0 && previousIncome > 0) {
+    previousRows.push({ id: 'previous-income-total', label: '', amount: previousIncome });
+  }
+
+  const copyPreviousSources = () => {
+    const currentRows = sources && sources.length > 0
+      ? rows
+      : rows.filter((row) => row.label.trim() || row.amount !== income);
+    const nextRows = mergeMissingIncomeSources(currentRows, previousRows);
+    setRows(nextRows);
+    setDraftAmounts(Object.fromEntries(nextRows.map((row) => [row.id, row.amount > 0 ? String(row.amount) : ''])));
   };
 
   const removeRow = (id: string) => {
@@ -158,6 +174,11 @@ export const IncomeSourcesModal: React.FC<Props> = ({
             ))}
           </ul>
         </div>
+        {previousRows.length > 0 && (
+          <button type="button" className="income-source-copy" onClick={copyPreviousSources}>
+            {labels.copyPrevious}
+          </button>
+        )}
         <button type="button" className="income-source-add" onClick={addRow}>
           + {labels.add}
         </button>

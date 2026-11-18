@@ -1396,6 +1396,21 @@ body[data-theme='light'] .daily-notification-item.is-overdue .daily-notification
   flex-shrink: 0;
 }
 
+.income-source-copy {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border: 1px solid #263957;
+  border-radius: 8px;
+  background: #111a2b;
+  color: #93c5fd;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
 .income-sources-sheet-footer {
   margin-top: 12px;
   padding-top: 12px;
@@ -1470,6 +1485,12 @@ body[data-theme='light'] .income-source-remove {
 body[data-theme='light'] .income-source-add {
   border-color: #cbd5e1;
   color: #475569;
+}
+
+body[data-theme='light'] .income-source-copy {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
 }
 
 body[data-theme='light'] .income-sources-total {

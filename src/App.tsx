@@ -279,6 +279,13 @@ function App({ userId, email, signOut }: { userId: string | null; email: string 
   const formatCurrency = formatMoney;
   const formatMonthShort = formatLocalizedMonthShort;
   const db = useDashboard(userId);
+  const incomeMonthIndex = getMonthIndex(db.selectedMonth.name);
+  const previousIncomeMonthIndex = (incomeMonthIndex - 1 + MONTH_NAMES.length) % MONTH_NAMES.length;
+  const previousIncomeMonthYear = incomeMonthIndex === 0 ? db.selectedMonth.year - 1 : db.selectedMonth.year;
+  const previousMonth = db.months.find((month) =>
+    month.name.toLowerCase() === MONTH_NAMES[previousIncomeMonthIndex].toLowerCase()
+      && month.year === previousIncomeMonthYear
+  );
   const pluggy = usePluggy(userId, email);
   const { addOpenFinanceTransaction, selectMonth } = db;
   const { markReviewed } = pluggy;
@@ -1275,6 +1282,8 @@ function App({ userId, email, signOut }: { userId: string | null; email: string 
           monthLabel={`${db.selectedMonth.name} ${db.selectedMonth.year}`}
           income={db.selectedMonth.income}
           sources={db.selectedMonth.incomeSources}
+          previousIncome={previousMonth?.income ?? 0}
+          previousSources={previousMonth?.incomeSources}
           onClose={() => setIncomeModalOpen(false)}
           onSave={db.updateIncomeSources}
           formatCurrency={formatCurrency}
@@ -1291,6 +1300,7 @@ function App({ userId, email, signOut }: { userId: string | null; email: string 
             remove: t('removeIncomeSource'),
             total: t('incomeSourcesTotal'),
             close: t('saveIncomeSources'),
+            copyPrevious: t('copyPreviousIncome'),
           }}
         />
       )}
