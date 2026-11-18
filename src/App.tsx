@@ -581,7 +581,6 @@ function App({ userId, email, signOut }: { userId: string | null; email: string 
   // Débito/pix é deduzido na hora e não tem toggle; conta como pago (mesma regra de useDashboard.totalPaid).
   const paidCount = db.selectedMonth.bills.filter((b) => b.isPaid || b.cardPaymentMethod === 'debito_pix').length;
   const totalCount = db.selectedMonth.bills.length;
-  const progressPct = totalCount > 0 ? Math.round((paidCount / totalCount) * 100) : 100;
   const fixedTotal = db.fixedBills.reduce((s, b) => s + b.amount, 0);
   const fixedPaidTotal = db.fixedBills.filter((b) => b.isPaid).reduce((s, b) => s + b.amount, 0);
   const pendingCount = Math.max(totalCount - paidCount, 0);
@@ -1324,7 +1323,7 @@ function App({ userId, email, signOut }: { userId: string | null; email: string 
       )}
 
       {/* ─── Main ─── */}
-      <div className={`app-content app-content-${tab}${tab === 'chat' ? ' app-content-chat' : ''}`} style={{ maxWidth: 900, margin: '0 auto', padding: '16px 16px calc(76px + env(safe-area-inset-bottom, 0px) + 24px)', display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div key={tab} className={`app-content app-content-${tab}${tab === 'chat' ? ' app-content-chat' : ''}`} style={{ maxWidth: 900, margin: '0 auto', padding: '16px 16px calc(76px + env(safe-area-inset-bottom, 0px) + 24px)', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
         {/* Month selector */}
         {tab !== 'chat' && <div className="theme-month-selector" style={{ display: 'flex', gap: 5, overflowX: 'auto', alignItems: 'center' }}>
@@ -1364,15 +1363,6 @@ function App({ userId, email, signOut }: { userId: string | null; email: string 
               allObligationsPaid={allObligationsPaid}
               hideValues={hideValues}
             />
-
-            {/* Progress */}
-            <div className={`theme-progress-panel${allObligationsPaid ? ' is-complete' : ''}`} style={{ background: '#111', border: `1px solid ${allObligationsPaid ? '#14532d' : '#1a1a1a'}`, borderRadius: 10, padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 12, color: '#8b8b8b' }}>{t('paidBills')}: <strong style={{ color: '#999' }}>{paidCount}</strong> {t('of')} <strong style={{ color: '#999' }}>{totalCount}</strong></span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: progressPct === 100 ? '#10b981' : '#ef4444' }}>{progressPct}%</span>
-              </div>
-              <ProgressBar value={totalCount === 0 ? 1 : paidCount} max={Math.max(totalCount, 1)} color={progressPct === 100 ? '#10b981' : '#ef4444'} />
-            </div>
 
             {/* Summary cards 2×2 com olhinho no centro */}
             <div style={{ position: 'relative' }}>

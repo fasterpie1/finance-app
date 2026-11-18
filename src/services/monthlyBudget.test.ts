@@ -3,40 +3,40 @@ import { getMonthlyBudgetSummary, getSavingsGoalProgress } from './monthlyBudget
 
 describe('getMonthlyBudgetSummary', () => {
   it('subtracts the savings goal from the predicted remainder', () => {
-    expect(getMonthlyBudgetSummary(444_700, 400_000, false)).toEqual({
+    expect(getMonthlyBudgetSummary(444_700, 400_000)).toEqual({
       predictedRemainderCents: 444_700,
       savingsGoalCents: 400_000,
       availableCents: 44_700,
       remainingRatio: 44_700 / 444_700,
       goalShortfallCents: 0,
-      status: 'over',
+      status: 'healthy',
     });
   });
 
   it('treats the full predicted remainder as spendable when no manual goal is set', () => {
-    expect(getMonthlyBudgetSummary(444_700, 0, true).availableCents).toBe(444_700);
-    expect(getMonthlyBudgetSummary(444_700, 0, true).status).toBe('healthy');
-    expect(getMonthlyBudgetSummary(444_700, 0, false).status).toBe('over');
-    expect(getMonthlyBudgetSummary(-1, 0, true).status).toBe('over');
+    expect(getMonthlyBudgetSummary(444_700, 0).availableCents).toBe(444_700);
+    expect(getMonthlyBudgetSummary(444_700, 0).status).toBe('healthy');
+    expect(getMonthlyBudgetSummary(-1, 0).status).toBe('over');
   });
 
-  it('keeps spendable percentage separate from the bill-payment status', () => {
-    const unpaid = getMonthlyBudgetSummary(444_700, 400_000, false);
-    const paid = getMonthlyBudgetSummary(444_700, 400_000, true);
-    expect(unpaid.remainingRatio).toBe(paid.remainingRatio);
-    expect(unpaid.status).toBe('over');
-    expect(paid.status).toBe('healthy');
+  it('keeps the available-to-spend status independent from bill payments', () => {
+    expect(getMonthlyBudgetSummary(441_400, 400_000).status).toBe('healthy');
   });
 
-  it('only turns green after all obligations are paid and the goal is fully achievable', () => {
-    expect(getMonthlyBudgetSummary(320_000, 400_000, false).status).toBe('over');
-    expect(getMonthlyBudgetSummary(320_000, 400_000, true).status).toBe('caution');
-    expect(getMonthlyBudgetSummary(300_000, 400_000, true).status).toBe('over');
-    expect(getMonthlyBudgetSummary(400_000, 400_000, true).status).toBe('healthy');
+  it('uses caution at two percent or less when the savings goal remains achievable', () => {
+    expect(getMonthlyBudgetSummary(100_000, 98_000).status).toBe('caution');
+    expect(getMonthlyBudgetSummary(100_000, 98_001).status).toBe('caution');
+    expect(getMonthlyBudgetSummary(100_000, 97_999).status).toBe('healthy');
+    expect(getMonthlyBudgetSummary(400_000, 400_000).status).toBe('caution');
+  });
+
+  it('turns red only when the predicted remainder cannot cover the savings goal', () => {
+    expect(getMonthlyBudgetSummary(320_000, 400_000).status).toBe('over');
+    expect(getMonthlyBudgetSummary(300_000, 400_000).status).toBe('over');
   });
 
   it('never reports a negative spendable amount and exposes the savings shortfall', () => {
-    const summary = getMonthlyBudgetSummary(300_000, 400_000, false);
+    const summary = getMonthlyBudgetSummary(300_000, 400_000);
     expect(summary.availableCents).toBe(0);
     expect(summary.goalShortfallCents).toBe(100_000);
     expect(summary.remainingRatio).toBe(0);

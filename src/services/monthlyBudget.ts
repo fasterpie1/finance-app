@@ -39,7 +39,6 @@ export function getSavingsGoalProgress(projectedSavingsCents: number, goalCents:
 export function getMonthlyBudgetSummary(
   predictedRemainderCents: number,
   savingsGoalCents: number,
-  allObligationsPaid = false,
 ): MonthlyBudgetSummary {
   const predicted = Number.isSafeInteger(predictedRemainderCents) ? predictedRemainderCents : 0;
   const goal = Number.isSafeInteger(savingsGoalCents) ? Math.max(0, savingsGoalCents) : 0;
@@ -47,19 +46,17 @@ export function getMonthlyBudgetSummary(
   const remainingRatio = predicted > 0
     ? Math.max(0, Math.min(1, availableCents / predicted))
     : 0;
-  const goalProgress = getSavingsGoalProgress(predicted, goal);
-  const status: MonthlyBudgetStatus = !allObligationsPaid
+  const goalShortfallCents = Math.max(-availableCents, 0);
+  const status: MonthlyBudgetStatus = goalShortfallCents > 0
     ? 'over'
-    : goal <= 0 ? (predicted >= 0 ? 'healthy' : 'over')
-      : goalProgress.status === 'achieved' ? 'healthy'
-      : goalProgress.status === 'nearly' ? 'caution' : 'over';
+    : remainingRatio <= 0.02 ? 'caution' : 'healthy';
 
   return {
     predictedRemainderCents: predicted,
     savingsGoalCents: goal,
     availableCents: Math.max(availableCents, 0),
     remainingRatio,
-    goalShortfallCents: Math.max(-availableCents, 0),
+    goalShortfallCents,
     status,
   };
 }

@@ -1,49 +1,19 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import './AppOpeningAnimation.css';
 
 export function AppOpeningAnimation() {
   const [visible, setVisible] = useState(true);
-  const [cycle, setCycle] = useState(0);
-  const timer = useRef<number | undefined>(undefined);
-  const lastShownAt = useRef(0);
 
   useEffect(() => {
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    lastShownAt.current = Date.now();
-    const show = () => {
-      const now = Date.now();
-      if (now - lastShownAt.current < 300) return;
-      lastShownAt.current = now;
-      window.clearTimeout(timer.current);
-      setCycle((current) => current + 1);
-      setVisible(true);
-      timer.current = window.setTimeout(() => setVisible(false), reducedMotion ? 800 : 2520);
-    };
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') show();
-      else {
-        window.clearTimeout(timer.current);
-        setVisible(false);
-      }
-    };
-    const onPageShow = (event: PageTransitionEvent) => {
-      if (event.persisted && document.visibilityState === 'visible') show();
-    };
-
-    timer.current = window.setTimeout(() => setVisible(false), reducedMotion ? 800 : 2520);
-    document.addEventListener('visibilitychange', onVisibilityChange);
-    window.addEventListener('pageshow', onPageShow);
-    return () => {
-      window.clearTimeout(timer.current);
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-      window.removeEventListener('pageshow', onPageShow);
-    };
+    const timer = window.setTimeout(() => setVisible(false), reducedMotion ? 800 : 2520);
+    return () => window.clearTimeout(timer);
   }, []);
 
   if (!visible) return null;
 
   return (
-    <div key={cycle} className="app-opening-animation" role="img" aria-label="Finança Pessoal">
+    <div className="app-opening-animation" role="img" aria-label="Finança Pessoal">
       <svg className="app-opening-logo" viewBox="0 0 768 768" aria-hidden="true">
         <defs>
           <linearGradient id="opening-gold" x1="0" y1="0" x2="1" y2="1">

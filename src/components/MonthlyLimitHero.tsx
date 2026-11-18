@@ -22,12 +22,12 @@ const colors = {
 const copy = {
   'pt-BR': {
     title: 'Pode gastar',
-    remaining: 'da meta',
+    availableLabel: 'disponível',
     predicted: 'Sobra prevista',
     goal: 'Meta financeira',
     noGoal: 'Meta não definida',
-    availableLabel: 'disponível',
     paid: 'contas pagas',
+    paidLabel: 'Contas pagas',
     invoicePaid: 'fatura paga',
     invoicePending: 'fatura pendente',
     allPaid: 'Fatura e contas em dia.',
@@ -38,17 +38,16 @@ const copy = {
     goalOf: 'de',
     shortfall: 'A meta supera a sobra prevista em',
     noGoalMessage: 'Sem meta definida: “Pode gastar” é a sobra prevista. Defina uma meta para reservar esse valor antes de calcular o disponível.',
-    pendingMessage: 'O disponível já desconta a meta e as contas previstas. Marcar contas como pagas atualiza o status, não soma o valor duas vezes.',
     privacy: 'Valor oculto',
   },
   en: {
     title: 'Available to spend',
-    remaining: 'available',
+    availableLabel: 'available',
     predicted: 'Predicted remainder',
     goal: 'Savings goal',
     noGoal: 'No goal set',
-    availableLabel: 'available',
     paid: 'bills paid',
+    paidLabel: 'Bills paid',
     invoicePaid: 'invoice paid',
     invoicePending: 'invoice pending',
     allPaid: 'All bills and card invoices are paid.',
@@ -59,7 +58,6 @@ const copy = {
     goalOf: 'of',
     shortfall: 'The savings goal exceeds the predicted remainder by',
     noGoalMessage: 'No savings goal set: “Available to spend” equals your predicted remainder. Set a goal to reserve that amount before calculating what is available.',
-    pendingMessage: 'Available already subtracts the goal and planned bills. Marking bills paid updates their status; it does not add the amount twice.',
     privacy: 'Amount hidden',
   },
 } as const;
@@ -76,7 +74,7 @@ export function MonthlyLimitHero({
   const { formatMoney, locale } = usePreferences();
   const text = copy[locale];
   const id = useId();
-  const summary = getMonthlyBudgetSummary(predictedRemainderCents, savingsGoalCents, allObligationsPaid);
+  const summary = getMonthlyBudgetSummary(predictedRemainderCents, savingsGoalCents);
   const progress = getSavingsGoalProgress(predictedRemainderCents, savingsGoalCents);
   const milestone = allObligationsPaid ? 1 : 0;
   const previousMilestone = useRef(milestone);
@@ -92,16 +90,14 @@ export function MonthlyLimitHero({
     const timer = window.setTimeout(() => setCelebrating(false), 1200);
     return () => window.clearTimeout(timer);
   }, [milestone]);
-  const status = !allObligationsPaid
-    ? 'over'
-    : savingsGoalCents <= 0
-      ? summary.status
-      : progress.status === 'achieved' ? 'healthy' : progress.status === 'nearly' ? 'caution' : 'over';
+  const status = summary.status;
   const state = colors[status];
   const circumference = 2 * Math.PI * 48;
   const percentage = Math.round(summary.remainingRatio * 100);
+  const paymentPercentage = totalBillCount > 0
+    ? Math.round(Math.max(0, Math.min(paidBillCount / totalBillCount, 1)) * 100)
+    : 100;
   const maskedMoney = hideValues ? '••••' : undefined;
-  const pendingBillCount = Math.max(totalBillCount - paidBillCount, 0);
   const paymentStatus = [
     `${paidBillCount}/${totalBillCount} ${text.paid}`,
     ...(hasCardItems ? [allObligationsPaid ? text.invoicePaid : text.invoicePending] : []),
@@ -109,10 +105,10 @@ export function MonthlyLimitHero({
   const projectedAmountCents = Math.min(progress.projectedSavingsCents, progress.goalCents);
   const projectedGoalMessage = `${progress.status === 'achieved' ? text.achievable : progress.status === 'nearly' ? text.nearly : text.inProgress} ${hideValues ? maskedMoney : formatMoney(centsToAmount(projectedAmountCents))} ${text.goalOf} ${hideValues ? maskedMoney : formatMoney(centsToAmount(progress.goalCents))} (${progress.progressPercent}% ${text.projected.toLowerCase()}).`;
   const message = savingsGoalCents <= 0
-    ? `${text.noGoalMessage} ${paymentStatus}.`
+    ? text.noGoalMessage
     : allObligationsPaid
       ? `${text.allPaid} ${projectedGoalMessage}`
-      : `${paymentStatus}. ${text.pendingMessage}`;
+      : '';
 
   return (
     <section className={`monthly-limit-hero is-${status}${celebrating ? ' is-celebrating' : ''}`} aria-labelledby={`${id}-title`}>
@@ -154,12 +150,28 @@ export function MonthlyLimitHero({
               ? `${text.goal}: ${hideValues ? maskedMoney : formatMoney(centsToAmount(summary.savingsGoalCents))}`
               : text.noGoal}
           </div>
-          {savingsGoalCents > 0 && !allObligationsPaid && (
-            <div className="monthly-limit-context">{pendingBillCount} {locale === 'en' ? 'bills still pending' : 'contas ainda pendentes'}</div>
-          )}
         </div>
       </div>
-      <p className="monthly-limit-message" role="status">{message}</p>
+      {message && <p className="monthly-limit-message" role="status">{message}</p>}
+      <div className="monthly-limit-payment">
+        <div className="monthly-limit-payment-heading">
+          <span>{paymentStatus}</span>
+          <span className={paymentPercentage === 100 ? 'is-complete' : undefined}>{paymentPercentage}%</span>
+        </div>
+        <div
+          className="monthly-limit-payment-track"
+          role="progressbar"
+          aria-label={text.paidLabel}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={paymentPercentage}
+        >
+          <div
+            className={`monthly-limit-payment-fill${paymentPercentage === 100 ? ' is-complete' : ''}`}
+            style={{ width: `${paymentPercentage}%` }}
+          />
+        </div>
+      </div>
     </section>
   );
 }
