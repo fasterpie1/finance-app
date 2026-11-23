@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getCardCharges, getCardTotalWithPendingBillsCents, getMonthPlannedCents, getThirdPartyTotalsCents, getUnimportedCardBills, isOnCreditCardBill, sortInvoiceTransactions } from './cardTransactions';
+import { getCardCharges, getCardTotalWithPendingBillsCents, getMonthPlannedCents, getThirdPartyImpactForPersonCents, getThirdPartyTotalsCents, getUnimportedCardBills, isOnCreditCardBill, sortInvoiceTransactions, splitAmountEqually } from './cardTransactions';
 import type { Bill, CreditCardInvoice, CreditCardTransaction } from '../types';
 
 function tx(overrides: Partial<CreditCardTransaction>): CreditCardTransaction {
@@ -57,6 +57,44 @@ describe('terceiros agrupados por nome', () => {
       tx({ owner: 'SHARED', amountCents: 4000, personalAmountCents: 2000 }),
     ]);
     expect(totals).toEqual([{ name: 'Marcos', cents: 2800 }]);
+  });
+
+  it('rateia igualmente, preservando o total e deixando o centavo residual na minha parte', () => {
+    expect(splitAmountEqually(1000, ['Ana', 'Bia'])).toEqual({
+      personalAmountCents: 334,
+      thirdPartyShares: [{ personName: 'Ana', amountCents: 333 }, { personName: 'Bia', amountCents: 333 }],
+    });
+  });
+
+  it('mantém a soma da fatura distribuída entre mim e todas as pessoas', () => {
+    const invoice: CreditCardInvoice = {
+      id: 'inv', month: 'Outubro', year: 2026,
+      transactions: [tx({
+        amountCents: 1000, owner: 'SHARED', personalAmountCents: 334,
+        thirdPartyShares: [{ personName: 'Ana', amountCents: 333 }, { personName: 'Bia', amountCents: 333 }],
+      })],
+    };
+    const charges = getCardCharges([invoice], []);
+    expect(charges.personalCents).toBe(334);
+    expect(charges.thirdPartyCents).toBe(666);
+    expect(charges.personalCents + charges.thirdPartyCents).toBe(charges.totalCents);
+  });
+
+  it('agrupa vários participantes e desconta estornos por pessoa', () => {
+    const transactions = [
+      tx({
+        owner: 'SHARED', amountCents: 3000, personalAmountCents: 1000,
+        thirdPartyShares: [{ personName: 'Ana', amountCents: 1000 }, { personName: 'Bia', amountCents: 1000 }],
+      }),
+      tx({
+        owner: 'SHARED', type: 'REFUND', amountCents: 900, personalAmountCents: 300,
+        thirdPartyShares: [{ personName: 'Ana', amountCents: 300 }, { personName: 'Bia', amountCents: 300 }],
+      }),
+    ];
+    expect(getThirdPartyTotalsCents(transactions)).toEqual([
+      { name: 'Ana', cents: 700 }, { name: 'Bia', cents: 700 },
+    ]);
+    expect(getThirdPartyImpactForPersonCents(transactions[0], 'ana')).toBe(1000);
   });
 });
 

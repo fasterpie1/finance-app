@@ -16,6 +16,8 @@ export interface ExtractedPurchase {
   owner: ExpenseOwner;
   personalAmountCents?: number;
   thirdPartyName?: string;
+  /** Rascunho de participantes do rateio na revisão da importação. */
+  thirdPartyNames?: string[];
   duplicateMatch?: DuplicateMatch;
   /** O usuário confirmou que é outra compra, apesar de bater com algo já lançado. */
   duplicateConfirmed?: boolean;

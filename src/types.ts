@@ -28,6 +28,11 @@ export type CardPaymentMethod = 'credito' | 'debito_pix';
 export type CardTransactionType = 'PURCHASE' | 'INSTALLMENT' | 'REFUND' | 'PAYMENT' | 'FEE' | 'OTHER';
 export type ExpenseOwner = 'ME' | 'THIRD_PARTY' | 'SHARED' | 'UNCLASSIFIED';
 
+export interface ThirdPartyShare {
+  personName: string;
+  amountCents: number;
+}
+
 export interface CreditCardTransaction {
   id: string;
   invoiceId: string;
@@ -40,6 +45,7 @@ export interface CreditCardTransaction {
   date?: string;
   personalAmountCents?: number;
   thirdPartyName?: string;
+  thirdPartyShares?: ThirdPartyShare[];
   category?: CategoryId;
   installmentCurrent?: number;
   installmentTotal?: number;

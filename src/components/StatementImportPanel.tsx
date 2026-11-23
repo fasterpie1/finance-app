@@ -1,7 +1,7 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { getMonthIndex, type CategoryId } from '../types';
 import { type CreditCardInvoice, type CreditCardTransaction, type ExpenseOwner } from '../types';
-import { describeDuplicateMatch, getTransactionDay, setTransactionDay } from '../services/cardTransactions';
+import { describeDuplicateMatch, getTransactionDay, isValidThirdPartyNames, setTransactionDay, splitAmountEqually } from '../services/cardTransactions';
 import {
   type ExpenseMethod,
   type ExtractedPurchase,
@@ -17,6 +17,7 @@ import { readUserStorage, writeUserStorage } from '../services/userStorage';
 import { CardSelect } from './CardSelect';
 import { CategorySelect } from './CategorySelect';
 import { usePreferences } from '../i18n';
+import { SharedSplitEditor } from './SharedSplitEditor';
 
 /** Gasto de extrato de conta (Pix/débito) confirmado na revisão; vira conta, não fatura. */
 export interface ImportedExpense {
@@ -62,7 +63,7 @@ const MAX_FILE_SIZE_MB = 20;
 const AI_LIMIT_ERROR = /request too large|output tokens per minute|otpm|rate limit|tokens per minute|try again in|upgrade to dev tier|service tier/i;
 
 export const StatementImportPanel = forwardRef<StatementImportPanelHandle, Props>(({ onImport, onImportExpenses, onLaunched, userId, month, year, existingTransactions, paymentCards }, ref) => {
-  const { formatMoney, parseAmount, t } = usePreferences();
+  const { locale, formatMoney, parseAmount, t } = usePreferences();
   const fileRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -73,7 +74,6 @@ export const StatementImportPanel = forwardRef<StatementImportPanelHandle, Props
   const [cardId, setCardId] = useState(() => paymentCards[0]?.id ?? '');
   const [items, setItems] = useState<ExtractedPurchase[]>([]);
   const [amountDrafts, setAmountDrafts] = useState<Record<string, string>>({});
-  const [personalAmountDrafts, setPersonalAmountDrafts] = useState<Record<string, string>>({});
   const [statementTotalCents, setStatementTotalCents] = useState<number | undefined>();
   // O cartão é escolhido antes de subir, e nasce aqui mesmo: a fatura que vem dele é desta conta.
   const selectedCard = findPaymentCard(cardId, paymentCards);
@@ -103,7 +103,6 @@ export const StatementImportPanel = forwardRef<StatementImportPanelHandle, Props
     setLoading(true);
     setItems([]);
     setAmountDrafts({});
-    setPersonalAmountDrafts({});
     setIncomplete(false);
     setKind('fatura');
     setStatementTotalCents(undefined);
@@ -152,7 +151,6 @@ export const StatementImportPanel = forwardRef<StatementImportPanelHandle, Props
   const clearReview = () => {
     setItems([]);
     setAmountDrafts({});
-    setPersonalAmountDrafts({});
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(null);
     setPreviewKind(null);
@@ -165,6 +163,13 @@ export const StatementImportPanel = forwardRef<StatementImportPanelHandle, Props
     if (chosen.length === 0) {
       // Antes isso era um return mudo: nada era lançado e nenhuma explicação aparecia na tela.
       setError(t('importNothingSelected'));
+      return;
+    }
+    if (!isExpenseMode && chosen.some((item) => item.owner === 'SHARED'
+      && !isValidThirdPartyNames(item.thirdPartyNames ?? (item.thirdPartyName ? [item.thirdPartyName] : [])))) {
+      setError(locale === 'en'
+        ? 'Add a distinct name for each person in every shared purchase.'
+        : 'Informe um nome diferente para cada pessoa em todas as compras compartilhadas.');
       return;
     }
     if (isExpenseMode) {
@@ -183,22 +188,31 @@ export const StatementImportPanel = forwardRef<StatementImportPanelHandle, Props
     const invoiceId = makeId();
     // O id da linha da prévia vira o id do lançamento: é assim que o "é outra compra" chega
     // até a gravação, que precisa saber quais linhas podem passar da comparação com o mês.
-    const transactions: CreditCardTransaction[] = chosen.map((i) => ({
-      id: i.id,
-      invoiceId: '',
-      merchant: i.name.trim(),
-      amountCents: Math.round(i.amount * 100),
-      type: i.type,
-      owner: i.owner,
-      personalAmountCents: i.owner === 'SHARED' ? Math.min(Math.round(i.amount * 100), Math.max(0, i.personalAmountCents ?? 0)) : undefined,
-      thirdPartyName: i.owner === 'THIRD_PARTY' || i.owner === 'SHARED' ? i.thirdPartyName?.trim() || undefined : undefined,
-      cardLast4: i.cardLast4,
-      date: setTransactionDay(i.date, getTransactionDay(i.date), getMonthIndex(month)),
-      category: i.category,
-      installmentCurrent: Math.max(1, Math.min(i.installmentCurrent, i.installmentTotal)),
-      installmentTotal: Math.max(i.installmentCurrent, i.installmentTotal),
-      source: 'IMPORT',
-    }));
+    const transactions: CreditCardTransaction[] = chosen.map((i) => {
+      const amountCents = Math.round(i.amount * 100);
+      const allocation = i.owner === 'SHARED'
+        ? splitAmountEqually(amountCents, i.thirdPartyNames ?? (i.thirdPartyName ? [i.thirdPartyName] : []))
+        : undefined;
+      return {
+        id: i.id,
+        invoiceId: '',
+        merchant: i.name.trim(),
+        amountCents,
+        type: i.type,
+        owner: i.owner,
+        personalAmountCents: allocation?.personalAmountCents,
+        thirdPartyShares: allocation?.thirdPartyShares,
+        thirdPartyName: i.owner === 'THIRD_PARTY'
+          ? i.thirdPartyName?.trim() || undefined
+          : allocation?.thirdPartyShares[0]?.personName,
+        cardLast4: i.cardLast4,
+        date: setTransactionDay(i.date, getTransactionDay(i.date), getMonthIndex(month)),
+        category: i.category,
+        installmentCurrent: Math.max(1, Math.min(i.installmentCurrent, i.installmentTotal)),
+        installmentTotal: Math.max(i.installmentCurrent, i.installmentTotal),
+        source: 'IMPORT',
+      };
+    });
     onImport(
       {
         id: invoiceId, month, year, statementTotalCents,
@@ -428,10 +442,18 @@ export const StatementImportPanel = forwardRef<StatementImportPanelHandle, Props
                     )}
                     {!isExpenseMode && (
                     <>
-                    <div style={{ display: 'grid', gridTemplateColumns: item.owner === 'SHARED' || item.owner === 'THIRD_PARTY' ? '1fr 1fr' : '1fr', gap: 6, marginTop: 8 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: item.owner === 'THIRD_PARTY' ? '1fr 1fr' : '1fr', gap: 6, marginTop: 8 }}>
                       <div>
                         <div className="import-field-label" style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('responsibility')}</div>
-                        <select style={fieldStyle} value={item.owner} onChange={(e) => updateItem(item.id, { owner: e.target.value as ExpenseOwner })}>
+                        <select style={fieldStyle} value={item.owner} onChange={(e) => {
+                          const owner = e.target.value as ExpenseOwner;
+                          updateItem(item.id, {
+                            owner,
+                            thirdPartyNames: owner === 'SHARED'
+                              ? item.thirdPartyNames ?? (item.thirdPartyName ? [item.thirdPartyName] : [''])
+                              : undefined,
+                          });
+                        }}>
                           <option value="ME">{t('me')}</option>
                           <option value="THIRD_PARTY">{t('thirdParty')}</option>
                           <option value="SHARED">{t('shared')}</option>
@@ -443,33 +465,14 @@ export const StatementImportPanel = forwardRef<StatementImportPanelHandle, Props
                           <input style={fieldStyle} value={item.thirdPartyName ?? ''} onChange={(e) => updateItem(item.id, { thirdPartyName: e.target.value })} placeholder={t('optionalName')} />
                         </div>
                       )}
-                      {item.owner === 'SHARED' && (
-                        <div>
-                          <div className="import-field-label" style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('myShare')}</div>
-                          <input
-                            style={fieldStyle}
-                            type="text"
-                            inputMode="decimal"
-                            value={personalAmountDrafts[item.id] ?? (item.personalAmountCents == null ? '' : (item.personalAmountCents / 100).toFixed(2).replace('.', ','))}
-                            onChange={(e) => {
-                              const value = e.target.value;
-                              setPersonalAmountDrafts((prev) => ({ ...prev, [item.id]: value }));
-                              updateItem(item.id, { personalAmountCents: Math.round(parseAmount(value) * 100) });
-                            }}
-                            onBlur={() => setPersonalAmountDrafts((prev) => {
-                              const next = { ...prev };
-                              delete next[item.id];
-                              return next;
-                            })}
-                            placeholder="0,00"
-                          />
-                        </div>
-                      )}
                     </div>
                     {item.owner === 'SHARED' && (
-                      <div style={{ marginTop: 6 }}>
-                        <div className="import-field-label" style={{ fontSize: 9, color: '#8b8b8b', marginBottom: 2 }}>{t('whoPaysRest')}</div>
-                        <input style={fieldStyle} value={item.thirdPartyName ?? ''} onChange={(e) => updateItem(item.id, { thirdPartyName: e.target.value })} placeholder={t('personNamePlaceholder')} />
+                      <div style={{ marginTop: 8 }}>
+                        <SharedSplitEditor
+                          totalCents={Math.round(item.amount * 100)}
+                          names={item.thirdPartyNames ?? (item.thirdPartyName ? [item.thirdPartyName] : [''])}
+                          onChange={(thirdPartyNames) => updateItem(item.id, { thirdPartyNames })}
+                        />
                       </div>
                     )}
                     </>

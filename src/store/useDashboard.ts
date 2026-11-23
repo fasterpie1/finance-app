@@ -146,6 +146,7 @@ export interface OpenFinanceInvoiceInput {
   owner: CreditCardTransaction['owner'];
   personalAmountCents?: number;
   thirdPartyName?: string;
+  thirdPartyShares?: CreditCardTransaction['thirdPartyShares'];
 }
 
 export interface BillNotification {
@@ -290,6 +291,7 @@ export interface CreditCardPurchase {
   owner?: 'ME' | 'THIRD_PARTY' | 'SHARED' | 'UNCLASSIFIED';
   personalAmountCents?: number;
   thirdPartyName?: string;
+  thirdPartyShares?: CreditCardTransaction['thirdPartyShares'];
   /** Cartão que vai cobrar esta compra. Sem ele, a compra entra no grupo "sem cartão". */
   cardId?: string;
   cardLabel?: string;
@@ -794,7 +796,7 @@ export function useDashboard(userId: string | null = null) {
       const transaction: CreditCardTransaction = {
         id: uuid(), invoiceId, merchant: purchase.name, amountCents: Math.round(purchase.amount * 100),
         type: purchase.installmentTotal > 1 ? 'INSTALLMENT' : 'PURCHASE',
-        owner: purchase.owner ?? 'ME', personalAmountCents: purchase.personalAmountCents, thirdPartyName: purchase.thirdPartyName,
+        owner: purchase.owner ?? 'ME', personalAmountCents: purchase.personalAmountCents, thirdPartyName: purchase.thirdPartyName, thirdPartyShares: purchase.thirdPartyShares,
         category: purchase.category, installmentCurrent: installmentNum, date: purchaseDate,
         installmentTotal: purchase.installmentTotal, source: 'MANUAL',
       };
@@ -863,6 +865,7 @@ export function useDashboard(userId: string | null = null) {
       category: input.category,
       personalAmountCents: input.personalAmountCents,
       thirdPartyName: input.thirdPartyName,
+      thirdPartyShares: input.thirdPartyShares,
       installmentCurrent: input.transaction.installmentCurrent,
       installmentTotal: input.transaction.installmentTotal,
       source: 'OPEN_FINANCE',
@@ -1129,7 +1132,7 @@ export function useDashboard(userId: string | null = null) {
   /** Corrigir categoria e dono de lançamentos já importados, sem tocar nas demais linhas. */
   const patchCreditCardTransactions = useCallback((
     transactionIds: string[],
-    patch: Partial<Pick<CreditCardTransaction, 'category' | 'owner' | 'thirdPartyName' | 'personalAmountCents'>>,
+    patch: Partial<Pick<CreditCardTransaction, 'category' | 'owner' | 'thirdPartyName' | 'personalAmountCents' | 'thirdPartyShares'>>,
   ) => {
     const only = new Set(transactionIds);
     if (only.size === 0) return;

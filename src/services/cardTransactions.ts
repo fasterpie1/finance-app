@@ -1,4 +1,4 @@
-import type { Bill, CreditCardInvoice, CreditCardTransaction, ExpenseOwner } from '../types';
+import type { Bill, CreditCardInvoice, CreditCardTransaction, ExpenseOwner, ThirdPartyShare } from '../types';
 import type { DuplicateField, DuplicateMatch } from './transactionDuplicates';
 
 /** A tela tem que dizer com qual lançamento a linha bate, não só avisar "possível duplicado". */
@@ -28,6 +28,28 @@ export function amountToCents(amount: number): number {
   return Math.round(amount * 100);
 }
 
+export function isValidThirdPartyNames(names: string[]): boolean {
+  if (names.length === 0) return false;
+  const cleaned = names.map((name) => name.trim());
+  return cleaned.every((name) => name.length > 0 && name.length <= 120)
+    && new Set(cleaned.map((name) => name.toLocaleLowerCase())).size === cleaned.length;
+}
+
+/** Rateio igual em centavos; qualquer sobra fica na parte do titular do cartão. */
+export function splitAmountEqually(totalCents: number, names: string[]): {
+  personalAmountCents: number;
+  thirdPartyShares: ThirdPartyShare[];
+} {
+  const people = names.map((name) => name.trim()).filter(Boolean);
+  const participantCount = people.length + 1;
+  const shareCents = Math.floor(Math.max(0, totalCents) / participantCount);
+  const remainderCents = Math.max(0, totalCents) % participantCount;
+  return {
+    personalAmountCents: shareCents + remainderCents,
+    thirdPartyShares: people.map((personName) => ({ personName, amountCents: shareCents })),
+  };
+}
+
 export function getPersonalImpactCents(transaction: CreditCardTransaction): number {
   if (transaction.type === 'PAYMENT') return 0;
 
@@ -41,10 +63,43 @@ export function getPersonalImpactCents(transaction: CreditCardTransaction): numb
  *  da minha parte; sem isso a compra dividida não pertenceria a ninguém na quebra da fatura. */
 export function getThirdPartyImpactCents(transaction: CreditCardTransaction): number {
   if (transaction.type === 'PAYMENT') return 0;
+  if (transaction.owner !== 'THIRD_PARTY' && transaction.owner !== 'SHARED') return 0;
   const sign = transaction.type === 'REFUND' ? -1 : 1;
+  if (transaction.thirdPartyShares) {
+    return sign * getThirdPartyShares(transaction).reduce((total, share) => total + share.amountCents, 0);
+  }
   if (transaction.owner === 'THIRD_PARTY') return sign * transaction.amountCents;
   if (transaction.owner === 'SHARED') return sign * Math.max(0, transaction.amountCents - (transaction.personalAmountCents ?? 0));
   return 0;
+}
+
+/** Alocações nominadas de um lançamento, com fallback para os registros antigos de uma pessoa. */
+export function getThirdPartyShares(transaction: CreditCardTransaction): ThirdPartyShare[] {
+  if (transaction.owner !== 'THIRD_PARTY' && transaction.owner !== 'SHARED') return [];
+  if (transaction.thirdPartyShares) {
+    return transaction.thirdPartyShares.filter((share) => (
+      typeof share.personName === 'string'
+      && share.personName.trim().length > 0
+      && Number.isSafeInteger(share.amountCents)
+      && share.amountCents > 0
+    )).map((share) => ({ ...share, personName: share.personName.trim() }));
+  }
+  const personName = transaction.thirdPartyName?.trim();
+  if (!personName) return [];
+  const amountCents = transaction.owner === 'THIRD_PARTY'
+    ? transaction.amountCents
+    : Math.max(0, transaction.amountCents - (transaction.personalAmountCents ?? 0));
+  return amountCents > 0 ? [{ personName, amountCents }] : [];
+}
+
+export function getThirdPartyImpactForPersonCents(transaction: CreditCardTransaction, personName: string): number {
+  if (transaction.type === 'PAYMENT') return 0;
+  const key = personName.trim().toLocaleLowerCase();
+  if (!key) return 0;
+  const sign = transaction.type === 'REFUND' ? -1 : 1;
+  return sign * getThirdPartyShares(transaction)
+    .filter((share) => share.personName.toLocaleLowerCase() === key)
+    .reduce((total, share) => total + share.amountCents, 0);
 }
 
 /** O bruto do lançamento na fatura — o que o banco cobra, sem separar quem paga. Serve para a
@@ -179,15 +234,15 @@ export function getOwnerLabel(owner: ExpenseOwner): string {
 export function getThirdPartyTotalsCents(transactions: CreditCardTransaction[]): Array<{ name: string; cents: number }> {
   const totals = new Map<string, { name: string; cents: number }>();
   transactions.forEach((transaction) => {
-    if (transaction.owner !== 'THIRD_PARTY' && transaction.owner !== 'SHARED') return;
-    const name = transaction.thirdPartyName?.trim();
-    if (!name) return;
-    const cents = getThirdPartyImpactCents(transaction);
-    if (cents === 0) return;
-    const key = name.toLowerCase();
-    const group = totals.get(key) ?? { name, cents: 0 };
-    group.cents += cents;
-    totals.set(key, group);
+    if (transaction.type === 'PAYMENT') return;
+    getThirdPartyShares(transaction).forEach(({ personName, amountCents }) => {
+      const cents = (transaction.type === 'REFUND' ? -1 : 1) * amountCents;
+      if (cents === 0) return;
+      const key = personName.toLocaleLowerCase();
+      const group = totals.get(key) ?? { name: personName, cents: 0 };
+      group.cents += cents;
+      totals.set(key, group);
+    });
   });
   return [...totals.values()].sort((a, b) => b.cents - a.cents);
 }

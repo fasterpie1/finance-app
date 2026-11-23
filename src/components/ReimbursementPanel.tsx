@@ -3,9 +3,11 @@ import type { CreditCardTransaction, ReimbursementReceipt } from '../types';
 import { usePreferences } from '../i18n';
 import { centsToAmount } from '../services/cardTransactions';
 import { getReimbursementBalances, isValidReimbursementDate } from '../services/reimbursements';
+import { createReimbursementPng, getReimbursementImageSummary } from '../services/reimbursementImage';
 
 export interface ReimbursementPanelProps {
   personName: string;
+  periodLabel?: string;
   /** All transactions of the selected month, not just the visible card/filter. */
   transactions: CreditCardTransaction[];
   receipts: ReimbursementReceipt[];
@@ -24,6 +26,11 @@ const copy = {
     amountRequired: 'Informe o valor recebido.', amountInvalid: 'Informe um valor positivo, com no máximo duas casas decimais.',
     overpayment: 'O valor não pode superar o saldo em aberto.', dateInvalid: 'Informe uma data válida no formato AAAA-MM-DD.',
     nameInvalid: 'O nome da pessoa deve ter entre 1 e 120 caracteres.',
+    shareImage: 'Compartilhar imagem', downloadImage: 'Baixar PNG',
+    imageUnavailable: 'Seu navegador não oferece compartilhamento de arquivos; a imagem foi baixada.',
+    imageError: 'Não foi possível gerar a imagem.',
+    imagePrivacy: 'Desative “ocultar valores” para gerar uma imagem com os valores visíveis.',
+    noImageItems: 'Não há lançamentos desta pessoa para incluir na imagem.',
   },
   en: {
     title: 'Reimbursements', owed: 'To receive', received: 'Received', remaining: 'Remaining',
@@ -34,6 +41,11 @@ const copy = {
     amountRequired: 'Enter the amount received.', amountInvalid: 'Enter a positive amount with at most two decimal places.',
     overpayment: 'The amount cannot exceed the outstanding balance.', dateInvalid: 'Enter a real date in YYYY-MM-DD format.',
     nameInvalid: 'The person’s name must contain 1 to 120 characters.',
+    shareImage: 'Share image', downloadImage: 'Download PNG',
+    imageUnavailable: 'File sharing is not available in this browser; the image was downloaded.',
+    imageError: 'Could not generate the image.',
+    imagePrivacy: 'Turn off “hide values” to generate an image with visible amounts.',
+    noImageItems: 'There are no transactions for this person to include in the image.',
   },
 };
 
@@ -62,7 +74,7 @@ export function ReimbursementPanel(props: ReimbursementPanelProps) {
   return <PersonReimbursementPanel key={name.toLowerCase()} {...props} personName={name} />;
 }
 
-function PersonReimbursementPanel({ personName, transactions, receipts, hideValues, onAdd, onRemove }: ReimbursementPanelProps) {
+function PersonReimbursementPanel({ personName, periodLabel, transactions, receipts, hideValues, onAdd, onRemove }: ReimbursementPanelProps) {
   const { locale, t, formatMoney, parseAmount } = usePreferences();
   const text = copy[locale];
   const id = useId();
@@ -70,12 +82,21 @@ function PersonReimbursementPanel({ personName, transactions, receipts, hideValu
   const [historyOpen, setHistoryOpen] = useState(false);
   const [amountDraft, setAmountDraft] = useState('');
   const [dateDraft, setDateDraft] = useState(todayLocal);
+  const [imageBusy, setImageBusy] = useState(false);
+  const [imageError, setImageError] = useState('');
+  const [imageNotice, setImageNotice] = useState('');
   const key = personName.toLowerCase();
   const balance = getReimbursementBalances(transactions, receipts).find((group) => group.name.toLowerCase() === key);
   const owedCents = balance?.owedCents ?? 0;
   const receivedCents = balance?.receivedCents ?? 0;
   const remainingCents = balance?.remainingCents ?? 0;
   const creditCents = balance?.creditCents ?? 0;
+  const imageSummary = getReimbursementImageSummary(
+    personName,
+    periodLabel ?? (locale === 'en' ? 'Selected month' : 'Mês selecionado'),
+    transactions,
+    receipts,
+  );
   const personReceipts = receipts.filter((receipt) => receipt.personName.trim().toLowerCase() === key)
     .toReversed().sort((a, b) => b.date.localeCompare(a.date));
   const money = (cents: number) => hideValues ? '••••' : formatMoney(centsToAmount(cents));
@@ -94,6 +115,51 @@ function PersonReimbursementPanel({ personName, transactions, receipts, hideValu
   const dateError = isValidReimbursementDate(dateDraft) ? '' : text.dateInvalid;
   const nameError = personName.length > 120 ? text.nameInvalid : '';
   const canSave = !amountError && !dateError && !nameError;
+  const imageText = text;
+
+  const saveImage = (blob: Blob) => {
+    const safeName = personName.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'pessoa';
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `cobranca-${safeName}.png`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const handleImage = async (action: 'share' | 'download') => {
+    setImageBusy(true);
+    setImageError('');
+    setImageNotice('');
+    try {
+      const blob = await createReimbursementPng(imageSummary, locale);
+      const safeName = personName.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'pessoa';
+      if (action === 'share') {
+        const file = new File([blob], `cobranca-${safeName}.png`, { type: 'image/png' });
+        if (typeof navigator.share === 'function' && navigator.canShare?.({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: locale === 'en' ? `Card bill — ${personName}` : `Fatura — ${personName}`,
+            text: locale === 'en' ? 'Here is your share of the card bill.' : 'Aqui está sua parte da fatura do cartão.',
+          });
+        } else {
+          saveImage(blob);
+          setImageNotice(imageText.imageUnavailable);
+        }
+      } else {
+        saveImage(blob);
+      }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+      setImageError(error instanceof Error ? error.message : imageText.imageError);
+    } finally {
+      setImageBusy(false);
+    }
+  };
 
   const closeForm = () => {
     setAmountDraft('');
@@ -136,7 +202,21 @@ function PersonReimbursementPanel({ personName, transactions, receipts, hideValu
           aria-expanded={historyOpen} aria-controls={`${id}-history`} onClick={() => setHistoryOpen((open) => !open)}>
           {text.history}
         </button>
+        <button type="button" className="spending-button spending-button-secondary" style={buttonStyle}
+          disabled={hideValues || imageBusy || imageSummary.items.length === 0}
+          onClick={() => void handleImage('share')}>
+          {imageBusy ? '…' : text.shareImage}
+        </button>
+        <button type="button" className="spending-button spending-button-secondary" style={buttonStyle}
+          disabled={hideValues || imageBusy || imageSummary.items.length === 0}
+          onClick={() => void handleImage('download')}>
+          {imageBusy ? '…' : text.downloadImage}
+        </button>
       </div>
+      {hideValues && <p className="spending-muted" style={{ margin: 0, color: 'var(--spending-muted)', fontSize: 12 }}>{text.imagePrivacy}</p>}
+      {!hideValues && imageSummary.items.length === 0 && <p className="spending-muted" style={{ margin: 0, color: 'var(--spending-muted)', fontSize: 12 }}>{text.noImageItems}</p>}
+      {imageNotice && <p role="status" style={{ margin: 0, color: 'var(--spending-muted)', fontSize: 12 }}>{imageNotice}</p>}
+      {imageError && <p role="alert" style={{ margin: 0, color: 'var(--spending-negative)', fontSize: 12 }}>{imageError}</p>}
       <div id={`${id}-form`} hidden={!formOpen}>
       {formOpen && (
         <form className="spending-form" noValidate aria-label={text.register}

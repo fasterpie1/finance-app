@@ -1,13 +1,14 @@
 import React, { useMemo, useState } from 'react';
-import { type CategoryId, type CreditCardTransaction, type ExpenseOwner, MONTH_NAMES } from '../types';
+import { type CategoryId, type CreditCardTransaction, type ExpenseOwner, type ThirdPartyShare, MONTH_NAMES } from '../types';
 import { type PendingPluggyTransaction } from '../services/pluggy';
 import { findDuplicateTransaction } from '../services/transactionDuplicates';
-import { describeDuplicateMatch } from '../services/cardTransactions';
+import { describeDuplicateMatch, isValidThirdPartyNames, splitAmountEqually } from '../services/cardTransactions';
 import { type PaymentCard } from '../services/paymentCards';
 import { useModalA11y } from '../hooks/useModalA11y';
 import { usePreferences } from '../i18n';
 import { CardSelect } from './CardSelect';
 import { CategorySelect } from './CategorySelect';
+import { SharedSplitEditor } from './SharedSplitEditor';
 
 export interface PluggyTransactionReview {
   outcome: 'imported' | 'duplicate' | 'dismissed';
@@ -15,6 +16,7 @@ export interface PluggyTransactionReview {
   owner: ExpenseOwner;
   personalAmountCents?: number;
   thirdPartyName?: string;
+  thirdPartyShares?: ThirdPartyShare[];
   cardId?: string;
 }
 
@@ -108,13 +110,13 @@ export const PluggyReviewQueue: React.FC<Props> = ({
   hideValues,
   onReview,
 }) => {
-  const { locale, formatMoney, parseAmount, t } = usePreferences();
+  const { locale, formatMoney, t } = usePreferences();
   const text = copy[locale];
   const [open, setOpen] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [category, setCategory] = useState<CategoryId>('compras');
   const [owner, setOwner] = useState<ExpenseOwner>('ME');
-  const [personalAmount, setPersonalAmount] = useState('');
+  const [thirdPartyNames, setThirdPartyNames] = useState<string[]>(['']);
   const [thirdPartyName, setThirdPartyName] = useState('');
   const [cardId, setCardId] = useState('');
   const [working, setWorking] = useState(false);
@@ -126,7 +128,7 @@ export const PluggyReviewQueue: React.FC<Props> = ({
   const resetReview = (transaction: PendingPluggyTransaction) => {
     setCategory('compras');
     setOwner('ME');
-    setPersonalAmount('');
+    setThirdPartyNames(['']);
     setThirdPartyName('');
     setCardId(initialCardId(transaction, paymentCards));
     setErrorMessage('');
@@ -150,18 +152,27 @@ export const PluggyReviewQueue: React.FC<Props> = ({
       setErrorMessage(text.noCard);
       return;
     }
+    if (outcome === 'imported' && owner === 'SHARED' && !isValidThirdPartyNames(thirdPartyNames)) {
+      setErrorMessage(locale === 'en'
+        ? 'Add a distinct name for each person in the shared purchase.'
+        : 'Informe um nome diferente para cada pessoa na compra compartilhada.');
+      return;
+    }
     setWorking(true);
     setErrorMessage('');
     try {
-      const personalAmountCents = owner === 'SHARED'
-        ? Math.min(activeTransaction.amountCents, Math.max(0, Math.round(parseAmount(personalAmount) * 100)))
+      const allocation = owner === 'SHARED'
+        ? splitAmountEqually(activeTransaction.amountCents, thirdPartyNames)
         : undefined;
       await onReview(activeTransaction, {
         outcome,
         category,
         owner,
-        personalAmountCents,
-        thirdPartyName: thirdPartyName.trim() || undefined,
+        personalAmountCents: allocation?.personalAmountCents,
+        thirdPartyShares: allocation?.thirdPartyShares,
+        thirdPartyName: owner === 'THIRD_PARTY'
+          ? thirdPartyName.trim() || undefined
+          : allocation?.thirdPartyShares[0]?.personName,
         cardId: cardId || undefined,
       });
       const nextTransaction = transactions.find((transaction) => (
@@ -259,21 +270,9 @@ export const PluggyReviewQueue: React.FC<Props> = ({
                 </label>
               )}
               {owner === 'SHARED' && (
-                <>
-                  <label style={{ color: '#aaa', fontSize: 11 }}>
-                    {text.sharedAmount}
-                    <input
-                      inputMode="decimal"
-                      value={personalAmount}
-                      onChange={(event) => setPersonalAmount(event.target.value.replace(/[^0-9.,]/g, ''))}
-                      style={{ ...fieldStyle, marginTop: 5 }}
-                    />
-                  </label>
-                  <label style={{ color: '#aaa', fontSize: 11 }}>
-                    {text.thirdPartyName}
-                    <input value={thirdPartyName} onChange={(event) => setThirdPartyName(event.target.value)} style={{ ...fieldStyle, marginTop: 5 }} />
-                  </label>
-                </>
+                <div style={{ gridColumn: '1 / -1', marginTop: 2 }}>
+                  <SharedSplitEditor totalCents={activeTransaction.amountCents} names={thirdPartyNames} onChange={setThirdPartyNames} />
+                </div>
               )}
             </div>
 

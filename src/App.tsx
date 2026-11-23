@@ -318,6 +318,7 @@ function App({ userId, email, signOut }: { userId: string | null; email: string 
       owner: review.owner,
       personalAmountCents: review.personalAmountCents,
       thirdPartyName: review.thirdPartyName,
+      thirdPartyShares: review.thirdPartyShares,
     });
     await markReviewed(transaction.providerTransactionId, 'imported');
     selectMonth(targetMonthId);
